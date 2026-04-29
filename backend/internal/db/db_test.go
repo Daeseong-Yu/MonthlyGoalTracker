@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"gorm.io/gorm"
 )
 
@@ -37,6 +38,14 @@ func TestConnectRequiresDatabaseURL(t *testing.T) {
 				t.Fatalf("expected ErrDatabaseURLRequired, got %v", err)
 			}
 		})
+	}
+}
+
+func TestMigrateRequiresDatabase(t *testing.T) {
+	err := Migrate(nil)
+
+	if !errors.Is(err, ErrDatabaseRequired) {
+		t.Fatalf("expected ErrDatabaseRequired, got %v", err)
 	}
 }
 
@@ -112,4 +121,105 @@ func TestConnectIntegration(t *testing.T) {
 			t.Fatalf("failed to close database connection: %v", err)
 		}
 	})
+
+	if err := Migrate(database); err != nil {
+		t.Fatalf("expected migration to succeed, got %v", err)
+	}
+
+	assertMigratedConstraints(t, database)
+}
+
+func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	baseDate := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC).
+		AddDate(0, 0, int(time.Now().Unix()%10000))
+
+	cleanupIntegrationRows(t, database, baseDate)
+	t.Cleanup(func() {
+		cleanupIntegrationRows(t, database, baseDate)
+	})
+
+	memo := domain.DailyMemo{
+		Date: baseDate,
+		Memo: "integration memo",
+	}
+	if err := database.Create(&memo).Error; err != nil {
+		t.Fatalf("expected first memo insert to succeed, got %v", err)
+	}
+
+	duplicateMemo := domain.DailyMemo{
+		Date: baseDate,
+		Memo: "integration duplicate memo",
+	}
+	if err := database.Create(&duplicateMemo).Error; err == nil {
+		t.Fatal("expected duplicate memo date to fail")
+	}
+
+	goal := domain.Goal{
+		Title:     "integration constraint goal",
+		StartDate: baseDate,
+		EndDate:   nil,
+	}
+	if err := database.Create(&goal).Error; err != nil {
+		t.Fatalf("expected open-ended goal insert to succeed, got %v", err)
+	}
+
+	invalidEndDate := baseDate
+	invalidGoal := domain.Goal{
+		Title:     "integration invalid date range goal",
+		StartDate: baseDate.AddDate(0, 0, 1),
+		EndDate:   &invalidEndDate,
+	}
+	if err := database.Create(&invalidGoal).Error; err == nil {
+		t.Fatal("expected invalid goal date range to fail")
+	}
+
+	check := domain.GoalCheck{
+		GoalID: goal.ID,
+		Date:   baseDate,
+	}
+	if err := database.Create(&check).Error; err != nil {
+		t.Fatalf("expected first goal check insert to succeed, got %v", err)
+	}
+
+	duplicateCheck := domain.GoalCheck{
+		GoalID: goal.ID,
+		Date:   baseDate,
+	}
+	if err := database.Create(&duplicateCheck).Error; err == nil {
+		t.Fatal("expected duplicate goal check to fail")
+	}
+
+	orphanCheck := domain.GoalCheck{
+		GoalID: goal.ID + 1000000,
+		Date:   baseDate.AddDate(0, 0, 1),
+	}
+	if err := database.Create(&orphanCheck).Error; err == nil {
+		t.Fatal("expected orphan goal check to fail")
+	}
+}
+
+func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time) {
+	t.Helper()
+
+	dates := []time.Time{
+		baseDate,
+		baseDate.AddDate(0, 0, 1),
+	}
+
+	if err := database.Where("date IN ?", dates).Delete(&domain.GoalCheck{}).Error; err != nil {
+		t.Fatalf("failed to clean goal checks: %v", err)
+	}
+
+	if err := database.Where("date IN ?", dates).Delete(&domain.DailyMemo{}).Error; err != nil {
+		t.Fatalf("failed to clean daily memos: %v", err)
+	}
+
+	if err := database.Where("title IN ?", []string{
+		"integration constraint goal",
+		"integration invalid date range goal",
+	}).Delete(&domain.Goal{}).Error; err != nil {
+		t.Fatalf("failed to clean goals: %v", err)
+	}
 }

@@ -5,11 +5,15 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-var ErrDatabaseURLRequired = errors.New("database URL is required")
+var (
+	ErrDatabaseURLRequired = errors.New("database URL is required")
+	ErrDatabaseRequired    = errors.New("database is required")
+)
 
 func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 	if strings.TrimSpace(databaseURL) == "" {
@@ -34,4 +38,16 @@ func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 	}
 
 	return database, nil
+}
+
+func Migrate(database *gorm.DB) error {
+	if database == nil {
+		return ErrDatabaseRequired
+	}
+
+	return database.AutoMigrate(
+		&domain.Goal{},
+		&domain.DailyMemo{},
+		&domain.GoalCheck{},
+	)
 }
