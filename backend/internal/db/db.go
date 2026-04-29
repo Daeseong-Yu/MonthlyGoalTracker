@@ -40,12 +40,12 @@ func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 	return database, nil
 }
 
-func Migrate(database *gorm.DB) error {
+func Migrate(ctx context.Context, database *gorm.DB) error {
 	if database == nil {
 		return ErrDatabaseRequired
 	}
 
-	return database.AutoMigrate(
+	return database.WithContext(ctx).AutoMigrate(
 		&domain.Goal{},
 		&domain.DailyMemo{},
 		&domain.GoalCheck{},

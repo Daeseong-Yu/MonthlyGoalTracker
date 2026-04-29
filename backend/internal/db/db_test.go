@@ -42,7 +42,7 @@ func TestConnectRequiresDatabaseURL(t *testing.T) {
 }
 
 func TestMigrateRequiresDatabase(t *testing.T) {
-	err := Migrate(nil)
+	err := Migrate(context.Background(), nil)
 
 	if !errors.Is(err, ErrDatabaseRequired) {
 		t.Fatalf("expected ErrDatabaseRequired, got %v", err)
@@ -122,7 +122,7 @@ func TestConnectIntegration(t *testing.T) {
 		}
 	})
 
-	if err := Migrate(database); err != nil {
+	if err := Migrate(ctx, database); err != nil {
 		t.Fatalf("expected migration to succeed, got %v", err)
 	}
 
