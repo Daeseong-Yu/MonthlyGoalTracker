@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 )
 
 var (
-	ErrInvalidMonth            = errors.New("invalid month")
 	ErrEmptyTitle              = errors.New("empty title")
 	ErrStartDateOutsideMonth   = errors.New("start date outside month")
 	ErrInvalidEndDate          = errors.New("invalid end date")
@@ -106,18 +104,6 @@ func (s *GoalService) ListGoalsForMonth(ctx context.Context, month string) ([]do
 	return s.repo.ListOverlappingDateRange(ctx, monthStart, monthEnd)
 }
 
-func parseMonthRange(month string) (time.Time, time.Time, error) {
-	parsedMonth, err := time.Parse("2006-01", month)
-	if err != nil || parsedMonth.Format("2006-01") != month {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w: %q", ErrInvalidMonth, month)
-	}
-
-	monthStart := time.Date(parsedMonth.Year(), parsedMonth.Month(), 1, 0, 0, 0, 0, time.UTC)
-	monthEnd := monthStart.AddDate(0, 1, -1)
-
-	return monthStart, monthEnd, nil
-}
-
 func normalizeTitle(title string) (string, error) {
 	trimmedTitle := strings.TrimSpace(title)
 	if trimmedTitle == "" {
@@ -125,11 +111,6 @@ func normalizeTitle(title string) (string, error) {
 	}
 
 	return trimmedTitle, nil
-}
-
-func normalizeDateUTC(value time.Time) time.Time {
-	year, month, day := value.Date()
-	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
 func exceedsActiveGoalLimit(goals []domain.Goal, startDate time.Time, endDate time.Time) bool {
