@@ -28,6 +28,7 @@ import {
   setGoalCompleted,
   updateGoalTitle,
 } from "./api";
+import ChartErrorBoundary from "./ChartErrorBoundary";
 import { buildMockMonthView } from "./mockMonth";
 import type {
   ChartPointWithLabel,
@@ -505,9 +506,11 @@ export default function App() {
                 {goals.length}개 목표
               </span>
             </div>
-            <Suspense fallback={<div className="h-72 min-h-72" />}>
-              <DailyCompletionChart data={chartData} />
-            </Suspense>
+            <ChartErrorBoundary resetKey={month}>
+              <Suspense fallback={<div className="h-72 min-h-72" />}>
+                <DailyCompletionChart data={chartData} />
+              </Suspense>
+            </ChartErrorBoundary>
           </div>
 
           <aside className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
