@@ -7,7 +7,7 @@ import {
   Pencil,
   Plus,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -18,7 +18,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { getMonthView, saveMemo, setGoalCompleted } from "./api";
+import { createGoal, getMonthView, saveMemo, setGoalCompleted } from "./api";
 import { buildMockMonthView } from "./mockMonth";
 import type {
   ChartPointWithLabel,
@@ -48,6 +48,12 @@ export default function App() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingChecks, setSavingChecks] = useState<string[]>([]);
   const [savingMemos, setSavingMemos] = useState<string[]>([]);
+  const [goalFormOpen, setGoalFormOpen] = useState(false);
+  const [newGoalTitle, setNewGoalTitle] = useState("");
+  const [newGoalStartDate, setNewGoalStartDate] = useState(() =>
+    monthStartDate(currentMonth()),
+  );
+  const [savingGoal, setSavingGoal] = useState(false);
   const { checks, days, goals, month } = monthView;
 
   const chartData = useMemo(
@@ -88,6 +94,9 @@ export default function App() {
     setSaveError(null);
     setSavingChecks([]);
     setSavingMemos([]);
+    setGoalFormOpen(false);
+    setNewGoalTitle("");
+    setNewGoalStartDate(monthStartDate(nextMonth));
     setMonthView(buildMockMonthView(nextMonth));
 
     try {
@@ -169,6 +178,49 @@ export default function App() {
       setSavingMemos((currentDates) =>
         currentDates.filter((currentDate) => currentDate !== date),
       );
+    }
+  }
+
+  async function submitNewGoal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSaveChanges) {
+      setSaveError("API 데이터에서만 목표를 추가할 수 있습니다.");
+      return;
+    }
+
+    const trimmedTitle = newGoalTitle.trim();
+    if (trimmedTitle === "") {
+      setSaveError("목표 제목을 입력해 주세요.");
+      return;
+    }
+
+    if (!newGoalStartDate.startsWith(`${month}-`)) {
+      setSaveError("시작일은 선택한 월 안에서 골라 주세요.");
+      return;
+    }
+
+    setSaveError(null);
+    setSavingGoal(true);
+
+    try {
+      await createGoal(month, trimmedTitle, newGoalStartDate);
+    } catch {
+      setSaveError("목표 추가에 실패했습니다.");
+      setSavingGoal(false);
+      return;
+    }
+
+    setNewGoalTitle("");
+    setNewGoalStartDate(monthStartDate(month));
+    setGoalFormOpen(false);
+
+    try {
+      setMonthView(await getMonthView(month));
+    } catch {
+      setSaveError("목표를 추가했지만 화면 갱신에 실패했습니다.");
+    } finally {
+      setSavingGoal(false);
     }
   }
 
@@ -301,10 +353,51 @@ export default function App() {
           <aside className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-zinc-950">목표</h2>
-              <button className="icon-button" type="button" title="목표 추가">
+              <button
+                className="icon-button"
+                type="button"
+                title="목표 추가"
+                disabled={!canSaveChanges || savingGoal}
+                onClick={() => setGoalFormOpen((open) => !open)}
+              >
                 <Plus size={18} />
               </button>
             </div>
+            {goalFormOpen ? (
+              <form
+                className="mb-4 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                onSubmit={(event) => void submitNewGoal(event)}
+              >
+                <input
+                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  value={newGoalTitle}
+                  disabled={savingGoal}
+                  placeholder="새 목표"
+                  onChange={(event) => setNewGoalTitle(event.target.value)}
+                />
+                <div className="flex gap-2">
+                  <input
+                    className="h-9 min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    type="date"
+                    min={monthStartDate(month)}
+                    max={monthEndDate(month)}
+                    value={newGoalStartDate}
+                    disabled={savingGoal}
+                    onChange={(event) =>
+                      setNewGoalStartDate(event.target.value)
+                    }
+                  />
+                  <button
+                    className="icon-button"
+                    type="submit"
+                    title="목표 저장"
+                    disabled={savingGoal}
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
+              </form>
+            ) : null}
             <div className="space-y-3">
               {goals.map((goal) => (
                 <div
@@ -580,6 +673,16 @@ function offsetMonth(month: string, offset: number) {
 function currentMonth() {
   const today = new Date();
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthStartDate(month: string) {
+  return `${month}-01`;
+}
+
+function monthEndDate(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const endDate = new Date(year, monthNumber, 0).getDate();
+  return `${month}-${String(endDate).padStart(2, "0")}`;
 }
 
 function currentDate() {
