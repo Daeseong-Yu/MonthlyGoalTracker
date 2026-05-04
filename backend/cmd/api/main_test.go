@@ -35,7 +35,7 @@ func TestRunWithDepsReturnsConnectError(t *testing.T) {
 			t.Fatal("sqlDB should not be called")
 			return nil, nil
 		},
-		serve: func(string) error {
+		serve: func(*gorm.DB, string) error {
 			served = true
 			return nil
 		},
@@ -47,6 +47,34 @@ func TestRunWithDepsReturnsConnectError(t *testing.T) {
 
 	if served {
 		t.Fatal("serve should not be called")
+	}
+}
+
+func TestRunWithDepsRejectsNonLoopbackHostBeforeConnect(t *testing.T) {
+	cfg := testConfig()
+	cfg.Host = "0.0.0.0"
+
+	err := runWithDeps(cfg, appDeps{
+		connect: func(context.Context, string) (*gorm.DB, error) {
+			t.Fatal("connect should not be called")
+			return nil, nil
+		},
+		migrate: func(context.Context, *gorm.DB) error {
+			t.Fatal("migrate should not be called")
+			return nil
+		},
+		sqlDB: func(*gorm.DB) (closer, error) {
+			t.Fatal("sqlDB should not be called")
+			return nil, nil
+		},
+		serve: func(*gorm.DB, string) error {
+			t.Fatal("serve should not be called")
+			return nil
+		},
+	})
+
+	if !errors.Is(err, config.ErrUnsafeHost) {
+		t.Fatalf("expected unsafe host error, got %v", err)
 	}
 }
 
@@ -69,7 +97,7 @@ func TestRunWithDepsClosesDatabaseOnMigrateError(t *testing.T) {
 
 			return testSQL, nil
 		},
-		serve: func(string) error {
+		serve: func(*gorm.DB, string) error {
 			t.Fatal("serve should not be called")
 			return nil
 		},
@@ -100,7 +128,11 @@ func TestRunWithDepsServesConfiguredAddress(t *testing.T) {
 		sqlDB: func(*gorm.DB) (closer, error) {
 			return testSQL, nil
 		},
-		serve: func(addr string) error {
+		serve: func(database *gorm.DB, addr string) error {
+			if database != testDB {
+				t.Fatal("expected connected database to be served")
+			}
+
 			servedAddr = addr
 			return nil
 		},
@@ -148,7 +180,7 @@ func TestRunWithDepsUsesSeparateConnectAndMigrateTimeouts(t *testing.T) {
 		sqlDB: func(*gorm.DB) (closer, error) {
 			return testSQL, nil
 		},
-		serve: func(string) error {
+		serve: func(*gorm.DB, string) error {
 			return nil
 		},
 	})

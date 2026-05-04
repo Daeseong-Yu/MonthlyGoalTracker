@@ -1,9 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
+	"strings"
 )
+
+var ErrUnsafeHost = errors.New("unsafe host")
 
 type Config struct {
 	Host        string
@@ -20,7 +26,15 @@ func Load() Config {
 }
 
 func (c Config) Addr() string {
-	return fmt.Sprintf("%s:%s", c.Host, c.Port)
+	return net.JoinHostPort(normalizeHost(c.Host), c.Port)
+}
+
+func (c Config) Validate() error {
+	if !isLoopbackHost(normalizeHost(c.Host)) {
+		return fmt.Errorf("%w: APP_HOST must be loopback while authentication is disabled", ErrUnsafeHost)
+	}
+
+	return nil
 }
 
 func getEnv(key, fallback string) string {
@@ -30,4 +44,22 @@ func getEnv(key, fallback string) string {
 	}
 
 	return value
+}
+
+func normalizeHost(host string) string {
+	trimmedHost := strings.TrimSpace(host)
+	return strings.Trim(trimmedHost, "[]")
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+
+	return addr.IsLoopback()
 }

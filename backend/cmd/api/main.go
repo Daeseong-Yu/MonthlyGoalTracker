@@ -32,7 +32,7 @@ type appDeps struct {
 	connect func(context.Context, string) (*gorm.DB, error)
 	migrate func(context.Context, *gorm.DB) error
 	sqlDB   func(*gorm.DB) (closer, error)
-	serve   func(string) error
+	serve   func(*gorm.DB, string) error
 }
 
 func run(cfg config.Config) error {
@@ -42,13 +42,17 @@ func run(cfg config.Config) error {
 		sqlDB: func(database *gorm.DB) (closer, error) {
 			return database.DB()
 		},
-		serve: func(addr string) error {
-			return router.SetupRouter().Run(addr)
+		serve: func(database *gorm.DB, addr string) error {
+			return router.SetupRouter(database).Run(addr)
 		},
 	})
 }
 
 func runWithDeps(cfg config.Config, deps appDeps) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), dbConnectTimeout)
 
 	database, err := deps.connect(connectCtx, cfg.DatabaseURL)
@@ -74,5 +78,5 @@ func runWithDeps(cfg config.Config, deps appDeps) error {
 		return err
 	}
 
-	return deps.serve(cfg.Addr())
+	return deps.serve(database, cfg.Addr())
 }
