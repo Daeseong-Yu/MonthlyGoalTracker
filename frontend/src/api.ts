@@ -41,6 +41,24 @@ export async function createGoal(
   }
 }
 
+export async function updateGoalTitle(
+  goalId: number,
+  title: string,
+): Promise<void> {
+  const response = await fetch(`${apiBaseURL}/api/goals/${goalId}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ title }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`goal update request failed with status ${response.status}`);
+  }
+}
+
 export async function setGoalCompleted(
   goalId: number,
   date: string,

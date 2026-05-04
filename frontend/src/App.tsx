@@ -6,8 +6,9 @@ import {
   ChevronRight,
   Pencil,
   Plus,
+  X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -18,7 +19,13 @@ import {
   YAxis,
 } from "recharts";
 
-import { createGoal, getMonthView, saveMemo, setGoalCompleted } from "./api";
+import {
+  createGoal,
+  getMonthView,
+  saveMemo,
+  setGoalCompleted,
+  updateGoalTitle,
+} from "./api";
 import { buildMockMonthView } from "./mockMonth";
 import type {
   ChartPointWithLabel,
@@ -54,7 +61,12 @@ export default function App() {
     monthStartDate(currentMonth()),
   );
   const [savingGoal, setSavingGoal] = useState(false);
+  const [editingGoalID, setEditingGoalID] = useState<number | null>(null);
+  const [editingGoalTitle, setEditingGoalTitle] = useState("");
+  const [savingGoalTitle, setSavingGoalTitle] = useState(false);
   const { checks, days, goals, month } = monthView;
+  const activeMonthRef = useRef(month);
+  activeMonthRef.current = month;
 
   const chartData = useMemo(
     () => buildChartData(days, goals, checks),
@@ -79,6 +91,7 @@ export default function App() {
     : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
   const isLoading = loadStatus === "loading";
   const canSaveChanges = loadStatus === "api";
+  const isSavingGoalChange = savingGoal || savingGoalTitle;
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -97,6 +110,9 @@ export default function App() {
     setGoalFormOpen(false);
     setNewGoalTitle("");
     setNewGoalStartDate(monthStartDate(nextMonth));
+    setEditingGoalID(null);
+    setEditingGoalTitle("");
+    setSavingGoalTitle(false);
     setMonthView(buildMockMonthView(nextMonth));
 
     try {
@@ -224,6 +240,73 @@ export default function App() {
     }
   }
 
+  function startEditingGoal(goal: Goal) {
+    if (!canSaveChanges) {
+      setSaveError("API 데이터에서만 목표를 수정할 수 있습니다.");
+      return;
+    }
+
+    setSaveError(null);
+    setGoalFormOpen(false);
+    setEditingGoalID(goal.id);
+    setEditingGoalTitle(goal.title);
+  }
+
+  function cancelEditingGoal() {
+    setEditingGoalID(null);
+    setEditingGoalTitle("");
+  }
+
+  async function submitGoalTitle(
+    event: FormEvent<HTMLFormElement>,
+    goalID: number,
+  ) {
+    event.preventDefault();
+
+    if (!canSaveChanges) {
+      setSaveError("API 데이터에서만 목표를 수정할 수 있습니다.");
+      return;
+    }
+
+    const trimmedTitle = editingGoalTitle.trim();
+    const submittedMonth = month;
+    if (trimmedTitle === "") {
+      setSaveError("목표 제목을 입력해 주세요.");
+      return;
+    }
+
+    setSaveError(null);
+    setSavingGoalTitle(true);
+
+    try {
+      await updateGoalTitle(goalID, trimmedTitle);
+    } catch {
+      setSaveError("목표 수정에 실패했습니다.");
+      setSavingGoalTitle(false);
+      return;
+    }
+
+    setMonthView((currentView) =>
+      currentView.month === submittedMonth
+        ? applyGoalTitleState(currentView, goalID, trimmedTitle)
+        : currentView,
+    );
+    cancelEditingGoal();
+
+    try {
+      const refreshedView = await getMonthView(submittedMonth);
+      setMonthView((currentView) =>
+        currentView.month === submittedMonth ? refreshedView : currentView,
+      );
+    } catch {
+      if (activeMonthRef.current === submittedMonth) {
+        setSaveError("목표를 수정했지만 화면 갱신에 실패했습니다.");
+      }
+    } finally {
+      setSavingGoalTitle(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f8f5] text-zinc-900">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
@@ -255,7 +338,7 @@ export default function App() {
               className="icon-button"
               type="button"
               title="이전 달"
-              disabled={isLoading}
+              disabled={isLoading || isSavingGoalChange}
               onClick={() => void moveMonth(-1)}
             >
               <ChevronLeft size={18} />
@@ -266,7 +349,7 @@ export default function App() {
                 className="w-[8.5rem] bg-transparent text-sm outline-none"
                 type="month"
                 value={month}
-                disabled={isLoading}
+                disabled={isLoading || isSavingGoalChange}
                 onChange={(event) => void loadMonth(event.target.value)}
               />
             </label>
@@ -274,7 +357,7 @@ export default function App() {
               className="icon-button"
               type="button"
               title="다음 달"
-              disabled={isLoading}
+              disabled={isLoading || isSavingGoalChange}
               onClick={() => void moveMonth(1)}
             >
               <ChevronRight size={18} />
@@ -357,8 +440,11 @@ export default function App() {
                 className="icon-button"
                 type="button"
                 title="목표 추가"
-                disabled={!canSaveChanges || savingGoal}
-                onClick={() => setGoalFormOpen((open) => !open)}
+                disabled={!canSaveChanges || isSavingGoalChange}
+                onClick={() => {
+                  cancelEditingGoal();
+                  setGoalFormOpen((open) => !open);
+                }}
               >
                 <Plus size={18} />
               </button>
@@ -404,32 +490,74 @@ export default function App() {
                   key={goal.id}
                   className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-zinc-950">
-                        {goal.title}
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {formatGoalPeriod(goal)}
-                      </p>
+                  {editingGoalID === goal.id ? (
+                    <form
+                      className="space-y-2"
+                      onSubmit={(event) => void submitGoalTitle(event, goal.id)}
+                    >
+                      <input
+                        className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                        value={editingGoalTitle}
+                        disabled={savingGoalTitle}
+                        onChange={(event) =>
+                          setEditingGoalTitle(event.target.value)
+                        }
+                      />
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="min-w-0 truncate text-xs text-zinc-500">
+                          {formatGoalPeriod(goal)}
+                        </p>
+                        <div className="flex shrink-0 gap-1">
+                          <button
+                            className="mini-icon-button"
+                            type="submit"
+                            title="목표 저장"
+                            disabled={savingGoalTitle}
+                          >
+                            <Check size={15} />
+                          </button>
+                          <button
+                            className="mini-icon-button"
+                            type="button"
+                            title="수정 취소"
+                            disabled={savingGoalTitle}
+                            onClick={cancelEditingGoal}
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-zinc-950">
+                          {goal.title}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {formatGoalPeriod(goal)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          className="mini-icon-button"
+                          type="button"
+                          title="목표 수정"
+                          disabled={!canSaveChanges || isSavingGoalChange}
+                          onClick={() => startEditingGoal(goal)}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          className="mini-icon-button"
+                          type="button"
+                          title="목표 비활성화"
+                        >
+                          <Ban size={15} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        className="mini-icon-button"
-                        type="button"
-                        title="목표 수정"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        className="mini-icon-button"
-                        type="button"
-                        title="목표 비활성화"
-                      >
-                        <Ban size={15} />
-                      </button>
-                    </div>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -570,6 +698,19 @@ function applyCheckState(
   return {
     ...view,
     checks: [...view.checks, { goalId, date, completed: true }],
+  };
+}
+
+function applyGoalTitleState(
+  view: MonthView,
+  goalId: number,
+  title: string,
+): MonthView {
+  return {
+    ...view,
+    goals: view.goals.map((goal) =>
+      goal.id === goalId ? { ...goal, title } : goal,
+    ),
   };
 }
 
