@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: #f7f8f5;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .icon-button {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-700 shadow-sm transition hover:border-teal-500 hover:text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-200;
+  }
+
+  .mini-icon-button {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-950 focus:outline-none focus:ring-2 focus:ring-teal-100;
+  }
+
+  .check-button {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 bg-white text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed;
+  }
+
+  .check-button.checked {
+    @apply border-teal-700 bg-teal-700 text-white hover:bg-teal-800;
+  }
+
+  .check-button.inactive {
+    @apply border-zinc-200 bg-zinc-100 text-zinc-300;
+  }
+}
