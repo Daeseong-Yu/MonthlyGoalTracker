@@ -18,9 +18,15 @@ import {
   YAxis,
 } from "recharts";
 
-import { getMonthView } from "./api";
+import { getMonthView, setGoalCompleted } from "./api";
 import { buildMockMonthView } from "./mockMonth";
-import type { ChartPointWithLabel, DayEntry, Goal, GoalCheck } from "./types";
+import type {
+  ChartPointWithLabel,
+  DayEntry,
+  Goal,
+  GoalCheck,
+  MonthView,
+} from "./types";
 
 const monthFormatter = new Intl.DateTimeFormat("ko-KR", {
   year: "numeric",
@@ -39,6 +45,8 @@ export default function App() {
     "loading",
   );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savingChecks, setSavingChecks] = useState<string[]>([]);
   const { checks, days, goals, month } = monthView;
 
   const chartData = useMemo(
@@ -63,6 +71,7 @@ export default function App() {
     ? "오늘 활성 목표"
     : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
   const isLoading = loadStatus === "loading";
+  const canSaveChecks = loadStatus === "api";
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -75,6 +84,8 @@ export default function App() {
   async function loadMonth(nextMonth: string) {
     setLoadStatus("loading");
     setLoadError(null);
+    setSaveError(null);
+    setSavingChecks([]);
     setMonthView(buildMockMonthView(nextMonth));
 
     try {
@@ -86,31 +97,44 @@ export default function App() {
     }
   }
 
-  function toggleCheck(goalId: number, date: string) {
+  async function toggleCheck(goalId: number, date: string) {
     const goal = goals.find((item) => item.id === goalId);
     if (!goal || !isGoalActiveOnDate(goal, date)) {
       return;
     }
 
-    setMonthView((currentView) => {
-      const exists = currentView.checks.some(
-        (check) => check.goalId === goalId && check.date === date,
+    if (!canSaveChecks) {
+      setSaveError("API 데이터에서만 체크를 저장할 수 있습니다.");
+      return;
+    }
+
+    const key = checkKey(goalId, date);
+    if (savingChecks.includes(key)) {
+      return;
+    }
+
+    const completed = !checks.some(
+      (check) => check.goalId === goalId && check.date === date,
+    );
+
+    setSaveError(null);
+    setSavingChecks((currentKeys) => [...currentKeys, key]);
+    setMonthView((currentView) =>
+      applyCheckState(currentView, goalId, date, completed),
+    );
+
+    try {
+      await setGoalCompleted(goalId, date, completed);
+    } catch {
+      setMonthView((currentView) =>
+        applyCheckState(currentView, goalId, date, !completed),
       );
-
-      if (exists) {
-        return {
-          ...currentView,
-          checks: currentView.checks.filter(
-            (check) => !(check.goalId === goalId && check.date === date),
-          ),
-        };
-      }
-
-      return {
-        ...currentView,
-        checks: [...currentView.checks, { goalId, date, completed: true }],
-      };
-    });
+      setSaveError("체크 저장에 실패했습니다.");
+    } finally {
+      setSavingChecks((currentKeys) =>
+        currentKeys.filter((currentKey) => currentKey !== key),
+      );
+    }
   }
 
   function updateMemo(date: string, memo: string) {
@@ -139,6 +163,11 @@ export default function App() {
             {loadError ? (
               <p className="mt-2 text-xs font-medium text-amber-700">
                 API 응답을 받지 못해 샘플 데이터를 표시합니다.
+              </p>
+            ) : null}
+            {saveError ? (
+              <p className="mt-2 text-xs font-medium text-rose-700">
+                {saveError}
               </p>
             ) : null}
           </div>
@@ -339,6 +368,9 @@ export default function App() {
                           (check) =>
                             check.goalId === goal.id && check.date === day.date,
                         );
+                        const saving = savingChecks.includes(
+                          checkKey(goal.id, day.date),
+                        );
 
                         return (
                           <td key={goal.id} className="px-3 py-3">
@@ -351,9 +383,9 @@ export default function App() {
                                   : "check-button inactive"
                               }
                               type="button"
-                              disabled={!active}
+                              disabled={!active || !canSaveChecks || saving}
                               title={goal.title}
-                              onClick={() => toggleCheck(goal.id, day.date)}
+                              onClick={() => void toggleCheck(goal.id, day.date)}
                             >
                               {checked ? <Check size={16} /> : null}
                             </button>
@@ -382,6 +414,42 @@ export default function App() {
       </div>
     </main>
   );
+}
+
+function applyCheckState(
+  view: MonthView,
+  goalId: number,
+  date: string,
+  completed: boolean,
+): MonthView {
+  if (view.month !== date.slice(0, 7)) {
+    return view;
+  }
+
+  if (!completed) {
+    return {
+      ...view,
+      checks: view.checks.filter(
+        (check) => !(check.goalId === goalId && check.date === date),
+      ),
+    };
+  }
+
+  const exists = view.checks.some(
+    (check) => check.goalId === goalId && check.date === date,
+  );
+  if (exists) {
+    return view;
+  }
+
+  return {
+    ...view,
+    checks: [...view.checks, { goalId, date, completed: true }],
+  };
+}
+
+function checkKey(goalId: number, date: string) {
+  return `${goalId}:${date}`;
 }
 
 function Metric({
