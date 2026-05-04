@@ -37,3 +37,21 @@ export async function setGoalCompleted(
     throw new Error(`check request failed with status ${response.status}`);
   }
 }
+
+export async function saveMemo(date: string, memo: string): Promise<void> {
+  const response = await fetch(
+    `${apiBaseURL}/api/memos/${encodeURIComponent(date)}`,
+    {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ memo }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`memo request failed with status ${response.status}`);
+  }
+}

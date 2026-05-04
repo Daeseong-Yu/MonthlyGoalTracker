@@ -18,7 +18,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { getMonthView, setGoalCompleted } from "./api";
+import { getMonthView, saveMemo, setGoalCompleted } from "./api";
 import { buildMockMonthView } from "./mockMonth";
 import type {
   ChartPointWithLabel,
@@ -47,6 +47,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savingChecks, setSavingChecks] = useState<string[]>([]);
+  const [savingMemos, setSavingMemos] = useState<string[]>([]);
   const { checks, days, goals, month } = monthView;
 
   const chartData = useMemo(
@@ -71,7 +72,7 @@ export default function App() {
     ? "오늘 활성 목표"
     : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
   const isLoading = loadStatus === "loading";
-  const canSaveChecks = loadStatus === "api";
+  const canSaveChanges = loadStatus === "api";
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -86,6 +87,7 @@ export default function App() {
     setLoadError(null);
     setSaveError(null);
     setSavingChecks([]);
+    setSavingMemos([]);
     setMonthView(buildMockMonthView(nextMonth));
 
     try {
@@ -103,7 +105,7 @@ export default function App() {
       return;
     }
 
-    if (!canSaveChecks) {
+    if (!canSaveChanges) {
       setSaveError("API 데이터에서만 체크를 저장할 수 있습니다.");
       return;
     }
@@ -144,6 +146,30 @@ export default function App() {
         day.date === date ? { ...day, memo } : day,
       ),
     }));
+  }
+
+  async function saveMemoForDate(date: string, memo: string) {
+    if (!canSaveChanges) {
+      setSaveError("API 데이터에서만 메모를 저장할 수 있습니다.");
+      return;
+    }
+
+    if (savingMemos.includes(date)) {
+      return;
+    }
+
+    setSaveError(null);
+    setSavingMemos((currentDates) => [...currentDates, date]);
+
+    try {
+      await saveMemo(date, memo);
+    } catch {
+      setSaveError("메모 저장에 실패했습니다.");
+    } finally {
+      setSavingMemos((currentDates) =>
+        currentDates.filter((currentDate) => currentDate !== date),
+      );
+    }
   }
 
   return (
@@ -383,7 +409,7 @@ export default function App() {
                                   : "check-button inactive"
                               }
                               type="button"
-                              disabled={!active || !canSaveChecks || saving}
+                              disabled={!active || !canSaveChanges || saving}
                               title={goal.title}
                               onClick={() => void toggleCheck(goal.id, day.date)}
                             >
@@ -394,10 +420,16 @@ export default function App() {
                       })}
                       <td className="px-3 py-3">
                         <input
-                          className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                          className={memoInputClassName(
+                            savingMemos.includes(day.date),
+                          )}
                           value={day.memo}
+                          disabled={!canSaveChanges}
                           onChange={(event) =>
                             updateMemo(day.date, event.target.value)
+                          }
+                          onBlur={(event) =>
+                            void saveMemoForDate(day.date, event.target.value)
                           }
                         />
                       </td>
@@ -450,6 +482,17 @@ function applyCheckState(
 
 function checkKey(goalId: number, date: string) {
   return `${goalId}:${date}`;
+}
+
+function memoInputClassName(saving: boolean) {
+  const base =
+    "h-9 w-full rounded-md border bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+
+  if (saving) {
+    return `${base} border-amber-300`;
+  }
+
+  return `${base} border-zinc-200`;
 }
 
 function Metric({
