@@ -59,6 +59,26 @@ export async function updateGoalTitle(
   }
 }
 
+export async function deactivateGoal(
+  goalId: number,
+  endDate: string,
+): Promise<void> {
+  const response = await fetch(`${apiBaseURL}/api/goals/${goalId}/deactivate`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ endDate }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `goal deactivate request failed with status ${response.status}`,
+    );
+  }
+}
+
 export async function setGoalCompleted(
   goalId: number,
   date: string,

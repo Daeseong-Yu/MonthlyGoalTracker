@@ -21,6 +21,7 @@ import {
 
 import {
   createGoal,
+  deactivateGoal,
   getMonthView,
   saveMemo,
   setGoalCompleted,
@@ -64,8 +65,10 @@ export default function App() {
   const [editingGoalID, setEditingGoalID] = useState<number | null>(null);
   const [editingGoalTitle, setEditingGoalTitle] = useState("");
   const [savingGoalTitle, setSavingGoalTitle] = useState(false);
+  const [deactivatingGoalIDs, setDeactivatingGoalIDs] = useState<number[]>([]);
   const { checks, days, goals, month } = monthView;
   const activeMonthRef = useRef(month);
+  const deactivatingGoalIDSetRef = useRef(new Set<number>());
   activeMonthRef.current = month;
 
   const chartData = useMemo(
@@ -91,7 +94,8 @@ export default function App() {
     : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
   const isLoading = loadStatus === "loading";
   const canSaveChanges = loadStatus === "api";
-  const isSavingGoalChange = savingGoal || savingGoalTitle;
+  const isSavingGoalChange =
+    savingGoal || savingGoalTitle || deactivatingGoalIDs.length > 0;
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -113,6 +117,8 @@ export default function App() {
     setEditingGoalID(null);
     setEditingGoalTitle("");
     setSavingGoalTitle(false);
+    deactivatingGoalIDSetRef.current.clear();
+    setDeactivatingGoalIDs([]);
     setMonthView(buildMockMonthView(nextMonth));
 
     try {
@@ -216,11 +222,12 @@ export default function App() {
       return;
     }
 
+    const submittedMonth = month;
     setSaveError(null);
     setSavingGoal(true);
 
     try {
-      await createGoal(month, trimmedTitle, newGoalStartDate);
+      await createGoal(submittedMonth, trimmedTitle, newGoalStartDate);
     } catch {
       setSaveError("목표 추가에 실패했습니다.");
       setSavingGoal(false);
@@ -228,16 +235,14 @@ export default function App() {
     }
 
     setNewGoalTitle("");
-    setNewGoalStartDate(monthStartDate(month));
+    setNewGoalStartDate(monthStartDate(submittedMonth));
     setGoalFormOpen(false);
 
-    try {
-      setMonthView(await getMonthView(month));
-    } catch {
-      setSaveError("목표를 추가했지만 화면 갱신에 실패했습니다.");
-    } finally {
-      setSavingGoal(false);
-    }
+    await refreshMonthView(
+      submittedMonth,
+      "목표를 추가했지만 화면 갱신에 실패했습니다.",
+    );
+    setSavingGoal(false);
   }
 
   function startEditingGoal(goal: Goal) {
@@ -293,6 +298,72 @@ export default function App() {
     );
     cancelEditingGoal();
 
+    await refreshMonthView(
+      submittedMonth,
+      "목표를 수정했지만 화면 갱신에 실패했습니다.",
+    );
+    setSavingGoalTitle(false);
+  }
+
+  async function deactivateGoalFromMonth(goal: Goal) {
+    if (!canSaveChanges) {
+      setSaveError("API 데이터에서만 목표를 비활성화할 수 있습니다.");
+      return;
+    }
+
+    const submittedMonth = month;
+    const endDate = deactivationDateForGoal(goal, submittedMonth);
+    if (goal.endDate !== null && goal.endDate <= endDate) {
+      setSaveError("이미 비활성화된 목표입니다.");
+      return;
+    }
+
+    if (!markGoalDeactivating(goal.id)) {
+      return;
+    }
+
+    setSaveError(null);
+
+    try {
+      try {
+        await deactivateGoal(goal.id, endDate);
+      } catch {
+        if (activeMonthRef.current === submittedMonth) {
+          setSaveError("목표 비활성화에 실패했습니다.");
+        }
+        return;
+      }
+
+      setMonthView((currentView) =>
+        currentView.month === submittedMonth
+          ? applyGoalEndDateState(currentView, goal.id, endDate)
+          : currentView,
+      );
+      await refreshMonthView(
+        submittedMonth,
+        "목표를 비활성화했지만 화면 갱신에 실패했습니다.",
+      );
+    } finally {
+      unmarkGoalDeactivating(goal.id);
+    }
+  }
+
+  function markGoalDeactivating(goalID: number) {
+    if (deactivatingGoalIDSetRef.current.has(goalID)) {
+      return false;
+    }
+
+    deactivatingGoalIDSetRef.current.add(goalID);
+    setDeactivatingGoalIDs([...deactivatingGoalIDSetRef.current]);
+    return true;
+  }
+
+  function unmarkGoalDeactivating(goalID: number) {
+    deactivatingGoalIDSetRef.current.delete(goalID);
+    setDeactivatingGoalIDs([...deactivatingGoalIDSetRef.current]);
+  }
+
+  async function refreshMonthView(submittedMonth: string, failureMessage: string) {
     try {
       const refreshedView = await getMonthView(submittedMonth);
       setMonthView((currentView) =>
@@ -300,10 +371,8 @@ export default function App() {
       );
     } catch {
       if (activeMonthRef.current === submittedMonth) {
-        setSaveError("목표를 수정했지만 화면 갱신에 실패했습니다.");
+        setSaveError(failureMessage);
       }
-    } finally {
-      setSavingGoalTitle(false);
     }
   }
 
@@ -485,81 +554,101 @@ export default function App() {
               </form>
             ) : null}
             <div className="space-y-3">
-              {goals.map((goal) => (
-                <div
-                  key={goal.id}
-                  className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
-                >
-                  {editingGoalID === goal.id ? (
-                    <form
-                      className="space-y-2"
-                      onSubmit={(event) => void submitGoalTitle(event, goal.id)}
-                    >
-                      <input
-                        className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                        value={editingGoalTitle}
-                        disabled={savingGoalTitle}
-                        onChange={(event) =>
-                          setEditingGoalTitle(event.target.value)
+              {goals.map((goal) => {
+                const deactivationDate = deactivationDateForGoal(goal, month);
+                const alreadyDeactivated =
+                  goal.endDate !== null && goal.endDate <= deactivationDate;
+                const deactivating = deactivatingGoalIDs.includes(goal.id);
+
+                return (
+                  <div
+                    key={goal.id}
+                    className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                  >
+                    {editingGoalID === goal.id ? (
+                      <form
+                        className="space-y-2"
+                        onSubmit={(event) =>
+                          void submitGoalTitle(event, goal.id)
                         }
-                      />
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="min-w-0 truncate text-xs text-zinc-500">
-                          {formatGoalPeriod(goal)}
-                        </p>
+                      >
+                        <input
+                          className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                          value={editingGoalTitle}
+                          disabled={savingGoalTitle}
+                          onChange={(event) =>
+                            setEditingGoalTitle(event.target.value)
+                          }
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="min-w-0 truncate text-xs text-zinc-500">
+                            {formatGoalPeriod(goal)}
+                          </p>
+                          <div className="flex shrink-0 gap-1">
+                            <button
+                              className="mini-icon-button"
+                              type="submit"
+                              title="목표 저장"
+                              disabled={savingGoalTitle}
+                            >
+                              <Check size={15} />
+                            </button>
+                            <button
+                              className="mini-icon-button"
+                              type="button"
+                              title="수정 취소"
+                              disabled={savingGoalTitle}
+                              onClick={cancelEditingGoal}
+                            >
+                              <X size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-zinc-950">
+                            {goal.title}
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            {formatGoalPeriod(goal)}
+                          </p>
+                        </div>
                         <div className="flex shrink-0 gap-1">
                           <button
                             className="mini-icon-button"
-                            type="submit"
-                            title="목표 저장"
-                            disabled={savingGoalTitle}
+                            type="button"
+                            title="목표 수정"
+                            disabled={!canSaveChanges || isSavingGoalChange}
+                            onClick={() => startEditingGoal(goal)}
                           >
-                            <Check size={15} />
+                            <Pencil size={15} />
                           </button>
                           <button
                             className="mini-icon-button"
                             type="button"
-                            title="수정 취소"
-                            disabled={savingGoalTitle}
-                            onClick={cancelEditingGoal}
+                            title={
+                              alreadyDeactivated
+                                ? "이미 비활성화됨"
+                                : `목표 비활성화 (${shortDate(deactivationDate)}까지 활성)`
+                            }
+                            disabled={
+                              !canSaveChanges ||
+                              isSavingGoalChange ||
+                              alreadyDeactivated ||
+                              deactivating
+                            }
+                            onClick={() => void deactivateGoalFromMonth(goal)}
                           >
-                            <X size={15} />
+                            <Ban size={15} />
                           </button>
                         </div>
                       </div>
-                    </form>
-                  ) : (
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-zinc-950">
-                          {goal.title}
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          {formatGoalPeriod(goal)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        <button
-                          className="mini-icon-button"
-                          type="button"
-                          title="목표 수정"
-                          disabled={!canSaveChanges || isSavingGoalChange}
-                          onClick={() => startEditingGoal(goal)}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          className="mini-icon-button"
-                          type="button"
-                          title="목표 비활성화"
-                        >
-                          <Ban size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </aside>
         </section>
@@ -611,10 +700,13 @@ export default function App() {
                       </th>
                       {goals.map((goal) => {
                         const active = isGoalActiveOnDate(goal, day.date);
-                        const checked = checks.some(
-                          (check) =>
-                            check.goalId === goal.id && check.date === day.date,
-                        );
+                        const checked =
+                          active &&
+                          checks.some(
+                            (check) =>
+                              check.goalId === goal.id &&
+                              check.date === day.date,
+                          );
                         const saving = savingChecks.includes(
                           checkKey(goal.id, day.date),
                         );
@@ -630,7 +722,12 @@ export default function App() {
                                   : "check-button inactive"
                               }
                               type="button"
-                              disabled={!active || !canSaveChanges || saving}
+                              disabled={
+                                !active ||
+                                !canSaveChanges ||
+                                saving ||
+                                isSavingGoalChange
+                              }
                               title={goal.title}
                               onClick={() => void toggleCheck(goal.id, day.date)}
                             >
@@ -645,7 +742,7 @@ export default function App() {
                             savingMemos.includes(day.date),
                           )}
                           value={day.memo}
-                          disabled={!canSaveChanges}
+                          disabled={!canSaveChanges || isSavingGoalChange}
                           onChange={(event) =>
                             updateMemo(day.date, event.target.value)
                           }
@@ -710,6 +807,19 @@ function applyGoalTitleState(
     ...view,
     goals: view.goals.map((goal) =>
       goal.id === goalId ? { ...goal, title } : goal,
+    ),
+  };
+}
+
+function applyGoalEndDateState(
+  view: MonthView,
+  goalId: number,
+  endDate: string,
+): MonthView {
+  return {
+    ...view,
+    goals: view.goals.map((goal) =>
+      goal.id === goalId ? { ...goal, endDate } : goal,
     ),
   };
 }
@@ -829,6 +939,23 @@ function monthEndDate(month: string) {
 function currentDate() {
   const today = new Date();
   return `${currentMonth()}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+function deactivationDateForGoal(goal: Goal, month: string) {
+  const referenceDate = isCurrentMonth(month)
+    ? currentDate()
+    : monthStartDate(month);
+  const monthEnd = monthEndDate(month);
+
+  if (referenceDate < goal.startDate) {
+    return goal.startDate;
+  }
+
+  if (referenceDate > monthEnd) {
+    return monthEnd;
+  }
+
+  return referenceDate;
 }
 
 function isCurrentMonth(month: string) {
