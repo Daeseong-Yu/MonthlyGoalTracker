@@ -45,7 +45,7 @@ API, PostgreSQL storage, and a Vite React frontend.
 
 ## Verification
 
-Run the backend tests and frontend production build:
+Run the backend tests, frontend tests, and frontend production build:
 
 ```sh
 sh scripts/verify.sh

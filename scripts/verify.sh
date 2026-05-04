@@ -7,4 +7,5 @@ cd "$ROOT_DIR/backend"
 go test ./...
 
 cd "$ROOT_DIR/frontend"
+pnpm test
 pnpm build
