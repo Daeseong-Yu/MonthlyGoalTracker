@@ -1,3 +1,4 @@
+import { isGoalActiveOnDate } from "./monthLogic";
 import type { MonthView } from "./types";
 
 export function buildMockMonthView(month: string): MonthView {
@@ -117,12 +118,4 @@ function daysInMonth(month: string) {
 
 function dateForDay(month: string, day: number) {
   return `${month}-${String(day).padStart(2, "0")}`;
-}
-
-function isGoalActiveOnDate(goal: MonthView["goals"][number], date: string) {
-  if (goal.startDate > date) {
-    return false;
-  }
-
-  return goal.endDate === null || date <= goal.endDate;
 }

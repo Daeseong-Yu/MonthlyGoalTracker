@@ -30,13 +30,21 @@ import {
 } from "./api";
 import ChartErrorBoundary from "./ChartErrorBoundary";
 import { buildMockMonthView } from "./mockMonth";
-import type {
-  ChartPointWithLabel,
-  DayEntry,
-  Goal,
-  GoalCheck,
-  MonthView,
-} from "./types";
+import {
+  applyCheckState,
+  applyGoalEndDateState,
+  applyGoalTitleState,
+  buildChartData,
+  currentMonth,
+  deactivationDateForGoal,
+  getReferencePoint,
+  isCurrentMonth,
+  isGoalActiveOnDate,
+  monthEndDate,
+  monthStartDate,
+  offsetMonth,
+} from "./monthLogic";
+import type { Goal } from "./types";
 
 const DailyCompletionChart = lazy(() => import("./DailyCompletionChart"));
 
@@ -777,64 +785,6 @@ export default function App() {
   );
 }
 
-function applyCheckState(
-  view: MonthView,
-  goalId: number,
-  date: string,
-  completed: boolean,
-): MonthView {
-  if (view.month !== date.slice(0, 7)) {
-    return view;
-  }
-
-  if (!completed) {
-    return {
-      ...view,
-      checks: view.checks.filter(
-        (check) => !(check.goalId === goalId && check.date === date),
-      ),
-    };
-  }
-
-  const exists = view.checks.some(
-    (check) => check.goalId === goalId && check.date === date,
-  );
-  if (exists) {
-    return view;
-  }
-
-  return {
-    ...view,
-    checks: [...view.checks, { goalId, date, completed: true }],
-  };
-}
-
-function applyGoalTitleState(
-  view: MonthView,
-  goalId: number,
-  title: string,
-): MonthView {
-  return {
-    ...view,
-    goals: view.goals.map((goal) =>
-      goal.id === goalId ? { ...goal, title } : goal,
-    ),
-  };
-}
-
-function applyGoalEndDateState(
-  view: MonthView,
-  goalId: number,
-  endDate: string,
-): MonthView {
-  return {
-    ...view,
-    goals: view.goals.map((goal) =>
-      goal.id === goalId ? { ...goal, endDate } : goal,
-    ),
-  };
-}
-
 function checkKey(goalId: number, date: string) {
   return `${goalId}:${date}`;
 }
@@ -873,41 +823,6 @@ function Metric({
   );
 }
 
-function buildChartData(
-  days: DayEntry[],
-  goals: Goal[],
-  checks: GoalCheck[],
-): ChartPointWithLabel[] {
-  return days.map((day) => {
-    const activeGoals = goals.filter((goal) =>
-      isGoalActiveOnDate(goal, day.date),
-    );
-    const completedCount = activeGoals.filter((goal) =>
-      checks.some(
-        (check) => check.goalId === goal.id && check.date === day.date,
-      ),
-    ).length;
-    const completionRate =
-      activeGoals.length === 0 ? 0 : completedCount / activeGoals.length;
-
-    return {
-      date: day.date,
-      dayLabel: String(new Date(`${day.date}T00:00:00`).getDate()),
-      activeGoalCount: activeGoals.length,
-      completedCount,
-      completionRate,
-    };
-  });
-}
-
-function isGoalActiveOnDate(goal: Goal, date: string) {
-  if (goal.startDate > date) {
-    return false;
-  }
-
-  return goal.endDate === null || date <= goal.endDate;
-}
-
 function formatMonth(month: string) {
   return monthFormatter.format(new Date(`${month}-01T00:00:00`));
 }
@@ -924,67 +839,6 @@ function shortDate(date: string) {
 
 function weekday(date: string) {
   return weekdayFormatter.format(new Date(`${date}T00:00:00`));
-}
-
-function offsetMonth(month: string, offset: number) {
-  const date = new Date(`${month}-01T00:00:00`);
-  date.setMonth(date.getMonth() + offset);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function currentMonth() {
-  const today = new Date();
-  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthStartDate(month: string) {
-  return `${month}-01`;
-}
-
-function monthEndDate(month: string) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const endDate = new Date(year, monthNumber, 0).getDate();
-  return `${month}-${String(endDate).padStart(2, "0")}`;
-}
-
-function currentDate() {
-  const today = new Date();
-  return `${currentMonth()}-${String(today.getDate()).padStart(2, "0")}`;
-}
-
-function deactivationDateForGoal(goal: Goal, month: string) {
-  const referenceDate = isCurrentMonth(month)
-    ? currentDate()
-    : monthStartDate(month);
-  const monthEnd = monthEndDate(month);
-
-  if (referenceDate < goal.startDate) {
-    return goal.startDate;
-  }
-
-  if (referenceDate > monthEnd) {
-    return monthEnd;
-  }
-
-  return referenceDate;
-}
-
-function isCurrentMonth(month: string) {
-  return month === currentMonth();
-}
-
-function getReferencePoint(month: string, chartData: ChartPointWithLabel[]) {
-  if (chartData.length === 0) {
-    return undefined;
-  }
-
-  if (isCurrentMonth(month)) {
-    return (
-      chartData.find((point) => point.date === currentDate()) ?? chartData[0]
-    );
-  }
-
-  return chartData[0];
 }
 
 function statusLabel(status: "loading" | "api" | "fallback") {
