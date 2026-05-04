@@ -8,6 +8,9 @@ export type Goal = {
 export type DayEntry = {
   date: string;
   memo: string;
+  activeGoalCount: number;
+  completedCount: number;
+  completionRate: number;
 };
 
 export type GoalCheck = {
@@ -18,10 +21,13 @@ export type GoalCheck = {
 
 export type ChartPoint = {
   date: string;
-  dayLabel: string;
   activeGoalCount: number;
   completedCount: number;
   completionRate: number;
+};
+
+export type ChartPointWithLabel = ChartPoint & {
+  dayLabel: string;
 };
 
 export type MonthView = {
@@ -29,4 +35,5 @@ export type MonthView = {
   goals: Goal[];
   days: DayEntry[];
   checks: GoalCheck[];
+  chart: ChartPoint[];
 };

@@ -2,28 +2,54 @@ import type { MonthView } from "./types";
 
 export function buildMockMonthView(month: string): MonthView {
   const dayCount = daysInMonth(month);
+  const goals = buildGoals(month);
+  const checks = buildChecks(month, dayCount);
+  const days = buildDays(month, dayCount, goals, checks);
 
   return {
     month,
-    goals: buildGoals(month),
-    days: Array.from({ length: dayCount }, (_, index) => {
-      const day = index + 1;
-      const date = dateForDay(month, day);
-
-      return {
-        date,
-        memo:
-          day === 4
-            ? "비가 와서 실내 운동으로 변경"
-            : day === 12
-              ? "저녁 산책 30분"
-              : day === 21
-                ? "컨디션 회복일"
-                : "",
-      };
-    }),
-    checks: buildChecks(month, dayCount),
+    goals,
+    days,
+    checks,
+    chart: days.map(({ date, activeGoalCount, completedCount, completionRate }) => ({
+      date,
+      activeGoalCount,
+      completedCount,
+      completionRate,
+    })),
   };
+}
+
+function buildDays(
+  month: string,
+  dayCount: number,
+  goals: MonthView["goals"],
+  checks: MonthView["checks"],
+) {
+  return Array.from({ length: dayCount }, (_, index) => {
+    const day = index + 1;
+    const date = dateForDay(month, day);
+    const activeGoals = goals.filter((goal) => isGoalActiveOnDate(goal, date));
+    const completedCount = activeGoals.filter((goal) =>
+      checks.some((check) => check.goalId === goal.id && check.date === date),
+    ).length;
+
+    return {
+      date,
+      memo:
+        day === 4
+          ? "비가 와서 실내 운동으로 변경"
+          : day === 12
+            ? "저녁 산책 30분"
+            : day === 21
+              ? "컨디션 회복일"
+              : "",
+      activeGoalCount: activeGoals.length,
+      completedCount,
+      completionRate:
+        activeGoals.length === 0 ? 0 : completedCount / activeGoals.length,
+    };
+  });
 }
 
 function buildGoals(month: string) {
@@ -91,4 +117,12 @@ function daysInMonth(month: string) {
 
 function dateForDay(month: string, day: number) {
   return `${month}-${String(day).padStart(2, "0")}`;
+}
+
+function isGoalActiveOnDate(goal: MonthView["goals"][number], date: string) {
+  if (goal.startDate > date) {
+    return false;
+  }
+
+  return goal.endDate === null || date <= goal.endDate;
 }

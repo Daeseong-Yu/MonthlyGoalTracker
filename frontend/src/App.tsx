@@ -7,7 +7,7 @@ import {
   Pencil,
   Plus,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -18,8 +18,9 @@ import {
   YAxis,
 } from "recharts";
 
+import { getMonthView } from "./api";
 import { buildMockMonthView } from "./mockMonth";
-import type { ChartPoint, DayEntry, Goal, GoalCheck } from "./types";
+import type { ChartPointWithLabel, DayEntry, Goal, GoalCheck } from "./types";
 
 const monthFormatter = new Intl.DateTimeFormat("ko-KR", {
   year: "numeric",
@@ -34,6 +35,10 @@ export default function App() {
   const [monthView, setMonthView] = useState(() =>
     buildMockMonthView(currentMonth()),
   );
+  const [loadStatus, setLoadStatus] = useState<"loading" | "api" | "fallback">(
+    "loading",
+  );
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { checks, days, goals, month } = monthView;
 
   const chartData = useMemo(
@@ -57,13 +62,28 @@ export default function App() {
   const activeMetricLabel = isCurrentMonth(month)
     ? "오늘 활성 목표"
     : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
+  const isLoading = loadStatus === "loading";
+
+  useEffect(() => {
+    void loadMonth(currentMonth());
+  }, []);
 
   function moveMonth(offset: number) {
     loadMonth(offsetMonth(month, offset));
   }
 
-  function loadMonth(nextMonth: string) {
+  async function loadMonth(nextMonth: string) {
+    setLoadStatus("loading");
+    setLoadError(null);
     setMonthView(buildMockMonthView(nextMonth));
+
+    try {
+      setMonthView(await getMonthView(nextMonth));
+      setLoadStatus("api");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "unknown error");
+      setLoadStatus("fallback");
+    }
   }
 
   function toggleCheck(goalId: number, date: string) {
@@ -110,9 +130,17 @@ export default function App() {
             <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
               월간 목표 트래커
             </h1>
-            <p className="mt-1 text-sm text-zinc-600">
-              {formatMonth(month)} 기록
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
+              <span>{formatMonth(month)} 기록</span>
+              <span className={statusClassName(loadStatus)}>
+                {statusLabel(loadStatus)}
+              </span>
             </p>
+            {loadError ? (
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                API 응답을 받지 못해 샘플 데이터를 표시합니다.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -120,7 +148,8 @@ export default function App() {
               className="icon-button"
               type="button"
               title="이전 달"
-              onClick={() => moveMonth(-1)}
+              disabled={isLoading}
+              onClick={() => void moveMonth(-1)}
             >
               <ChevronLeft size={18} />
             </button>
@@ -130,14 +159,16 @@ export default function App() {
                 className="w-[8.5rem] bg-transparent text-sm outline-none"
                 type="month"
                 value={month}
-                onChange={(event) => loadMonth(event.target.value)}
+                disabled={isLoading}
+                onChange={(event) => void loadMonth(event.target.value)}
               />
             </label>
             <button
               className="icon-button"
               type="button"
               title="다음 달"
-              onClick={() => moveMonth(1)}
+              disabled={isLoading}
+              onClick={() => void moveMonth(1)}
             >
               <ChevronRight size={18} />
             </button>
@@ -190,7 +221,7 @@ export default function App() {
                     ]}
                     labelFormatter={(_, payload) => {
                       const point = payload?.[0]?.payload as
-                        | ChartPoint
+                        | ChartPointWithLabel
                         | undefined;
                       return point
                         ? `${point.date} · ${Math.round(
@@ -380,7 +411,7 @@ function buildChartData(
   days: DayEntry[],
   goals: Goal[],
   checks: GoalCheck[],
-): ChartPoint[] {
+): ChartPointWithLabel[] {
   return days.map((day) => {
     const activeGoals = goals.filter((goal) =>
       isGoalActiveOnDate(goal, day.date),
@@ -449,7 +480,7 @@ function isCurrentMonth(month: string) {
   return month === currentMonth();
 }
 
-function getReferencePoint(month: string, chartData: ChartPoint[]) {
+function getReferencePoint(month: string, chartData: ChartPointWithLabel[]) {
   if (chartData.length === 0) {
     return undefined;
   }
@@ -461,4 +492,29 @@ function getReferencePoint(month: string, chartData: ChartPoint[]) {
   }
 
   return chartData[0];
+}
+
+function statusLabel(status: "loading" | "api" | "fallback") {
+  if (status === "loading") {
+    return "불러오는 중";
+  }
+
+  if (status === "api") {
+    return "API 데이터";
+  }
+
+  return "샘플 데이터";
+}
+
+function statusClassName(status: "loading" | "api" | "fallback") {
+  const base = "rounded-full px-2 py-0.5 text-xs font-semibold";
+  if (status === "api") {
+    return `${base} bg-teal-50 text-teal-800`;
+  }
+
+  if (status === "loading") {
+    return `${base} bg-zinc-100 text-zinc-600`;
+  }
+
+  return `${base} bg-amber-50 text-amber-800`;
 }
