@@ -9,16 +9,15 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  type FormEvent,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   createGoal,
@@ -37,6 +36,8 @@ import type {
   GoalCheck,
   MonthView,
 } from "./types";
+
+const DailyCompletionChart = lazy(() => import("./DailyCompletionChart"));
 
 const monthFormatter = new Intl.DateTimeFormat("ko-KR", {
   year: "numeric",
@@ -504,52 +505,9 @@ export default function App() {
                 {goals.length}개 목표
               </span>
             </div>
-            <div className="h-72 min-h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ left: -20, right: 12 }}>
-                  <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="dayLabel"
-                    interval={3}
-                    tick={{ fontSize: 12, fill: "#52525b" }}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    domain={[0, 5]}
-                    tick={{ fontSize: 12, fill: "#52525b" }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: 8,
-                      borderColor: "#d4d4d8",
-                      boxShadow: "0 12px 28px rgba(39, 39, 42, 0.12)",
-                    }}
-                    formatter={(value, name) => [
-                      name === "completedCount" ? `${value}개` : value,
-                      name === "completedCount" ? "완료" : name,
-                    ]}
-                    labelFormatter={(_, payload) => {
-                      const point = payload?.[0]?.payload as
-                        | ChartPointWithLabel
-                        | undefined;
-                      return point
-                        ? `${point.date} · ${Math.round(
-                            point.completionRate * 100,
-                          )}%`
-                        : "";
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="completedCount"
-                    stroke="#0f766e"
-                    strokeWidth={3}
-                    dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <Suspense fallback={<div className="h-72 min-h-72" />}>
+              <DailyCompletionChart data={chartData} />
+            </Suspense>
           </div>
 
           <aside className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
