@@ -19,6 +19,24 @@ export async function getMonthView(month: string): Promise<MonthView> {
   return (await response.json()) as MonthView;
 }
 
+export async function ensureMonth(month: string): Promise<MonthView> {
+  const response = await fetch(
+    `${apiBaseURL}/api/months/${encodeURIComponent(month)}/ensure`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`month ensure request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as MonthView;
+}
+
 export async function createGoal(
   month: string,
   title: string,

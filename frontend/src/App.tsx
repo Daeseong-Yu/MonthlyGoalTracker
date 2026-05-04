@@ -1,6 +1,7 @@
 import {
   Ban,
   CalendarDays,
+  CalendarPlus,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -22,6 +23,7 @@ import {
 import {
   createGoal,
   deactivateGoal,
+  ensureMonth,
   getMonthView,
   saveMemo,
   setGoalCompleted,
@@ -66,9 +68,11 @@ export default function App() {
   const [editingGoalTitle, setEditingGoalTitle] = useState("");
   const [savingGoalTitle, setSavingGoalTitle] = useState(false);
   const [deactivatingGoalIDs, setDeactivatingGoalIDs] = useState<number[]>([]);
+  const [preparingMonth, setPreparingMonth] = useState(false);
   const { checks, days, goals, month } = monthView;
   const activeMonthRef = useRef(month);
   const deactivatingGoalIDSetRef = useRef(new Set<number>());
+  const preparingMonthRef = useRef(false);
   activeMonthRef.current = month;
 
   const chartData = useMemo(
@@ -94,8 +98,11 @@ export default function App() {
     : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
   const isLoading = loadStatus === "loading";
   const canSaveChanges = loadStatus === "api";
-  const isSavingGoalChange =
-    savingGoal || savingGoalTitle || deactivatingGoalIDs.length > 0;
+  const isMutatingMonth =
+    savingGoal ||
+    savingGoalTitle ||
+    preparingMonth ||
+    deactivatingGoalIDs.length > 0;
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -117,6 +124,8 @@ export default function App() {
     setEditingGoalID(null);
     setEditingGoalTitle("");
     setSavingGoalTitle(false);
+    preparingMonthRef.current = false;
+    setPreparingMonth(false);
     deactivatingGoalIDSetRef.current.clear();
     setDeactivatingGoalIDs([]);
     setMonthView(buildMockMonthView(nextMonth));
@@ -127,6 +136,38 @@ export default function App() {
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "unknown error");
       setLoadStatus("fallback");
+    }
+  }
+
+  async function prepareCurrentMonth() {
+    if (!canSaveChanges) {
+      setSaveError("API 데이터에서만 월을 준비할 수 있습니다.");
+      return;
+    }
+
+    if (preparingMonthRef.current) {
+      return;
+    }
+
+    const submittedMonth = month;
+    preparingMonthRef.current = true;
+    setPreparingMonth(true);
+    setSaveError(null);
+    setGoalFormOpen(false);
+    cancelEditingGoal();
+
+    try {
+      const preparedView = await ensureMonth(submittedMonth);
+      setMonthView((currentView) =>
+        currentView.month === submittedMonth ? preparedView : currentView,
+      );
+    } catch {
+      if (activeMonthRef.current === submittedMonth) {
+        setSaveError("월 준비에 실패했습니다.");
+      }
+    } finally {
+      preparingMonthRef.current = false;
+      setPreparingMonth(false);
     }
   }
 
@@ -407,7 +448,7 @@ export default function App() {
               className="icon-button"
               type="button"
               title="이전 달"
-              disabled={isLoading || isSavingGoalChange}
+              disabled={isLoading || isMutatingMonth}
               onClick={() => void moveMonth(-1)}
             >
               <ChevronLeft size={18} />
@@ -418,7 +459,7 @@ export default function App() {
                 className="w-[8.5rem] bg-transparent text-sm outline-none"
                 type="month"
                 value={month}
-                disabled={isLoading || isSavingGoalChange}
+                disabled={isLoading || isMutatingMonth}
                 onChange={(event) => void loadMonth(event.target.value)}
               />
             </label>
@@ -426,10 +467,19 @@ export default function App() {
               className="icon-button"
               type="button"
               title="다음 달"
-              disabled={isLoading || isSavingGoalChange}
+              disabled={isLoading || isMutatingMonth}
               onClick={() => void moveMonth(1)}
             >
               <ChevronRight size={18} />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="월 준비"
+              disabled={!canSaveChanges || isMutatingMonth}
+              onClick={() => void prepareCurrentMonth()}
+            >
+              <CalendarPlus size={18} />
             </button>
           </div>
         </header>
@@ -509,7 +559,7 @@ export default function App() {
                 className="icon-button"
                 type="button"
                 title="목표 추가"
-                disabled={!canSaveChanges || isSavingGoalChange}
+                disabled={!canSaveChanges || isMutatingMonth}
                 onClick={() => {
                   cancelEditingGoal();
                   setGoalFormOpen((open) => !open);
@@ -620,7 +670,7 @@ export default function App() {
                             className="mini-icon-button"
                             type="button"
                             title="목표 수정"
-                            disabled={!canSaveChanges || isSavingGoalChange}
+                            disabled={!canSaveChanges || isMutatingMonth}
                             onClick={() => startEditingGoal(goal)}
                           >
                             <Pencil size={15} />
@@ -635,7 +685,7 @@ export default function App() {
                             }
                             disabled={
                               !canSaveChanges ||
-                              isSavingGoalChange ||
+                              isMutatingMonth ||
                               alreadyDeactivated ||
                               deactivating
                             }
@@ -726,7 +776,7 @@ export default function App() {
                                 !active ||
                                 !canSaveChanges ||
                                 saving ||
-                                isSavingGoalChange
+                                isMutatingMonth
                               }
                               title={goal.title}
                               onClick={() => void toggleCheck(goal.id, day.date)}
@@ -742,7 +792,7 @@ export default function App() {
                             savingMemos.includes(day.date),
                           )}
                           value={day.memo}
-                          disabled={!canSaveChanges || isSavingGoalChange}
+                          disabled={!canSaveChanges || isMutatingMonth}
                           onChange={(event) =>
                             updateMemo(day.date, event.target.value)
                           }
