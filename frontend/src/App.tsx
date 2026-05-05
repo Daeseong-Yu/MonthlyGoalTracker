@@ -118,9 +118,10 @@ export default function App() {
   const goalListReferenceDate = isCurrentMonth(month)
     ? currentDate()
     : monthStartDate(month);
-  const visibleGoals = goals.filter((goal) =>
-    isGoalVisibleInGoalList(goal, goalListReferenceDate),
+  const activeReferenceGoals = goals.filter((goal) =>
+    isGoalActiveInDisplay(goal, goalListReferenceDate),
   );
+  const visibleGoals = activeReferenceGoals;
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -567,17 +568,14 @@ export default function App() {
 
         <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
           <section className="rounded-lg border border-zinc-200 bg-white shadow-soft">
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+            <div className="border-b border-zinc-200 px-4 py-3">
               <h2 className="text-base font-semibold text-zinc-950">
                 날짜별 기록
               </h2>
-              <span className="text-xs font-medium text-zinc-500">
-                {days.length}일
-              </span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[48rem] table-fixed border-collapse text-left text-sm">
+            <div>
+              <table className="w-full table-fixed border-collapse text-left text-sm">
                 <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                   <tr>
                     <th className="sticky left-0 z-10 w-20 bg-zinc-50 px-3 py-2 font-semibold">
@@ -586,14 +584,9 @@ export default function App() {
                     <th className="w-56 px-2 py-2 font-semibold normal-case">
                       메모
                     </th>
-                    {goals.map((goal) => (
-                      <th
-                        key={goal.id}
-                        className="w-20 px-2 py-2 font-semibold normal-case text-zinc-600"
-                      >
-                        <span className="line-clamp-2">{goal.title}</span>
-                      </th>
-                    ))}
+                    <th className="px-2 py-2 font-semibold normal-case">
+                      할일
+                    </th>
                     <th className="w-16 px-2 py-2 text-right font-semibold normal-case">
                       완료
                     </th>
@@ -603,6 +596,9 @@ export default function App() {
                   {days.map((day) => {
                     const point = chartData.find(
                       (item) => item.date === day.date,
+                    );
+                    const activeGoals = goals.filter((goal) =>
+                      isGoalActiveOnDate(goal, day.date),
                     );
 
                     return (
@@ -633,48 +629,57 @@ export default function App() {
                             }
                           />
                         </td>
-                        {goals.map((goal) => {
-                          const active = isGoalActiveOnDate(goal, day.date);
-                          const checked =
-                            active &&
-                            checks.some(
-                              (check) =>
-                                check.goalId === goal.id &&
-                                check.date === day.date,
-                            );
-                          const saving = savingChecks.includes(
-                            checkKey(goal.id, day.date),
-                          );
+                        <td className="px-2 py-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {activeGoals.length === 0 ? (
+                              <span className="text-xs font-medium text-zinc-400">
+                                활성 목표 없음
+                              </span>
+                            ) : null}
+                            {activeGoals.map((goal) => {
+                              const checked = checks.some(
+                                (check) =>
+                                  check.goalId === goal.id &&
+                                  check.date === day.date,
+                              );
+                              const saving = savingChecks.includes(
+                                checkKey(goal.id, day.date),
+                              );
 
-                          return (
-                            <td key={goal.id} className="px-2 py-2">
-                              <button
-                                className={
-                                  active
-                                    ? checked
-                                      ? "check-button checked"
-                                      : "check-button"
-                                    : "check-button inactive"
-                                }
-                                type="button"
-                                aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
-                                aria-pressed={checked}
-                                disabled={
-                                  !active ||
-                                  !canSaveChanges ||
-                                  saving ||
-                                  isMutatingMonth
-                                }
-                                title={goal.title}
-                                onClick={() =>
-                                  void toggleCheck(goal.id, day.date)
-                                }
-                              >
-                                {checked ? <Check size={16} /> : null}
-                              </button>
-                            </td>
-                          );
-                        })}
+                              return (
+                                <span
+                                  className="inline-flex max-w-[9rem] items-center gap-1.5"
+                                  key={goal.id}
+                                >
+                                  <button
+                                    className={
+                                      checked
+                                        ? "check-button checked"
+                                        : "check-button"
+                                    }
+                                    type="button"
+                                    aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
+                                    aria-pressed={checked}
+                                    disabled={
+                                      !canSaveChanges ||
+                                      saving ||
+                                      isMutatingMonth
+                                    }
+                                    title={goal.title}
+                                    onClick={() =>
+                                      void toggleCheck(goal.id, day.date)
+                                    }
+                                  >
+                                    {checked ? <Check size={16} /> : null}
+                                  </button>
+                                  <span className="truncate text-xs font-medium text-zinc-600">
+                                    {goal.title}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
                         <td className="px-2 py-2 text-right text-xs font-semibold text-zinc-800">
                           {point?.completedCount ?? 0}/
                           {point?.activeGoalCount ?? 0}
@@ -959,8 +964,11 @@ function weekdayClassName(date: string) {
   return `${base} text-zinc-500`;
 }
 
-function isGoalVisibleInGoalList(goal: Goal, referenceDate: string) {
-  return goal.endDate === null || referenceDate < goal.endDate;
+function isGoalActiveInDisplay(goal: Goal, referenceDate: string) {
+  return (
+    goal.startDate <= referenceDate &&
+    (goal.endDate === null || referenceDate < goal.endDate)
+  );
 }
 
 function nextDate(date: string) {

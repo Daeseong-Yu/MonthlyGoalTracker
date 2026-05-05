@@ -223,7 +223,7 @@ describe("App", () => {
     stubFetch(() =>
       jsonResponse(
         buildMonthView("2026-05", {
-          goalCount: 5,
+          goalCount: 6,
           includeSunday: true,
         }),
       ),
@@ -238,16 +238,17 @@ describe("App", () => {
     expect(tableHeaders()).toEqual([
       "날짜",
       "메모",
-      "API walk",
-      "API read",
-      "API focus",
-      "API strength",
-      "API stretch",
+      "할일",
       "완료",
     ]);
+    expect(getHeading("날짜별 기록").parentElement?.textContent?.trim()).toBe(
+      "날짜별 기록",
+    );
     expect(getDailyRecordTable().className).toContain("table-fixed");
-    expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
+    expect(getDailyRecordTable().className).not.toContain("min-w-");
     expect(getButton("05.01 API stretch 완료")).toBeTruthy();
+    expect(getButton("05.02 API journal 완료")).toBeTruthy();
+    expect(getButton("05.01 API walk 완료")).toBeTruthy();
     expect(getWeekdayLabel("05.02").className).toContain("text-blue-600");
     expect(getWeekdayLabel("05.03").className).toContain("text-rose-600");
   });
@@ -489,6 +490,7 @@ function buildGoals(
     "API focus",
     "API strength",
     "API stretch",
+    "API journal",
   ];
   const goalCount = options.goalCount ?? 2;
 
