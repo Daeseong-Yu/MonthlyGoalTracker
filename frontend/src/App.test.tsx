@@ -5,8 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
-import { offsetMonth } from "./monthLogic";
-import type { MonthView } from "./types";
+import { isGoalActiveOnDate, offsetMonth } from "./monthLogic";
+import type { Goal, MonthView } from "./types";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -173,6 +173,39 @@ describe("App", () => {
       !requestPath(input).includes("/api/goals/1/deactivate"),
     )).toBe(true);
   });
+
+  it("keeps the daily table compact and marks weekends", async () => {
+    stubFetch(() =>
+      jsonResponse(
+        buildMonthView("2026-05", {
+          goalCount: 5,
+          includeSunday: true,
+        }),
+      ),
+    );
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
+      true,
+    );
+    expect(tableHeaders()).toEqual([
+      "날짜",
+      "메모",
+      "API walk",
+      "API read",
+      "API focus",
+      "API strength",
+      "API stretch",
+      "완료",
+    ]);
+    expect(getDailyRecordTable().className).toContain("table-fixed");
+    expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
+    expect(getButton("05.01 API stretch 완료")).toBeTruthy();
+    expect(getWeekdayLabel("05.02").className).toContain("text-blue-600");
+    expect(getWeekdayLabel("05.03").className).toContain("text-rose-600");
+  });
 });
 
 function renderApp() {
@@ -201,56 +234,64 @@ function stubFetch(
 
 function buildMonthView(
   month: string,
-  options: { firstGoalEndDate?: string | null } = {},
+  options: {
+    firstGoalEndDate?: string | null;
+    goalCount?: number;
+    includeSunday?: boolean;
+  } = {},
 ): MonthView {
+  const goals = buildGoals(month, options);
+  const days = buildDays(month, goals, options.includeSunday === true);
+
   return {
     month,
-    goals: [
-      {
-        id: 1,
-        title: "API walk",
-        startDate: `${month}-01`,
-        endDate: options.firstGoalEndDate ?? null,
-      },
-      {
-        id: 2,
-        title: "API read",
-        startDate: `${month}-02`,
-        endDate: null,
-      },
-    ],
-    days: [
-      {
-        date: `${month}-01`,
-        memo: "api memo",
-        activeGoalCount: 1,
-        completedCount: 1,
-        completionRate: 1,
-      },
-      {
-        date: `${month}-02`,
-        memo: "",
-        activeGoalCount: 2,
-        completedCount: 0,
-        completionRate: 0,
-      },
-    ],
+    goals,
+    days,
     checks: [{ goalId: 1, date: `${month}-01`, completed: true }],
-    chart: [
-      {
-        date: `${month}-01`,
-        activeGoalCount: 1,
-        completedCount: 1,
-        completionRate: 1,
-      },
-      {
-        date: `${month}-02`,
-        activeGoalCount: 2,
-        completedCount: 0,
-        completionRate: 0,
-      },
-    ],
+    chart: days,
   };
+}
+
+function buildGoals(
+  month: string,
+  options: { firstGoalEndDate?: string | null; goalCount?: number },
+) {
+  const titles = [
+    "API walk",
+    "API read",
+    "API focus",
+    "API strength",
+    "API stretch",
+  ];
+  const goalCount = options.goalCount ?? 2;
+
+  return titles.slice(0, goalCount).map<Goal>((title, index) => ({
+    id: index + 1,
+    title,
+    startDate: `${month}-${index === 1 ? "02" : "01"}`,
+    endDate: index === 0 ? options.firstGoalEndDate ?? null : null,
+  }));
+}
+
+function buildDays(month: string, goals: Goal[], includeSunday: boolean) {
+  const dayNumbers = includeSunday ? [1, 2, 3] : [1, 2];
+
+  return dayNumbers.map((dayNumber) => {
+    const date = `${month}-${String(dayNumber).padStart(2, "0")}`;
+    const activeGoalCount = goals.filter((goal) =>
+      isGoalActiveOnDate(goal, date),
+    ).length;
+    const completedCount = dayNumber === 1 ? 1 : 0;
+
+    return {
+      date,
+      memo: dayNumber === 1 ? "api memo" : "",
+      activeGoalCount,
+      completedCount,
+      completionRate:
+        activeGoalCount === 0 ? 0 : completedCount / activeGoalCount,
+    };
+  });
 }
 
 function jsonResponse(body: unknown) {
@@ -339,6 +380,58 @@ function getInput(label: string) {
   }
 
   return input;
+}
+
+function getHeading(text: string) {
+  const heading = Array.from(document.querySelectorAll("h2")).find(
+    (item) => item.textContent === text,
+  );
+
+  if (!heading) {
+    throw new Error(`expected heading ${text}`);
+  }
+
+  return heading;
+}
+
+function precedes(first: Element, second: Element) {
+  return Boolean(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+}
+
+function getDailyRecordTable() {
+  const table = document.querySelector("table");
+
+  if (!table) {
+    throw new Error("expected daily record table");
+  }
+
+  return table;
+}
+
+function tableHeaders() {
+  return Array.from(getDailyRecordTable().querySelectorAll("thead th")).map(
+    (header) => header.textContent?.trim() ?? "",
+  );
+}
+
+function getWeekdayLabel(shortDay: string) {
+  const dateCell = Array.from(
+    getDailyRecordTable().querySelectorAll("tbody th"),
+  ).find((cell) => cell.textContent?.includes(shortDay));
+
+  if (!dateCell) {
+    throw new Error(`expected date cell ${shortDay}`);
+  }
+
+  const weekdayLabel = dateCell.querySelector("span:nth-child(2)");
+
+  if (!weekdayLabel) {
+    throw new Error(`expected weekday label for ${shortDay}`);
+  }
+
+  return weekdayLabel;
 }
 
 function hasInputValue(value: string) {
