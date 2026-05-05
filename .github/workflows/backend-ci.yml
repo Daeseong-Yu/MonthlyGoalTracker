@@ -1,0 +1,57 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - backend/**
+      - .github/workflows/backend-ci.yml
+      - .github/workflows/deploy.yml
+      - scripts/verify.sh
+  push:
+    branches:
+      - feature/**
+      - develop
+    paths:
+      - backend/**
+      - .github/workflows/backend-ci.yml
+      - .github/workflows/deploy.yml
+      - scripts/verify.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build Linux binaries
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-api-linux-amd64 ./cmd/api
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-api-linux-arm64 ./cmd/api

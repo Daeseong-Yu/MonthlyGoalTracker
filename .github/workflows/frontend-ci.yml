@@ -1,10 +1,25 @@
-name: CI
+name: Frontend CI
 
 on:
   pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - frontend/**
+      - .github/workflows/frontend-ci.yml
+      - .github/workflows/deploy.yml
+      - scripts/verify.sh
   push:
     branches:
-      - main
+      - feature/**
+      - develop
+    paths:
+      - frontend/**
+      - .github/workflows/frontend-ci.yml
+      - .github/workflows/deploy.yml
+      - scripts/verify.sh
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,28 +29,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    defaults:
-      run:
-        working-directory: backend
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-
-      - name: Test
-        run: go test ./...
-
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

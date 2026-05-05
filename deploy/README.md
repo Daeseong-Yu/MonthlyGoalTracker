@@ -46,24 +46,27 @@ Expected build artifacts:
 /etc/caddy/Caddyfile
 ```
 
-## Deployment Steps
+## Pre-Deployment Setup
 
 1. Prepare the EC2 instance.
 
-   Install Git, Docker with the Compose plugin, Caddy, Go, Node.js, and pnpm.
-   Assign an Elastic IP and point your domain A record to that IP.
+   Install Git, Docker with the Compose plugin, Caddy, curl, rsync, and the
+   OpenSSH server. Assign an Elastic IP and point your domain A record to that
+   IP. Go, Node.js, and pnpm are not required on the EC2 host when GitHub
+   Actions performs production builds.
 
-2. Clone and build the app.
+2. Clone the deployment templates and create the application directories.
 
    ```sh
+   export DEPLOY_USER=<deploy-user>
+   sudo install -d -m 0755 -o "$DEPLOY_USER" -g "$DEPLOY_USER" /opt/monthly-goal-tracker
    git clone <repo-url> /opt/monthly-goal-tracker
-   cd /opt/monthly-goal-tracker
-   cd backend
-   go build -o monthly-goal-api ./cmd/api
-   cd ../frontend
-   pnpm install --frozen-lockfile
-   pnpm build
+   mkdir -p /opt/monthly-goal-tracker/backend/releases
+   mkdir -p /opt/monthly-goal-tracker/frontend/releases
    ```
+
+   The EC2 host keeps the deployment examples and Compose file from the
+   repository, but it does not build the application from source.
 
 3. Configure PostgreSQL.
 
@@ -95,9 +98,13 @@ Expected build artifacts:
    sudo useradd --system --no-create-home --shell /usr/sbin/nologin monthlygoal
    sudo cp deploy/monthly-goal-api.service.example /etc/systemd/system/monthly-goal-api.service
    sudo systemctl daemon-reload
-   sudo systemctl enable --now monthly-goal-api
-   sudo systemctl status monthly-goal-api
+   sudo systemctl enable monthly-goal-api
    ```
+
+   The first service start requires a deployed API binary at
+   `/opt/monthly-goal-tracker/backend/monthly-goal-api`. Let the first backend
+   deployment install the binary and start the service, or copy a locally built
+   binary to that path before running `sudo systemctl start monthly-goal-api`.
 
 5. Configure Caddy.
 
@@ -116,6 +123,64 @@ Expected build artifacts:
    sudo caddy validate --config /etc/caddy/Caddyfile
    sudo systemctl reload caddy
    ```
+
+## GitHub Actions CI/CD
+
+The repository uses separate workflows for backend CI, frontend CI, and
+production deployment.
+
+- `backend-ci.yml`: runs Go tests and a Linux binary build when `backend/**`,
+  the backend workflow, the deploy workflow, or `scripts/verify.sh` changes on
+  `feature/**` or `develop`, and on PRs to `develop` or `main`.
+- `frontend-ci.yml`: runs frontend tests and production build when
+  `frontend/**`, the frontend workflow, the deploy workflow, or
+  `scripts/verify.sh` changes on `feature/**` or `develop`, and on PRs to
+  `develop` or `main`.
+- `deploy.yml`: runs on `main` pushes and deploys only the changed component.
+  Manual dispatch can deploy `all`, `backend`, or `frontend`.
+  Changes outside `backend/**` and `frontend/**` do not automatically replace
+  production artifacts.
+
+Recommended branch flow:
+
+```text
+feature/* -> develop -> main -> production deploy
+```
+
+Configure these GitHub secrets before enabling production deployment:
+
+```text
+EC2_HOST
+EC2_USER
+EC2_SSH_PRIVATE_KEY
+EC2_SSH_KNOWN_HOSTS
+EC2_SSH_PORT # optional, defaults to 22
+```
+
+The deploy user should own `/opt/monthly-goal-tracker` so CI can replace build
+artifacts without broad passwordless sudo. It only needs passwordless sudo for
+the API restart:
+
+```text
+<deploy-user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart monthly-goal-api
+```
+
+Adjust `/usr/bin/systemctl` if `command -v systemctl` returns a different path
+on your EC2 image.
+
+Backend deployments build `linux/amd64` and `linux/arm64` binaries in GitHub
+Actions. The EC2 host selects the right binary with `uname -m`, installs it to
+`/opt/monthly-goal-tracker/backend/monthly-goal-api`, restarts systemd, checks
+`http://127.0.0.1:8080/api/health`, and restores the previous binary if the
+health check fails.
+
+Each deployment uses a release name derived from the commit SHA, workflow run,
+and run attempt so rerunning the same commit creates a fresh release directory.
+
+Frontend deployments build `frontend/dist` in GitHub Actions, upload it to a
+release directory under `/opt/monthly-goal-tracker/frontend/releases`, switch
+`/opt/monthly-goal-tracker/frontend/dist` to the new release, and keep the most
+recent five releases.
 
 ## Smoke Checks
 
