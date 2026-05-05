@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { isGoalActiveOnDate, offsetMonth } from "./monthLogic";
-import type { Goal, MonthView } from "./types";
+import type { Goal, GoalCheck, MonthView } from "./types";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -206,6 +206,132 @@ describe("App", () => {
     expect(getWeekdayLabel("05.02").className).toContain("text-blue-600");
     expect(getWeekdayLabel("05.03").className).toContain("text-rose-600");
   });
+
+  it("handles the core goal and daily record workflow", async () => {
+    let view: MonthView | null = null;
+    let nextGoalID = 3;
+    const fetchMock = stubFetch((input, init) => {
+      const path = requestPath(input);
+
+      if (path.endsWith("/goals")) {
+        const body = requestBody<{ title: string; startDate: string }>(init);
+        view = appendGoal(
+          view ?? buildMonthView(monthFromGoalCreatePath(path)),
+          nextGoalID,
+          body.title,
+          body.startDate,
+        );
+        nextGoalID += 1;
+        return okResponse();
+      }
+
+      if (path === "/api/goals/1") {
+        const body = requestBody<{ title: string }>(init);
+        view = updateGoalInView(requiredView(view), 1, body.title);
+        return okResponse();
+      }
+
+      if (path === "/api/checks") {
+        const body = requestBody<{
+          goalId: number;
+          date: string;
+          completed: boolean;
+        }>(init);
+        view = updateCheckInView(
+          requiredView(view),
+          body.goalId,
+          body.date,
+          body.completed,
+        );
+        return okResponse();
+      }
+
+      if (path.includes("/api/memos/")) {
+        const body = requestBody<{ memo: string }>(init);
+        view = updateMemoInView(
+          requiredView(view),
+          decodeURIComponent(path.split("/").pop() ?? ""),
+          body.memo,
+        );
+        return okResponse();
+      }
+
+      const month = monthFromRequest(input);
+      if (view === null || view.month !== month) {
+        view = buildMonthView(month);
+      }
+
+      return jsonResponse(view);
+    });
+
+    renderApp();
+    await waitForText("API 데이터");
+    const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
+    const secondDay = `${loadedMonth}-02`;
+
+    await clickButton("목표 추가");
+    await setInputValue("새 목표 제목", "API plan");
+    await clickButton("목표 저장");
+
+    await waitForText("API plan");
+    expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!requestPath(input).endsWith("/goals")) {
+        return false;
+      }
+
+      const body = requestBody<{ title: string; startDate: string }>(init);
+      return body.title === "API plan" && body.startDate === `${loadedMonth}-01`;
+    })).toBe(true);
+
+    await clickButton("API walk 수정");
+    await setInputValue("API walk 제목 수정", "API walk revised");
+    await clickButton("API walk 저장");
+
+    await waitForText("API walk revised");
+    expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (requestPath(input) !== "/api/goals/1") {
+        return false;
+      }
+
+      return requestBody<{ title: string }>(init).title === "API walk revised";
+    })).toBe(true);
+
+    await clickButton(`${shortDate(secondDay)} API read 완료`);
+
+    await waitFor(() =>
+      getButton(`${shortDate(secondDay)} API read 완료`).getAttribute(
+        "aria-pressed",
+      ) === "true",
+    );
+    expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (requestPath(input) !== "/api/checks") {
+        return false;
+      }
+
+      const body = requestBody<{
+        goalId: number;
+        date: string;
+        completed: boolean;
+      }>(init);
+      return body.goalId === 2 && body.date === secondDay && body.completed;
+    })).toBe(true);
+
+    await setInputValue(`${shortDate(secondDay)} 메모`, "follow-up");
+    await blurInput(`${shortDate(secondDay)} 메모`);
+
+    await waitFor(() =>
+      fetchMock.mock.calls.some(([input]) =>
+        requestPath(input).includes(`/api/memos/${secondDay}`),
+      ),
+    );
+    expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!requestPath(input).includes(`/api/memos/${secondDay}`)) {
+        return false;
+      }
+
+      return requestBody<{ memo: string }>(init).memo === "follow-up";
+    })).toBe(true);
+  });
 });
 
 function renderApp() {
@@ -294,6 +420,73 @@ function buildDays(month: string, goals: Goal[], includeSunday: boolean) {
   });
 }
 
+function appendGoal(
+  view: MonthView,
+  id: number,
+  title: string,
+  startDate: string,
+) {
+  return {
+    ...view,
+    goals: [...view.goals, { id, title, startDate, endDate: null }],
+  };
+}
+
+function updateGoalInView(view: MonthView, goalId: number, title: string) {
+  return {
+    ...view,
+    goals: view.goals.map((goal) =>
+      goal.id === goalId ? { ...goal, title } : goal,
+    ),
+  };
+}
+
+function updateCheckInView(
+  view: MonthView,
+  goalId: number,
+  date: string,
+  completed: boolean,
+) {
+  if (!completed) {
+    return {
+      ...view,
+      checks: view.checks.filter(
+        (check) => !(check.goalId === goalId && check.date === date),
+      ),
+    };
+  }
+
+  if (
+    view.checks.some((check) => check.goalId === goalId && check.date === date)
+  ) {
+    return view;
+  }
+
+  const check: GoalCheck = { goalId, date, completed: true };
+
+  return {
+    ...view,
+    checks: [...view.checks, check],
+  };
+}
+
+function updateMemoInView(view: MonthView, date: string, memo: string) {
+  return {
+    ...view,
+    days: view.days.map((day) =>
+      day.date === date ? { ...day, memo } : day,
+    ),
+  };
+}
+
+function requiredView(view: MonthView | null) {
+  if (view === null) {
+    throw new Error("expected loaded month view");
+  }
+
+  return view;
+}
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -322,8 +515,22 @@ function monthFromRequest(input: RequestInfo | URL) {
   return decodeURIComponent(match[1]);
 }
 
+function monthFromGoalCreatePath(path: string) {
+  const match = /\/api\/months\/([^/]+)\/goals$/.exec(path);
+
+  if (!match) {
+    throw new Error(`expected goal create API request, got ${path}`);
+  }
+
+  return decodeURIComponent(match[1]);
+}
+
 function shortFirstDayLabel(month: string) {
   return `${month.slice(5)}.01`;
+}
+
+function shortDate(date: string) {
+  return date.slice(5).replace("-", ".");
 }
 
 function requestPath(input: RequestInfo | URL) {
@@ -364,6 +571,12 @@ function getButton(label: string) {
   return button;
 }
 
+async function clickButton(label: string) {
+  await act(async () => {
+    getButton(label).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
 function queryButton(label: string) {
   return document.querySelector<HTMLButtonElement>(
     `button[aria-label="${label}"]`,
@@ -380,6 +593,25 @@ function getInput(label: string) {
   }
 
   return input;
+}
+
+async function setInputValue(label: string, value: string) {
+  const input = getInput(label);
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+
+  await act(async () => {
+    valueSetter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function blurInput(label: string) {
+  await act(async () => {
+    getInput(label).dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  });
 }
 
 function getHeading(text: string) {
@@ -441,16 +673,20 @@ function hasInputValue(value: string) {
 }
 
 function bodyEndDate(init: RequestInit | undefined) {
-  if (typeof init?.body !== "string") {
-    throw new Error("expected JSON request body");
-  }
-
-  const body = JSON.parse(init.body) as { endDate?: string };
+  const body = requestBody<{ endDate?: string }>(init);
   if (body.endDate === undefined) {
     throw new Error("expected endDate in request body");
   }
 
   return body.endDate;
+}
+
+function requestBody<T>(init: RequestInit | undefined) {
+  if (typeof init?.body !== "string") {
+    throw new Error("expected JSON request body");
+  }
+
+  return JSON.parse(init.body) as T;
 }
 
 function dateAfter(date: string | null) {
