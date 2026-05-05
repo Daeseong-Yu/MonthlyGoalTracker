@@ -86,6 +86,78 @@ describe("App", () => {
       offsetMonth(initialMonth, -1),
     );
   });
+
+  it("shows feedback after preparing the current month", async () => {
+    const fetchMock = stubFetch((input) =>
+      jsonResponse(buildMonthView(monthFromRequest(input))),
+    );
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    await act(async () => {
+      getButton("월 준비").dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    await waitForText("월 준비를 완료했습니다.");
+
+    expect(fetchMock.mock.calls.some(([input]) =>
+      requestPath(input).endsWith("/ensure"),
+    )).toBe(true);
+  });
+
+  it("shows feedback after ending a goal", async () => {
+    const fetchMock = stubFetch((input) => {
+      const path = requestPath(input);
+      if (path.includes("/api/goals/1/deactivate")) {
+        return okResponse();
+      }
+
+      return jsonResponse(buildMonthView(monthFromRequest(input)));
+    });
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    await act(async () => {
+      getButton("API walk 종료").dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    await waitForText("목표를 종료했습니다.");
+
+    expect(fetchMock.mock.calls.some(([input]) =>
+      requestPath(input).includes("/api/goals/1/deactivate"),
+    )).toBe(true);
+  });
+
+  it("shows feedback without an API call when a goal is already ended", async () => {
+    const fetchMock = stubFetch((input) =>
+      jsonResponse(
+        buildMonthView(monthFromRequest(input), {
+          firstGoalEndDate: "2026-05-01",
+        }),
+      ),
+    );
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    await act(async () => {
+      getButton("API walk 이미 종료됨").dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    await waitForText("이미 종료된 목표입니다.");
+
+    expect(fetchMock.mock.calls.every(([input]) =>
+      !requestPath(input).includes("/api/goals/1/deactivate"),
+    )).toBe(true);
+  });
 });
 
 function renderApp() {
@@ -112,7 +184,10 @@ function stubFetch(
   return fetchMock;
 }
 
-function buildMonthView(month: string): MonthView {
+function buildMonthView(
+  month: string,
+  options: { firstGoalEndDate?: string | null } = {},
+): MonthView {
   return {
     month,
     goals: [
@@ -120,7 +195,7 @@ function buildMonthView(month: string): MonthView {
         id: 1,
         title: "API walk",
         startDate: `${month}-01`,
-        endDate: null,
+        endDate: options.firstGoalEndDate ?? null,
       },
       {
         id: 2,
@@ -176,13 +251,12 @@ function errorResponse(status: number) {
   return new Response(null, { status });
 }
 
+function okResponse() {
+  return new Response(null, { status: 204 });
+}
+
 function monthFromRequest(input: RequestInfo | URL) {
-  const path =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.pathname
-        : input.url;
+  const path = requestPath(input);
   const match = /\/api\/months\/([^/]+)/.exec(path);
 
   if (!match) {
@@ -190,6 +264,14 @@ function monthFromRequest(input: RequestInfo | URL) {
   }
 
   return decodeURIComponent(match[1]);
+}
+
+function requestPath(input: RequestInfo | URL) {
+  return typeof input === "string"
+    ? input
+    : input instanceof URL
+      ? input.pathname
+      : input.url;
 }
 
 async function waitForText(text: string) {

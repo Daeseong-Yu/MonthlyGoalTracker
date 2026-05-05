@@ -66,6 +66,7 @@ export default function App() {
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [savingChecks, setSavingChecks] = useState<string[]>([]);
   const [savingMemos, setSavingMemos] = useState<string[]>([]);
   const [goalFormOpen, setGoalFormOpen] = useState(false);
@@ -126,6 +127,7 @@ export default function App() {
     setLoadStatus("loading");
     setLoadError(null);
     setSaveError(null);
+    setSaveMessage(null);
     setSavingChecks([]);
     setSavingMemos([]);
     setGoalFormOpen(false);
@@ -163,6 +165,7 @@ export default function App() {
     preparingMonthRef.current = true;
     setPreparingMonth(true);
     setSaveError(null);
+    setSaveMessage(null);
     setGoalFormOpen(false);
     cancelEditingGoal();
 
@@ -171,6 +174,9 @@ export default function App() {
       setMonthView((currentView) =>
         currentView.month === submittedMonth ? preparedView : currentView,
       );
+      if (activeMonthRef.current === submittedMonth) {
+        setSaveMessage("월 준비를 완료했습니다.");
+      }
     } catch {
       if (activeMonthRef.current === submittedMonth) {
         setSaveError("월 준비에 실패했습니다.");
@@ -202,6 +208,7 @@ export default function App() {
     );
 
     setSaveError(null);
+    setSaveMessage(null);
     setSavingChecks((currentKeys) => [...currentKeys, key]);
     setMonthView((currentView) =>
       applyCheckState(currentView, goalId, date, completed),
@@ -241,6 +248,7 @@ export default function App() {
     }
 
     setSaveError(null);
+    setSaveMessage(null);
     setSavingMemos((currentDates) => [...currentDates, date]);
 
     try {
@@ -275,6 +283,7 @@ export default function App() {
 
     const submittedMonth = month;
     setSaveError(null);
+    setSaveMessage(null);
     setSavingGoal(true);
 
     try {
@@ -303,6 +312,7 @@ export default function App() {
     }
 
     setSaveError(null);
+    setSaveMessage(null);
     setGoalFormOpen(false);
     setEditingGoalID(goal.id);
     setEditingGoalTitle(goal.title);
@@ -332,6 +342,7 @@ export default function App() {
     }
 
     setSaveError(null);
+    setSaveMessage(null);
     setSavingGoalTitle(true);
 
     try {
@@ -358,14 +369,15 @@ export default function App() {
 
   async function deactivateGoalFromMonth(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 목표를 비활성화할 수 있습니다.");
+      setSaveError("API 데이터에서만 목표를 종료할 수 있습니다.");
       return;
     }
 
     const submittedMonth = month;
     const endDate = deactivationDateForGoal(goal, submittedMonth);
     if (goal.endDate !== null && goal.endDate <= endDate) {
-      setSaveError("이미 비활성화된 목표입니다.");
+      setSaveError("이미 종료된 목표입니다.");
+      setSaveMessage(null);
       return;
     }
 
@@ -374,13 +386,14 @@ export default function App() {
     }
 
     setSaveError(null);
+    setSaveMessage(null);
 
     try {
       try {
         await deactivateGoal(goal.id, endDate);
       } catch {
         if (activeMonthRef.current === submittedMonth) {
-          setSaveError("목표 비활성화에 실패했습니다.");
+          setSaveError("목표 종료에 실패했습니다.");
         }
         return;
       }
@@ -390,10 +403,13 @@ export default function App() {
           ? applyGoalEndDateState(currentView, goal.id, endDate)
           : currentView,
       );
-      await refreshMonthView(
+      const refreshed = await refreshMonthView(
         submittedMonth,
-        "목표를 비활성화했지만 화면 갱신에 실패했습니다.",
+        "목표를 종료했지만 화면 갱신에 실패했습니다.",
       );
+      if (refreshed && activeMonthRef.current === submittedMonth) {
+        setSaveMessage("목표를 종료했습니다.");
+      }
     } finally {
       unmarkGoalDeactivating(goal.id);
     }
@@ -414,16 +430,21 @@ export default function App() {
     setDeactivatingGoalIDs([...deactivatingGoalIDSetRef.current]);
   }
 
-  async function refreshMonthView(submittedMonth: string, failureMessage: string) {
+  async function refreshMonthView(
+    submittedMonth: string,
+    failureMessage: string,
+  ) {
     try {
       const refreshedView = await getMonthView(submittedMonth);
       setMonthView((currentView) =>
         currentView.month === submittedMonth ? refreshedView : currentView,
       );
+      return true;
     } catch {
       if (activeMonthRef.current === submittedMonth) {
         setSaveError(failureMessage);
       }
+      return false;
     }
   }
 
@@ -452,6 +473,14 @@ export default function App() {
             {saveError ? (
               <p className="mt-2 text-xs font-medium text-rose-700" role="alert">
                 {saveError}
+              </p>
+            ) : null}
+            {saveMessage ? (
+              <p
+                className="mt-2 text-xs font-medium text-teal-700"
+                role="status"
+              >
+                {saveMessage}
               </p>
             ) : null}
           </div>
@@ -672,18 +701,17 @@ export default function App() {
                             type="button"
                             aria-label={
                               alreadyDeactivated
-                                ? `${goal.title} 이미 비활성화됨`
-                                : `${goal.title} 비활성화`
+                                ? `${goal.title} 이미 종료됨`
+                                : `${goal.title} 종료`
                             }
                             title={
                               alreadyDeactivated
-                                ? "이미 비활성화됨"
-                                : `목표 비활성화 (${shortDate(deactivationDate)}까지 활성)`
+                                ? "이미 종료됨"
+                                : `목표 종료 (${shortDate(deactivationDate)}까지 활성)`
                             }
                             disabled={
                               !canSaveChanges ||
                               isMutatingMonth ||
-                              alreadyDeactivated ||
                               deactivating
                             }
                             onClick={() => void deactivateGoalFromMonth(goal)}
