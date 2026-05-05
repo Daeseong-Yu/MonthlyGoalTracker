@@ -160,7 +160,7 @@ export default function App() {
 
   async function prepareCurrentMonth() {
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 목표를 이월할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 목표를 이월할 수 있습니다.");
       return;
     }
 
@@ -186,7 +186,7 @@ export default function App() {
       }
     } catch {
       if (activeMonthRef.current === submittedMonth) {
-        setSaveError("목표 이월에 실패했습니다.");
+        setSaveFailure("목표 이월에 실패했습니다.");
       }
     } finally {
       preparingMonthRef.current = false;
@@ -201,7 +201,7 @@ export default function App() {
     }
 
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 체크를 저장할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 체크를 저장할 수 있습니다.");
       return;
     }
 
@@ -227,7 +227,7 @@ export default function App() {
       setMonthView((currentView) =>
         applyCheckState(currentView, goalId, date, !completed),
       );
-      setSaveError("체크 저장에 실패했습니다.");
+      setSaveFailure("체크 저장에 실패했습니다.");
     } finally {
       setSavingChecks((currentKeys) =>
         currentKeys.filter((currentKey) => currentKey !== key),
@@ -246,7 +246,7 @@ export default function App() {
 
   async function saveMemoForDate(date: string, memo: string) {
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 메모를 저장할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 메모를 저장할 수 있습니다.");
       return;
     }
 
@@ -261,7 +261,7 @@ export default function App() {
     try {
       await saveMemo(date, memo);
     } catch {
-      setSaveError("메모 저장에 실패했습니다.");
+      setSaveFailure("메모 저장에 실패했습니다.");
     } finally {
       setSavingMemos((currentDates) =>
         currentDates.filter((currentDate) => currentDate !== date),
@@ -273,18 +273,23 @@ export default function App() {
     event.preventDefault();
 
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 목표를 추가할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 목표를 추가할 수 있습니다.");
+      return;
+    }
+
+    if (isMutatingMonth) {
+      setSaveFailure("다른 저장 작업이 끝난 뒤 다시 시도해 주세요.");
       return;
     }
 
     const trimmedTitle = newGoalTitle.trim();
     if (trimmedTitle === "") {
-      setSaveError("목표 제목을 입력해 주세요.");
+      setSaveFailure("목표 제목을 입력해 주세요.");
       return;
     }
 
     if (!newGoalStartDate.startsWith(`${month}-`)) {
-      setSaveError("시작일은 선택한 월 안에서 골라 주세요.");
+      setSaveFailure("시작일은 선택한 월 안에서 골라 주세요.");
       return;
     }
 
@@ -296,7 +301,7 @@ export default function App() {
     try {
       await createGoal(submittedMonth, trimmedTitle, newGoalStartDate);
     } catch {
-      setSaveError("목표 추가에 실패했습니다.");
+      setSaveFailure("목표 추가에 실패했습니다.");
       setSavingGoal(false);
       return;
     }
@@ -314,7 +319,7 @@ export default function App() {
 
   function startEditingGoal(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 목표를 수정할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 목표를 수정할 수 있습니다.");
       return;
     }
 
@@ -337,14 +342,19 @@ export default function App() {
     event.preventDefault();
 
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 목표를 수정할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 목표를 수정할 수 있습니다.");
+      return;
+    }
+
+    if (isMutatingMonth) {
+      setSaveFailure("다른 저장 작업이 끝난 뒤 다시 시도해 주세요.");
       return;
     }
 
     const trimmedTitle = editingGoalTitle.trim();
     const submittedMonth = month;
     if (trimmedTitle === "") {
-      setSaveError("목표 제목을 입력해 주세요.");
+      setSaveFailure("목표 제목을 입력해 주세요.");
       return;
     }
 
@@ -355,7 +365,7 @@ export default function App() {
     try {
       await updateGoalTitle(goalID, trimmedTitle);
     } catch {
-      setSaveError("목표 수정에 실패했습니다.");
+      setSaveFailure("목표 수정에 실패했습니다.");
       setSavingGoalTitle(false);
       return;
     }
@@ -376,15 +386,14 @@ export default function App() {
 
   async function deactivateGoalFromMonth(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 목표를 종료할 수 있습니다.");
+      setSaveFailure("API 데이터에서만 목표를 종료할 수 있습니다.");
       return;
     }
 
     const submittedMonth = month;
     const endDate = deactivationDateForGoal(goal, submittedMonth);
     if (goal.endDate !== null && goal.endDate <= goalListReferenceDate) {
-      setSaveError("이미 종료된 목표입니다.");
-      setSaveMessage(null);
+      setSaveFailure("이미 종료된 목표입니다.");
       return;
     }
 
@@ -400,7 +409,7 @@ export default function App() {
         await deactivateGoal(goal.id, endDate);
       } catch {
         if (activeMonthRef.current === submittedMonth) {
-          setSaveError("목표 종료에 실패했습니다.");
+          setSaveFailure("목표 종료에 실패했습니다.");
         }
         return;
       }
@@ -453,10 +462,15 @@ export default function App() {
       return true;
     } catch {
       if (activeMonthRef.current === submittedMonth) {
-        setSaveError(failureMessage);
+        setSaveFailure(failureMessage);
       }
       return false;
     }
+  }
+
+  function setSaveFailure(message: string) {
+    setSaveError(message);
+    setSaveMessage(null);
   }
 
   return (
@@ -606,7 +620,11 @@ export default function App() {
                             )}
                             aria-label={`${shortDate(day.date)} 메모`}
                             value={day.memo}
-                            disabled={!canSaveChanges || isMutatingMonth}
+                            disabled={
+                              !canSaveChanges ||
+                              isMutatingMonth ||
+                              savingMemos.includes(day.date)
+                            }
                             onChange={(event) =>
                               updateMemo(day.date, event.target.value)
                             }
@@ -696,7 +714,7 @@ export default function App() {
                     className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                     aria-label="새 목표 제목"
                     value={newGoalTitle}
-                    disabled={savingGoal}
+                    disabled={isMutatingMonth}
                     placeholder="새 목표"
                     onChange={(event) => setNewGoalTitle(event.target.value)}
                   />
@@ -708,7 +726,7 @@ export default function App() {
                       min={monthStartDate(month)}
                       max={monthEndDate(month)}
                       value={newGoalStartDate}
-                      disabled={savingGoal}
+                      disabled={isMutatingMonth}
                       onChange={(event) =>
                         setNewGoalStartDate(event.target.value)
                       }
@@ -718,7 +736,7 @@ export default function App() {
                       type="submit"
                       aria-label="목표 저장"
                       title="목표 저장"
-                      disabled={savingGoal}
+                      disabled={isMutatingMonth}
                     >
                       <Plus size={18} />
                     </button>
@@ -754,7 +772,7 @@ export default function App() {
                             className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                             aria-label={`${goal.title} 제목 수정`}
                             value={editingGoalTitle}
-                            disabled={savingGoalTitle}
+                            disabled={isMutatingMonth}
                             onChange={(event) =>
                               setEditingGoalTitle(event.target.value)
                             }
@@ -769,7 +787,7 @@ export default function App() {
                                 type="submit"
                                 aria-label={`${goal.title} 저장`}
                                 title="목표 저장"
-                                disabled={savingGoalTitle}
+                                disabled={isMutatingMonth}
                               >
                                 <Check size={15} />
                               </button>
@@ -778,7 +796,7 @@ export default function App() {
                                 type="button"
                                 aria-label={`${goal.title} 수정 취소`}
                                 title="수정 취소"
-                                disabled={savingGoalTitle}
+                                disabled={isMutatingMonth}
                                 onClick={cancelEditingGoal}
                               >
                                 <X size={15} />

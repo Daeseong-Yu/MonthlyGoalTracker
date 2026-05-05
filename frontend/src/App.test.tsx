@@ -108,6 +108,51 @@ describe("App", () => {
     )).toBe(true);
   });
 
+  it("clears stale success feedback when validation fails", async () => {
+    stubFetch((input) => jsonResponse(buildMonthView(monthFromRequest(input))));
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    await clickButton("목표 이월");
+    await waitForText("목표를 이월했습니다.");
+
+    await clickButton("목표 추가");
+    await clickButton("목표 저장");
+
+    await waitForText("목표 제목을 입력해 주세요.");
+    expect(document.body.textContent).not.toContain("목표를 이월했습니다.");
+  });
+
+  it("disables memo editing while a memo save is pending", async () => {
+    let resolveMemoSave: (() => void) | null = null;
+    stubFetch((input) => {
+      const path = requestPath(input);
+
+      if (path.includes("/api/memos/")) {
+        return pendingResponse((resolve) => {
+          resolveMemoSave = resolve;
+        });
+      }
+
+      return jsonResponse(buildMonthView(monthFromRequest(input)));
+    });
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    await setInputValue("05.01 메모", "saving memo");
+    await blurInput("05.01 메모");
+
+    await waitFor(() => getInput("05.01 메모").disabled);
+
+    await act(async () => {
+      resolveMemoSave?.();
+    });
+
+    await waitFor(() => !getInput("05.01 메모").disabled);
+  });
+
   it("shows feedback after ending a goal", async () => {
     let endedDate: string | null = null;
     const fetchMock = stubFetch((input, init) => {
@@ -402,7 +447,10 @@ function renderApp() {
 }
 
 function stubFetch(
-  handler: (input: RequestInfo | URL, init?: RequestInit) => Response,
+  handler: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>,
 ) {
   const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) =>
     handler(input, init),
@@ -555,6 +603,12 @@ function errorResponse(status: number) {
 
 function okResponse() {
   return new Response(null, { status: 204 });
+}
+
+function pendingResponse(captureResolve: (resolve: () => void) => void) {
+  return new Promise<Response>((resolve) => {
+    captureResolve(() => resolve(okResponse()));
+  });
 }
 
 function monthFromRequest(input: RequestInfo | URL) {
