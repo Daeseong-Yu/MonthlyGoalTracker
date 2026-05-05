@@ -29,7 +29,7 @@
   }
 
   .check-button {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 bg-white text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed;
+    @apply inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-300 bg-white text-teal-700 transition hover:border-teal-500 hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed;
   }
 
   .check-button.checked {

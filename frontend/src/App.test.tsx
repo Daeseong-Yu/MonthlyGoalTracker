@@ -60,7 +60,7 @@ describe("App", () => {
     expect(document.body.textContent).toContain(
       "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
     );
-    expect(getButton("월 준비").disabled).toBe(true);
+    expect(getButton("목표 이월").disabled).toBe(true);
     expect(getButton("목표 추가").disabled).toBe(true);
   });
 
@@ -87,7 +87,7 @@ describe("App", () => {
     );
   });
 
-  it("shows feedback after preparing the current month", async () => {
+  it("shows feedback after carrying goals into the current month", async () => {
     const fetchMock = stubFetch((input) =>
       jsonResponse(buildMonthView(monthFromRequest(input))),
     );
@@ -96,12 +96,12 @@ describe("App", () => {
     await waitForText("API 데이터");
 
     await act(async () => {
-      getButton("월 준비").dispatchEvent(
+      getButton("목표 이월").dispatchEvent(
         new MouseEvent("click", { bubbles: true }),
       );
     });
 
-    await waitForText("월 준비를 완료했습니다.");
+    await waitForText("목표를 이월했습니다.");
 
     expect(fetchMock.mock.calls.some(([input]) =>
       requestPath(input).endsWith("/ensure"),
@@ -109,17 +109,24 @@ describe("App", () => {
   });
 
   it("shows feedback after ending a goal", async () => {
-    const fetchMock = stubFetch((input) => {
+    let endedDate: string | null = null;
+    const fetchMock = stubFetch((input, init) => {
       const path = requestPath(input);
       if (path.includes("/api/goals/1/deactivate")) {
+        endedDate = bodyEndDate(init);
         return okResponse();
       }
 
-      return jsonResponse(buildMonthView(monthFromRequest(input)));
+      return jsonResponse(
+        buildMonthView(monthFromRequest(input), {
+          firstGoalEndDate: endedDate,
+        }),
+      );
     });
 
     renderApp();
     await waitForText("API 데이터");
+    const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
     await act(async () => {
       getButton("API walk 종료").dispatchEvent(
@@ -132,27 +139,35 @@ describe("App", () => {
     expect(fetchMock.mock.calls.some(([input]) =>
       requestPath(input).includes("/api/goals/1/deactivate"),
     )).toBe(true);
+    expect(queryButton("API walk 종료")).toBeNull();
+    expect(getButton(`${shortFirstDayLabel(loadedMonth)} API walk 완료`))
+      .toBeTruthy();
+
+    await act(async () => {
+      getButton("목표 추가").dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(getInput("새 목표 시작일").value).toBe(dateAfter(endedDate));
   });
 
-  it("shows feedback without an API call when a goal is already ended", async () => {
+  it("hides an already ended goal from cards while preserving table history", async () => {
     const fetchMock = stubFetch((input) =>
       jsonResponse(
         buildMonthView(monthFromRequest(input), {
-          firstGoalEndDate: "2026-05-01",
+          firstGoalEndDate: `${monthFromRequest(input)}-01`,
         }),
       ),
     );
 
     renderApp();
     await waitForText("API 데이터");
+    const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
-    await act(async () => {
-      getButton("API walk 이미 종료됨").dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
-
-    await waitForText("이미 종료된 목표입니다.");
+    expect(queryButton("API walk 종료")).toBeNull();
+    expect(getButton(`${shortFirstDayLabel(loadedMonth)} API walk 완료`))
+      .toBeTruthy();
 
     expect(fetchMock.mock.calls.every(([input]) =>
       !requestPath(input).includes("/api/goals/1/deactivate"),
@@ -266,6 +281,10 @@ function monthFromRequest(input: RequestInfo | URL) {
   return decodeURIComponent(match[1]);
 }
 
+function shortFirstDayLabel(month: string) {
+  return `${month.slice(5)}.01`;
+}
+
 function requestPath(input: RequestInfo | URL) {
   return typeof input === "string"
     ? input
@@ -295,9 +314,7 @@ async function waitFor(assertion: () => boolean) {
 }
 
 function getButton(label: string) {
-  const button = document.querySelector<HTMLButtonElement>(
-    `button[aria-label="${label}"]`,
-  );
+  const button = queryButton(label);
 
   if (!button) {
     throw new Error(`expected button with aria-label ${label}`);
@@ -306,8 +323,52 @@ function getButton(label: string) {
   return button;
 }
 
+function queryButton(label: string) {
+  return document.querySelector<HTMLButtonElement>(
+    `button[aria-label="${label}"]`,
+  );
+}
+
+function getInput(label: string) {
+  const input = document.querySelector<HTMLInputElement>(
+    `input[aria-label="${label}"]`,
+  );
+
+  if (!input) {
+    throw new Error(`expected input with aria-label ${label}`);
+  }
+
+  return input;
+}
+
 function hasInputValue(value: string) {
   return Array.from(document.querySelectorAll("input")).some(
     (input) => input.value === value,
   );
+}
+
+function bodyEndDate(init: RequestInit | undefined) {
+  if (typeof init?.body !== "string") {
+    throw new Error("expected JSON request body");
+  }
+
+  const body = JSON.parse(init.body) as { endDate?: string };
+  if (body.endDate === undefined) {
+    throw new Error("expected endDate in request body");
+  }
+
+  return body.endDate;
+}
+
+function dateAfter(date: string | null) {
+  if (date === null) {
+    throw new Error("expected date");
+  }
+
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(next.getDate()).padStart(2, "0")}`;
 }

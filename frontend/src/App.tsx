@@ -35,6 +35,7 @@ import {
   applyGoalEndDateState,
   applyGoalTitleState,
   buildChartData,
+  currentDate,
   currentMonth,
   deactivationDateForGoal,
   getReferencePoint,
@@ -114,6 +115,12 @@ export default function App() {
     savingGoalTitle ||
     preparingMonth ||
     deactivatingGoalIDs.length > 0;
+  const goalListReferenceDate = isCurrentMonth(month)
+    ? currentDate()
+    : monthStartDate(month);
+  const visibleGoals = goals.filter((goal) =>
+    isGoalVisibleInGoalList(goal, goalListReferenceDate),
+  );
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -153,7 +160,7 @@ export default function App() {
 
   async function prepareCurrentMonth() {
     if (!canSaveChanges) {
-      setSaveError("API 데이터에서만 월을 준비할 수 있습니다.");
+      setSaveError("API 데이터에서만 목표를 이월할 수 있습니다.");
       return;
     }
 
@@ -175,11 +182,11 @@ export default function App() {
         currentView.month === submittedMonth ? preparedView : currentView,
       );
       if (activeMonthRef.current === submittedMonth) {
-        setSaveMessage("월 준비를 완료했습니다.");
+        setSaveMessage("목표를 이월했습니다.");
       }
     } catch {
       if (activeMonthRef.current === submittedMonth) {
-        setSaveError("월 준비에 실패했습니다.");
+        setSaveError("목표 이월에 실패했습니다.");
       }
     } finally {
       preparingMonthRef.current = false;
@@ -375,7 +382,7 @@ export default function App() {
 
     const submittedMonth = month;
     const endDate = deactivationDateForGoal(goal, submittedMonth);
-    if (goal.endDate !== null && goal.endDate <= endDate) {
+    if (goal.endDate !== null && goal.endDate <= goalListReferenceDate) {
       setSaveError("이미 종료된 목표입니다.");
       setSaveMessage(null);
       return;
@@ -403,6 +410,10 @@ export default function App() {
           ? applyGoalEndDateState(currentView, goal.id, endDate)
           : currentView,
       );
+      const replacementStartDate = nextDate(endDate);
+      if (replacementStartDate <= monthEndDate(submittedMonth)) {
+        setNewGoalStartDate(replacementStartDate);
+      }
       const refreshed = await refreshMonthView(
         submittedMonth,
         "목표를 종료했지만 화면 갱신에 실패했습니다.",
@@ -520,8 +531,8 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
-              aria-label="월 준비"
-              title="월 준비"
+              aria-label="목표 이월"
+              title="목표 이월"
               disabled={!canSaveChanges || isMutatingMonth}
               onClick={() => void prepareCurrentMonth()}
             >
@@ -540,304 +551,317 @@ export default function App() {
           />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
-            <div className="mb-4 flex items-center justify-between gap-3">
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <section className="rounded-lg border border-zinc-200 bg-white shadow-soft">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
               <h2 className="text-base font-semibold text-zinc-950">
-                일별 완료 개수
+                날짜별 기록
               </h2>
-              <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">
-                {goals.length}개 목표
+              <span className="text-xs font-medium text-zinc-500">
+                {days.length}일
               </span>
             </div>
-            <ChartErrorBoundary resetKey={month}>
-              <Suspense
-                fallback={
-                  <div
-                    className="h-72 min-h-72"
-                    role="status"
-                    aria-label="차트 불러오는 중"
-                  />
-                }
-              >
-                <DailyCompletionChart data={chartData} />
-              </Suspense>
-            </ChartErrorBoundary>
-          </div>
 
-          <aside className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-zinc-950">목표</h2>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="목표 추가"
-                title="목표 추가"
-                disabled={!canSaveChanges || isMutatingMonth}
-                onClick={() => {
-                  cancelEditingGoal();
-                  setGoalFormOpen((open) => !open);
-                }}
-              >
-                <Plus size={18} />
-              </button>
-            </div>
-            {goalFormOpen ? (
-              <form
-                className="mb-4 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3"
-                onSubmit={(event) => void submitNewGoal(event)}
-              >
-                <input
-                  className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  aria-label="새 목표 제목"
-                  value={newGoalTitle}
-                  disabled={savingGoal}
-                  placeholder="새 목표"
-                  onChange={(event) => setNewGoalTitle(event.target.value)}
-                />
-                <div className="flex gap-2">
-                  <input
-                    className="h-9 min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    type="date"
-                    aria-label="새 목표 시작일"
-                    min={monthStartDate(month)}
-                    max={monthEndDate(month)}
-                    value={newGoalStartDate}
-                    disabled={savingGoal}
-                    onChange={(event) =>
-                      setNewGoalStartDate(event.target.value)
-                    }
-                  />
-                  <button
-                    className="icon-button"
-                    type="submit"
-                    aria-label="목표 저장"
-                    title="목표 저장"
-                    disabled={savingGoal}
-                  >
-                    <Plus size={18} />
-                  </button>
-                </div>
-              </form>
-            ) : null}
-            <div className="space-y-3">
-              {goals.map((goal) => {
-                const deactivationDate = deactivationDateForGoal(goal, month);
-                const alreadyDeactivated =
-                  goal.endDate !== null && goal.endDate <= deactivationDate;
-                const deactivating = deactivatingGoalIDs.includes(goal.id);
-
-                return (
-                  <div
-                    key={goal.id}
-                    className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
-                  >
-                    {editingGoalID === goal.id ? (
-                      <form
-                        className="space-y-2"
-                        onSubmit={(event) =>
-                          void submitGoalTitle(event, goal.id)
-                        }
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[48rem] table-fixed border-collapse text-left text-sm">
+                <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+                  <tr>
+                    <th className="sticky left-0 z-10 w-20 bg-zinc-50 px-3 py-2 font-semibold">
+                      날짜
+                    </th>
+                    <th className="w-56 px-2 py-2 font-semibold normal-case">
+                      메모
+                    </th>
+                    {goals.map((goal) => (
+                      <th
+                        key={goal.id}
+                        className="w-20 px-2 py-2 font-semibold normal-case text-zinc-600"
                       >
-                        <input
-                          className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                          aria-label={`${goal.title} 제목 수정`}
-                          value={editingGoalTitle}
-                          disabled={savingGoalTitle}
-                          onChange={(event) =>
-                            setEditingGoalTitle(event.target.value)
+                        <span className="line-clamp-2">{goal.title}</span>
+                      </th>
+                    ))}
+                    <th className="w-16 px-2 py-2 text-right font-semibold normal-case">
+                      완료
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {days.map((day) => {
+                    const point = chartData.find(
+                      (item) => item.date === day.date,
+                    );
+
+                    return (
+                      <tr key={day.date} className="hover:bg-[#f6fbf8]">
+                        <th className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-zinc-800">
+                          <span className="block">{shortDate(day.date)}</span>
+                          <span className={weekdayClassName(day.date)}>
+                            {weekday(day.date)}
+                          </span>
+                        </th>
+                        <td className="px-2 py-2">
+                          <input
+                            className={memoInputClassName(
+                              savingMemos.includes(day.date),
+                            )}
+                            aria-label={`${shortDate(day.date)} 메모`}
+                            value={day.memo}
+                            disabled={!canSaveChanges || isMutatingMonth}
+                            onChange={(event) =>
+                              updateMemo(day.date, event.target.value)
+                            }
+                            onBlur={(event) =>
+                              void saveMemoForDate(day.date, event.target.value)
+                            }
+                          />
+                        </td>
+                        {goals.map((goal) => {
+                          const active = isGoalActiveOnDate(goal, day.date);
+                          const checked =
+                            active &&
+                            checks.some(
+                              (check) =>
+                                check.goalId === goal.id &&
+                                check.date === day.date,
+                            );
+                          const saving = savingChecks.includes(
+                            checkKey(goal.id, day.date),
+                          );
+
+                          return (
+                            <td key={goal.id} className="px-2 py-2">
+                              <button
+                                className={
+                                  active
+                                    ? checked
+                                      ? "check-button checked"
+                                      : "check-button"
+                                    : "check-button inactive"
+                                }
+                                type="button"
+                                aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
+                                aria-pressed={checked}
+                                disabled={
+                                  !active ||
+                                  !canSaveChanges ||
+                                  saving ||
+                                  isMutatingMonth
+                                }
+                                title={goal.title}
+                                onClick={() =>
+                                  void toggleCheck(goal.id, day.date)
+                                }
+                              >
+                                {checked ? <Check size={16} /> : null}
+                              </button>
+                            </td>
+                          );
+                        })}
+                        <td className="px-2 py-2 text-right text-xs font-semibold text-zinc-800">
+                          {point?.completedCount ?? 0}/
+                          {point?.activeGoalCount ?? 0}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside className="space-y-6">
+            <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-zinc-950">목표</h2>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="목표 추가"
+                  title="목표 추가"
+                  disabled={!canSaveChanges || isMutatingMonth}
+                  onClick={() => {
+                    cancelEditingGoal();
+                    setGoalFormOpen((open) => !open);
+                  }}
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+              {goalFormOpen ? (
+                <form
+                  className="mb-4 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                  onSubmit={(event) => void submitNewGoal(event)}
+                >
+                  <input
+                    className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    aria-label="새 목표 제목"
+                    value={newGoalTitle}
+                    disabled={savingGoal}
+                    placeholder="새 목표"
+                    onChange={(event) => setNewGoalTitle(event.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      className="h-9 min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      type="date"
+                      aria-label="새 목표 시작일"
+                      min={monthStartDate(month)}
+                      max={monthEndDate(month)}
+                      value={newGoalStartDate}
+                      disabled={savingGoal}
+                      onChange={(event) =>
+                        setNewGoalStartDate(event.target.value)
+                      }
+                    />
+                    <button
+                      className="icon-button"
+                      type="submit"
+                      aria-label="목표 저장"
+                      title="목표 저장"
+                      disabled={savingGoal}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+              <div className="space-y-3">
+                {visibleGoals.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm font-medium text-zinc-500">
+                    진행 중인 목표가 없습니다.
+                  </p>
+                ) : null}
+                {visibleGoals.map((goal) => {
+                  const deactivationDate = deactivationDateForGoal(goal, month);
+                  const alreadyDeactivated =
+                    goal.endDate !== null &&
+                    goal.endDate <= goalListReferenceDate;
+                  const deactivating = deactivatingGoalIDs.includes(goal.id);
+
+                  return (
+                    <div
+                      key={goal.id}
+                      className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+                    >
+                      {editingGoalID === goal.id ? (
+                        <form
+                          className="space-y-2"
+                          onSubmit={(event) =>
+                            void submitGoalTitle(event, goal.id)
                           }
-                        />
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="min-w-0 truncate text-xs text-zinc-500">
-                            {formatGoalPeriod(goal)}
-                          </p>
+                        >
+                          <input
+                            className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                            aria-label={`${goal.title} 제목 수정`}
+                            value={editingGoalTitle}
+                            disabled={savingGoalTitle}
+                            onChange={(event) =>
+                              setEditingGoalTitle(event.target.value)
+                            }
+                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="min-w-0 truncate text-xs text-zinc-500">
+                              {formatGoalPeriod(goal)}
+                            </p>
+                            <div className="flex shrink-0 gap-1">
+                              <button
+                                className="mini-icon-button"
+                                type="submit"
+                                aria-label={`${goal.title} 저장`}
+                                title="목표 저장"
+                                disabled={savingGoalTitle}
+                              >
+                                <Check size={15} />
+                              </button>
+                              <button
+                                className="mini-icon-button"
+                                type="button"
+                                aria-label={`${goal.title} 수정 취소`}
+                                title="수정 취소"
+                                disabled={savingGoalTitle}
+                                onClick={cancelEditingGoal}
+                              >
+                                <X size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-zinc-950">
+                              {goal.title}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {formatGoalPeriod(goal)}
+                            </p>
+                          </div>
                           <div className="flex shrink-0 gap-1">
                             <button
                               className="mini-icon-button"
-                              type="submit"
-                              aria-label={`${goal.title} 저장`}
-                              title="목표 저장"
-                              disabled={savingGoalTitle}
+                              type="button"
+                              aria-label={`${goal.title} 수정`}
+                              title="목표 수정"
+                              disabled={!canSaveChanges || isMutatingMonth}
+                              onClick={() => startEditingGoal(goal)}
                             >
-                              <Check size={15} />
+                              <Pencil size={15} />
                             </button>
                             <button
                               className="mini-icon-button"
                               type="button"
-                              aria-label={`${goal.title} 수정 취소`}
-                              title="수정 취소"
-                              disabled={savingGoalTitle}
-                              onClick={cancelEditingGoal}
+                              aria-label={
+                                alreadyDeactivated
+                                  ? `${goal.title} 이미 종료됨`
+                                  : `${goal.title} 종료`
+                              }
+                              title={
+                                alreadyDeactivated
+                                  ? "이미 종료됨"
+                                  : `목표 종료 (${shortDate(deactivationDate)}까지 활성)`
+                              }
+                              disabled={
+                                !canSaveChanges ||
+                                isMutatingMonth ||
+                                deactivating
+                              }
+                              onClick={() => void deactivateGoalFromMonth(goal)}
                             >
-                              <X size={15} />
+                              <Ban size={15} />
                             </button>
                           </div>
                         </div>
-                      </form>
-                    ) : (
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-zinc-950">
-                            {goal.title}
-                          </p>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {formatGoalPeriod(goal)}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-1">
-                          <button
-                            className="mini-icon-button"
-                            type="button"
-                            aria-label={`${goal.title} 수정`}
-                            title="목표 수정"
-                            disabled={!canSaveChanges || isMutatingMonth}
-                            onClick={() => startEditingGoal(goal)}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            className="mini-icon-button"
-                            type="button"
-                            aria-label={
-                              alreadyDeactivated
-                                ? `${goal.title} 이미 종료됨`
-                                : `${goal.title} 종료`
-                            }
-                            title={
-                              alreadyDeactivated
-                                ? "이미 종료됨"
-                                : `목표 종료 (${shortDate(deactivationDate)}까지 활성)`
-                            }
-                            disabled={
-                              !canSaveChanges ||
-                              isMutatingMonth ||
-                              deactivating
-                            }
-                            onClick={() => void deactivateGoalFromMonth(goal)}
-                          >
-                            <Ban size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </aside>
-        </section>
-
-        <section className="rounded-lg border border-zinc-200 bg-white shadow-soft">
-          <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
-            <h2 className="text-base font-semibold text-zinc-950">
-              날짜별 기록
-            </h2>
-            <span className="text-xs font-medium text-zinc-500">
-              {days.length}일
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[62rem] border-collapse text-left text-sm">
-              <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                <tr>
-                  <th className="sticky left-0 z-10 w-28 bg-zinc-50 px-4 py-3 font-semibold">
-                    날짜
-                  </th>
-                  {goals.map((goal) => (
-                    <th
-                      key={goal.id}
-                      className="w-32 px-3 py-3 font-semibold normal-case text-zinc-600"
-                    >
-                      <span className="line-clamp-2">{goal.title}</span>
-                    </th>
-                  ))}
-                  <th className="w-72 px-3 py-3 font-semibold normal-case">
-                    메모
-                  </th>
-                  <th className="w-24 px-3 py-3 text-right font-semibold normal-case">
-                    완료
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {days.map((day) => {
-                  const point = chartData.find((item) => item.date === day.date);
-
-                  return (
-                    <tr key={day.date} className="hover:bg-[#f6fbf8]">
-                      <th className="sticky left-0 z-10 bg-white px-4 py-3 font-medium text-zinc-800">
-                        <span className="block">{shortDate(day.date)}</span>
-                        <span className="text-xs font-normal text-zinc-500">
-                          {weekday(day.date)}
-                        </span>
-                      </th>
-                      {goals.map((goal) => {
-                        const active = isGoalActiveOnDate(goal, day.date);
-                        const checked =
-                          active &&
-                          checks.some(
-                            (check) =>
-                              check.goalId === goal.id &&
-                              check.date === day.date,
-                          );
-                        const saving = savingChecks.includes(
-                          checkKey(goal.id, day.date),
-                        );
-
-                        return (
-                          <td key={goal.id} className="px-3 py-3">
-                            <button
-                              className={
-                                active
-                                  ? checked
-                                    ? "check-button checked"
-                                    : "check-button"
-                                  : "check-button inactive"
-                              }
-                              type="button"
-                              aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
-                              aria-pressed={checked}
-                              disabled={
-                                !active ||
-                                !canSaveChanges ||
-                                saving ||
-                                isMutatingMonth
-                              }
-                              title={goal.title}
-                              onClick={() => void toggleCheck(goal.id, day.date)}
-                            >
-                              {checked ? <Check size={16} /> : null}
-                            </button>
-                          </td>
-                        );
-                      })}
-                      <td className="px-3 py-3">
-                        <input
-                          className={memoInputClassName(
-                            savingMemos.includes(day.date),
-                          )}
-                          aria-label={`${shortDate(day.date)} 메모`}
-                          value={day.memo}
-                          disabled={!canSaveChanges || isMutatingMonth}
-                          onChange={(event) =>
-                            updateMemo(day.date, event.target.value)
-                          }
-                          onBlur={(event) =>
-                            void saveMemoForDate(day.date, event.target.value)
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-right font-semibold text-zinc-800">
-                        {point?.completedCount ?? 0}/{point?.activeGoalCount ?? 0}
-                      </td>
-                    </tr>
+                      )}
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-zinc-950">
+                  일별 완료 개수
+                </h2>
+                <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">
+                  {goals.length}개 목표
+                </span>
+              </div>
+              <ChartErrorBoundary resetKey={month}>
+                <Suspense
+                  fallback={
+                    <div
+                      className="h-72 min-h-72"
+                      role="status"
+                      aria-label="차트 불러오는 중"
+                    />
+                  }
+                >
+                  <DailyCompletionChart data={chartData} />
+                </Suspense>
+              </ChartErrorBoundary>
+            </section>
+          </aside>
         </section>
       </div>
     </main>
@@ -850,7 +874,7 @@ function checkKey(goalId: number, date: string) {
 
 function memoInputClassName(saving: boolean) {
   const base =
-    "h-9 w-full rounded-md border bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+    "h-8 w-full rounded-md border bg-white px-2 text-xs outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
 
   if (saving) {
     return `${base} border-amber-300`;
@@ -875,9 +899,11 @@ function Metric({
   }[tone];
 
   return (
-    <div className={`rounded-lg border p-4 ${toneClass}`}>
-      <p className="text-sm font-medium opacity-80">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tracking-normal">{value}</p>
+    <div className={`rounded-md border px-3 py-2.5 ${toneClass}`}>
+      <p className="text-xs font-medium opacity-80">{label}</p>
+      <p className="mt-1 text-2xl font-semibold leading-7 tracking-normal">
+        {value}
+      </p>
     </div>
   );
 }
@@ -898,6 +924,34 @@ function shortDate(date: string) {
 
 function weekday(date: string) {
   return weekdayFormatter.format(new Date(`${date}T00:00:00`));
+}
+
+function weekdayClassName(date: string) {
+  const day = new Date(`${date}T00:00:00`).getDay();
+  const base = "text-xs font-normal";
+
+  if (day === 6) {
+    return `${base} text-blue-600`;
+  }
+
+  if (day === 0) {
+    return `${base} text-rose-600`;
+  }
+
+  return `${base} text-zinc-500`;
+}
+
+function isGoalVisibleInGoalList(goal: Goal, referenceDate: string) {
+  return goal.endDate === null || referenceDate < goal.endDate;
+}
+
+function nextDate(date: string) {
+  const next = new Date(`${date}T00:00:00`);
+  next.setDate(next.getDate() + 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(next.getDate()).padStart(2, "0")}`;
 }
 
 function statusLabel(status: "loading" | "api" | "fallback") {
