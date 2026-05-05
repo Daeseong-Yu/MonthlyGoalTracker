@@ -7,11 +7,19 @@ API, PostgreSQL storage, and a Vite React frontend.
 
 - Docker with Compose
 - Go 1.25
-- pnpm 10
+- Node.js 22
+- pnpm 10.33.2
 
 ## Local Setup
 
 1. Create local environment variables.
+
+   If you use nvm, select the same Node.js major version as CI first.
+
+   ```sh
+   nvm use
+   corepack enable
+   ```
 
    ```sh
    cp .env.example .env
