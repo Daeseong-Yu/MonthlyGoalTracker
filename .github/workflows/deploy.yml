@@ -278,6 +278,22 @@ jobs:
           exit 1
           REMOTE
 
+      - name: Clean backend staging directory
+        if: always()
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
+          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -u
+          SSH_PORT="${EC2_SSH_PORT:-22}"
+          if [ ! -f ~/.ssh/deploy_key ]; then
+            exit 0
+          fi
+          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "rm -rf -- '${RELEASE_DIR}/backend'; rmdir -- '${RELEASE_DIR}' 2>/dev/null || true" || true
+
   deploy-frontend:
     name: Deploy frontend
     needs:
@@ -356,3 +372,19 @@ jobs:
             rm -rf -- "${release_root}/${old_release%/}"
           done
           REMOTE
+
+      - name: Clean frontend staging directory
+        if: always()
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
+          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -u
+          SSH_PORT="${EC2_SSH_PORT:-22}"
+          if [ ! -f ~/.ssh/deploy_key ]; then
+            exit 0
+          fi
+          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "rm -rf -- '${RELEASE_DIR}/frontend'; rmdir -- '${RELEASE_DIR}' 2>/dev/null || true" || true
