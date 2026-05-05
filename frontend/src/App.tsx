@@ -58,6 +58,8 @@ const weekdayFormatter = new Intl.DateTimeFormat("ko-KR", {
   weekday: "short",
 });
 
+const maxActiveGoalsPerDay = 5;
+
 export default function App() {
   const [monthView, setMonthView] = useState(() =>
     buildMockMonthView(currentMonth()),
@@ -122,6 +124,10 @@ export default function App() {
     isGoalActiveInDisplay(goal, goalListReferenceDate),
   );
   const visibleGoals = activeReferenceGoals;
+  const dailyRecordGoalSlots = useMemo(
+    () => buildDailyRecordGoalSlots(goals),
+    [goals],
+  );
 
   useEffect(() => {
     void loadMonth(currentMonth());
@@ -289,8 +295,18 @@ export default function App() {
       return;
     }
 
-    if (!newGoalStartDate.startsWith(`${month}-`)) {
+    if (
+      newGoalStartDate < monthStartDate(month) ||
+      newGoalStartDate > monthEndDate(month)
+    ) {
       setSaveFailure("시작일은 선택한 월 안에서 골라 주세요.");
+      return;
+    }
+
+    if (activeGoalLimitReachedForNewGoal(goals, newGoalStartDate, month)) {
+      setSaveFailure(
+        `할일은 날짜별로 최대 ${maxActiveGoalsPerDay}개까지 등록할 수 있습니다.`,
+      );
       return;
     }
 
@@ -566,7 +582,7 @@ export default function App() {
           />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20.5rem]">
           <section className="rounded-lg border border-zinc-200 bg-white shadow-soft">
             <div className="border-b border-zinc-200 px-4 py-3">
               <h2 className="text-base font-semibold text-zinc-950">
@@ -574,8 +590,8 @@ export default function App() {
               </h2>
             </div>
 
-            <div>
-              <table className="w-full table-fixed border-collapse text-left text-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[48rem] table-fixed border-collapse text-left text-sm">
                 <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                   <tr>
                     <th className="sticky left-0 z-10 w-20 bg-zinc-50 px-3 py-2 font-semibold">
@@ -584,10 +600,22 @@ export default function App() {
                     <th className="w-56 px-2 py-2 font-semibold normal-case">
                       메모
                     </th>
-                    <th className="px-2 py-2 font-semibold normal-case">
-                      할일
-                    </th>
-                    <th className="w-16 px-2 py-2 text-right font-semibold normal-case">
+                    {dailyRecordGoalSlots.map((slotGoals, slotIndex) => (
+                      <th
+                        key={`goal-slot-${slotIndex}`}
+                        className={`w-20 py-2 font-semibold normal-case text-zinc-600 ${
+                          slotIndex === 0 ? "pl-4 pr-2" : "px-2"
+                        }`}
+                        title={goalSlotTitle(slotGoals)}
+                      >
+                        {slotGoals.length > 0 ? (
+                          <span className="line-clamp-2">
+                            {goalSlotTitle(slotGoals)}
+                          </span>
+                        ) : null}
+                      </th>
+                    ))}
+                    <th className="w-16 py-2 pl-2 pr-4 text-right font-semibold normal-case">
                       완료
                     </th>
                   </tr>
@@ -596,9 +624,6 @@ export default function App() {
                   {days.map((day) => {
                     const point = chartData.find(
                       (item) => item.date === day.date,
-                    );
-                    const activeGoals = goals.filter((goal) =>
-                      isGoalActiveOnDate(goal, day.date),
                     );
 
                     return (
@@ -629,58 +654,67 @@ export default function App() {
                             }
                           />
                         </td>
-                        <td className="px-2 py-2">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {activeGoals.length === 0 ? (
-                              <span className="text-xs font-medium text-zinc-400">
-                                활성 목표 없음
-                              </span>
-                            ) : null}
-                            {activeGoals.map((goal) => {
-                              const checked = checks.some(
-                                (check) =>
-                                  check.goalId === goal.id &&
-                                  check.date === day.date,
-                              );
-                              const saving = savingChecks.includes(
-                                checkKey(goal.id, day.date),
-                              );
+                        {dailyRecordGoalSlots.map((slotGoals, slotIndex) => {
+                          const goal = activeGoalInSlot(slotGoals, day.date);
 
-                              return (
-                                <span
-                                  className="inline-flex max-w-[9rem] items-center gap-1.5"
-                                  key={goal.id}
-                                >
-                                  <button
-                                    className={
-                                      checked
-                                        ? "check-button checked"
-                                        : "check-button"
-                                    }
-                                    type="button"
-                                    aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
-                                    aria-pressed={checked}
-                                    disabled={
-                                      !canSaveChanges ||
-                                      saving ||
-                                      isMutatingMonth
-                                    }
-                                    title={goal.title}
-                                    onClick={() =>
-                                      void toggleCheck(goal.id, day.date)
-                                    }
-                                  >
-                                    {checked ? <Check size={16} /> : null}
-                                  </button>
-                                  <span className="truncate text-xs font-medium text-zinc-600">
-                                    {goal.title}
-                                  </span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </td>
-                        <td className="px-2 py-2 text-right text-xs font-semibold text-zinc-800">
+                          if (!goal) {
+                            return (
+                              <td
+                                key={`goal-slot-${slotIndex}`}
+                                className={`py-2 ${
+                                  slotIndex === 0 ? "pl-4 pr-2" : "px-2"
+                                }`}
+                              />
+                            );
+                          }
+
+                          const active = isGoalActiveOnDate(goal, day.date);
+                          const checked =
+                            active &&
+                            checks.some(
+                              (check) =>
+                                check.goalId === goal.id &&
+                                check.date === day.date,
+                            );
+                          const saving = savingChecks.includes(
+                            checkKey(goal.id, day.date),
+                          );
+
+                          return (
+                            <td
+                              key={`goal-slot-${slotIndex}`}
+                              className={`py-2 ${
+                                slotIndex === 0 ? "pl-4 pr-2" : "px-2"
+                              }`}
+                            >
+                              <button
+                                className={
+                                  active
+                                    ? checked
+                                      ? "check-button checked"
+                                      : "check-button"
+                                    : "check-button inactive"
+                                }
+                                type="button"
+                                aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
+                                aria-pressed={checked}
+                                disabled={
+                                  !active ||
+                                  !canSaveChanges ||
+                                  saving ||
+                                  isMutatingMonth
+                                }
+                                title={goal.title}
+                                onClick={() =>
+                                  void toggleCheck(goal.id, day.date)
+                                }
+                              >
+                                {checked ? <Check size={16} /> : null}
+                              </button>
+                            </td>
+                          );
+                        })}
+                        <td className="py-2 pl-2 pr-4 text-right text-xs font-semibold text-zinc-800">
                           {point?.completedCount ?? 0}/
                           {point?.activeGoalCount ?? 0}
                         </td>
@@ -897,7 +931,7 @@ function checkKey(goalId: number, date: string) {
 
 function memoInputClassName(saving: boolean) {
   const base =
-    "h-8 w-full rounded-md border bg-white px-2 text-xs outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+    "h-8 w-56 max-w-full rounded-md border bg-white px-2 text-xs outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
 
   if (saving) {
     return `${base} border-amber-300`;
@@ -969,6 +1003,61 @@ function isGoalActiveInDisplay(goal: Goal, referenceDate: string) {
     goal.startDate <= referenceDate &&
     (goal.endDate === null || referenceDate < goal.endDate)
   );
+}
+
+function activeGoalLimitReachedForNewGoal(
+  goals: Goal[],
+  startDate: string,
+  month: string,
+) {
+  const endDate = monthEndDate(month);
+
+  for (let date = startDate; date <= endDate; date = nextDate(date)) {
+    const activeGoalCount = goals.filter((goal) =>
+      isGoalActiveOnDate(goal, date),
+    ).length;
+
+    if (activeGoalCount >= maxActiveGoalsPerDay) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function buildDailyRecordGoalSlots(goals: Goal[]) {
+  const slots = Array.from({ length: maxActiveGoalsPerDay }, () => [] as Goal[]);
+  const sortedGoals = [...goals].sort(
+    (first, second) =>
+      first.startDate.localeCompare(second.startDate) || first.id - second.id,
+  );
+
+  for (const goal of sortedGoals) {
+    const availableSlot = slots.find((slotGoals) =>
+      slotGoals.every((slotGoal) => !goalsOverlap(goal, slotGoal)),
+    );
+
+    if (availableSlot) {
+      availableSlot.push(goal);
+    }
+  }
+
+  return slots;
+}
+
+function activeGoalInSlot(slotGoals: Goal[], date: string) {
+  return slotGoals.find((goal) => isGoalActiveOnDate(goal, date)) ?? null;
+}
+
+function goalsOverlap(first: Goal, second: Goal) {
+  const firstEndDate = first.endDate ?? "9999-12-31";
+  const secondEndDate = second.endDate ?? "9999-12-31";
+
+  return first.startDate <= secondEndDate && second.startDate <= firstEndDate;
+}
+
+function goalSlotTitle(slotGoals: Goal[]) {
+  return slotGoals.map((goal) => goal.title).join(" / ");
 }
 
 function nextDate(date: string) {

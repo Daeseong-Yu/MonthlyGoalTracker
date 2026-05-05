@@ -47,6 +47,8 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("API walk");
     expect(hasInputValue("api memo")).toBe(true);
+    expect(getInput("05.01 메모").className).toContain("w-56");
+    expect(getInput("05.01 메모").className).toContain("max-w-full");
     expect(document.body.textContent).toContain("chart points: 2");
   });
 
@@ -62,6 +64,93 @@ describe("App", () => {
     );
     expect(getButton("목표 이월").disabled).toBe(true);
     expect(getButton("목표 추가").disabled).toBe(true);
+  });
+
+  it("reserves five daily goal columns when no goals exist", async () => {
+    stubFetch((input) =>
+      jsonResponse(
+        buildMonthView(monthFromRequest(input), {
+          goalCount: 0,
+        }),
+      ),
+    );
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    expect(tableHeaders()).toEqual([
+      "날짜",
+      "메모",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "완료",
+    ]);
+    expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
+  });
+
+  it("does not expand past five daily goal columns", async () => {
+    stubFetch((input) =>
+      jsonResponse(
+        buildMonthView(monthFromRequest(input), {
+          goalCount: 6,
+        }),
+      ),
+    );
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    expect(tableHeaders()).toEqual([
+      "날짜",
+      "메모",
+      "API walk",
+      "API focus",
+      "API strength",
+      "API stretch",
+      "API journal",
+      "완료",
+    ]);
+    expect(tableHeaders()).not.toContain("API read");
+  });
+
+  it("reuses a daily goal column for a later replacement goal", async () => {
+    stubFetch((input) => {
+      const month = monthFromRequest(input);
+      const goals = buildGoals(month, {
+        firstGoalEndDate: `${month}-01`,
+        goalCount: 5,
+      });
+      const replacementGoal: Goal = {
+        id: 6,
+        title: "API journal",
+        startDate: `${month}-02`,
+        endDate: null,
+      };
+
+      return jsonResponse(buildMonthViewFromGoals(month, [
+        replacementGoal,
+        ...goals,
+      ]));
+    });
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    expect(tableHeaders()).toEqual([
+      "날짜",
+      "메모",
+      "API walk / API read",
+      "API focus",
+      "API strength",
+      "API stretch",
+      "API journal",
+      "완료",
+    ]);
+    expect(getButton("05.01 API walk 완료")).toBeTruthy();
+    expect(getButton("05.02 API journal 완료")).toBeTruthy();
   });
 
   it("loads the previous month from the navigation control", async () => {
@@ -223,7 +312,7 @@ describe("App", () => {
     stubFetch(() =>
       jsonResponse(
         buildMonthView("2026-05", {
-          goalCount: 6,
+          goalCount: 5,
           includeSunday: true,
         }),
       ),
@@ -238,19 +327,50 @@ describe("App", () => {
     expect(tableHeaders()).toEqual([
       "날짜",
       "메모",
-      "할일",
+      "API walk",
+      "API focus",
+      "API strength",
+      "API stretch",
+      "API read",
       "완료",
     ]);
     expect(getHeading("날짜별 기록").parentElement?.textContent?.trim()).toBe(
       "날짜별 기록",
     );
+    expect(getDashboardLayout().className).toContain(
+      "xl:grid-cols-[minmax(0,1fr)_20.5rem]",
+    );
     expect(getDailyRecordTable().className).toContain("table-fixed");
-    expect(getDailyRecordTable().className).not.toContain("min-w-");
+    expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
+    expect(tableHeaderCells()[2].className).toContain("pl-4");
+    expect(tableHeaderCells()[7].className).toContain("pr-4");
     expect(getButton("05.01 API stretch 완료")).toBeTruthy();
-    expect(getButton("05.02 API journal 완료")).toBeTruthy();
     expect(getButton("05.01 API walk 완료")).toBeTruthy();
     expect(getWeekdayLabel("05.02").className).toContain("text-blue-600");
     expect(getWeekdayLabel("05.03").className).toContain("text-rose-600");
+  });
+
+  it("blocks adding a sixth active goal", async () => {
+    const fetchMock = stubFetch((input) =>
+      jsonResponse(
+        buildMonthView(monthFromRequest(input), {
+          goalCount: 5,
+        }),
+      ),
+    );
+
+    renderApp();
+    await waitForText("API 데이터");
+
+    await clickButton("목표 추가");
+    await setInputValue("새 목표 제목", "API overflow");
+    await clickButton("목표 저장");
+
+    await waitForText("할일은 날짜별로 최대 5개까지 등록할 수 있습니다.");
+    expect(fetchMock.mock.calls.every(([input]) =>
+      !requestPath(input).endsWith("/goals"),
+    )).toBe(true);
+    expect(getInput("새 목표 제목").value).toBe("API overflow");
   });
 
   it("handles the core goal and daily record workflow", async () => {
@@ -470,6 +590,18 @@ function buildMonthView(
 ): MonthView {
   const goals = buildGoals(month, options);
   const days = buildDays(month, goals, options.includeSunday === true);
+
+  return {
+    month,
+    goals,
+    days,
+    checks: [{ goalId: 1, date: `${month}-01`, completed: true }],
+    chart: days,
+  };
+}
+
+function buildMonthViewFromGoals(month: string, goals: Goal[]): MonthView {
+  const days = buildDays(month, goals, false);
 
   return {
     month,
@@ -751,10 +883,24 @@ function getDailyRecordTable() {
   return table;
 }
 
-function tableHeaders() {
-  return Array.from(getDailyRecordTable().querySelectorAll("thead th")).map(
-    (header) => header.textContent?.trim() ?? "",
+function getDashboardLayout() {
+  const layout = Array.from(document.querySelectorAll("section")).find(
+    (section) => section.className.includes("xl:grid-cols-"),
   );
+
+  if (!layout) {
+    throw new Error("expected dashboard layout");
+  }
+
+  return layout;
+}
+
+function tableHeaderCells() {
+  return Array.from(getDailyRecordTable().querySelectorAll("thead th"));
+}
+
+function tableHeaders() {
+  return tableHeaderCells().map((header) => header.textContent?.trim() ?? "");
 }
 
 function getWeekdayLabel(shortDay: string) {
