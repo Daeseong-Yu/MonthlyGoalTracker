@@ -332,6 +332,59 @@ describe("App", () => {
       return requestBody<{ memo: string }>(init).memo === "follow-up";
     })).toBe(true);
   });
+
+  it("keeps UI state predictable when workflow saves fail", async () => {
+    const fetchMock = stubFetch((input) => {
+      const path = requestPath(input);
+
+      if (
+        path.endsWith("/goals") ||
+        path === "/api/goals/1" ||
+        path === "/api/checks" ||
+        path.includes("/api/memos/")
+      ) {
+        return errorResponse(500);
+      }
+
+      return jsonResponse(buildMonthView(monthFromRequest(input)));
+    });
+
+    renderApp();
+    await waitForText("API 데이터");
+    const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
+    const secondDay = `${loadedMonth}-02`;
+    const secondDayReadButton = `${shortDate(secondDay)} API read 완료`;
+    const secondDayMemoInput = `${shortDate(secondDay)} 메모`;
+
+    await clickButton("목표 추가");
+    await setInputValue("새 목표 제목", "API blocked");
+    await clickButton("목표 저장");
+
+    await waitForText("목표 추가에 실패했습니다.");
+    expect(getInput("새 목표 제목").value).toBe("API blocked");
+    expect(document.body.textContent).not.toContain("API blocked 저장");
+
+    await clickButton("API walk 수정");
+    await setInputValue("API walk 제목 수정", "API rejected");
+    await clickButton("API walk 저장");
+
+    await waitForText("목표 수정에 실패했습니다.");
+    expect(getInput("API walk 제목 수정").value).toBe("API rejected");
+    expect(document.body.textContent).not.toContain("API rejected");
+
+    await clickButton(secondDayReadButton);
+
+    await waitForText("체크 저장에 실패했습니다.");
+    expect(getButton(secondDayReadButton).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+
+    await setInputValue(secondDayMemoInput, "memo kept locally");
+    await blurInput(secondDayMemoInput);
+
+    await waitForText("메모 저장에 실패했습니다.");
+    expect(getInput(secondDayMemoInput).value).toBe("memo kept locally");
+  });
 });
 
 function renderApp() {
