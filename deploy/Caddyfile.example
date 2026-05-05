@@ -1,0 +1,27 @@
+{
+	email admin@example.com
+}
+
+example.com, www.example.com {
+	encode zstd gzip
+
+	basic_auth {
+		app-user <caddy-hashed-password>
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle {
+		root * /opt/monthly-goal-tracker/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

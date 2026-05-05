@@ -1,0 +1,22 @@
+[Unit]
+Description=Monthly Goal Tracker API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=monthlygoal
+Group=monthlygoal
+WorkingDirectory=/opt/monthly-goal-tracker/backend
+EnvironmentFile=/etc/monthly-goal-tracker/api.env
+ExecStart=/opt/monthly-goal-tracker/backend/monthly-goal-api
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
