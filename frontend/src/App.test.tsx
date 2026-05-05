@@ -212,13 +212,13 @@ async function waitFor(assertion: () => boolean) {
   throw new Error("timed out waiting for app state");
 }
 
-function getButton(title: string) {
+function getButton(label: string) {
   const button = document.querySelector<HTMLButtonElement>(
-    `button[title="${title}"]`,
+    `button[aria-label="${label}"]`,
   );
 
   if (!button) {
-    throw new Error(`expected button with title ${title}`);
+    throw new Error(`expected button with aria-label ${label}`);
   }
 
   return button;

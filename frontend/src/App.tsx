@@ -442,12 +442,15 @@ export default function App() {
               </span>
             </p>
             {loadError ? (
-              <p className="mt-2 text-xs font-medium text-amber-700">
+              <p
+                className="mt-2 text-xs font-medium text-amber-700"
+                role="status"
+              >
                 API 응답을 받지 못해 샘플 데이터를 표시합니다.
               </p>
             ) : null}
             {saveError ? (
-              <p className="mt-2 text-xs font-medium text-rose-700">
+              <p className="mt-2 text-xs font-medium text-rose-700" role="alert">
                 {saveError}
               </p>
             ) : null}
@@ -457,6 +460,7 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
+              aria-label="이전 달"
               title="이전 달"
               disabled={isLoading || isMutatingMonth}
               onClick={() => void moveMonth(-1)}
@@ -468,6 +472,7 @@ export default function App() {
               <input
                 className="w-[8.5rem] bg-transparent text-sm outline-none"
                 type="month"
+                aria-label="기록할 월"
                 value={month}
                 disabled={isLoading || isMutatingMonth}
                 onChange={(event) => void loadMonth(event.target.value)}
@@ -476,6 +481,7 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
+              aria-label="다음 달"
               title="다음 달"
               disabled={isLoading || isMutatingMonth}
               onClick={() => void moveMonth(1)}
@@ -485,6 +491,7 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
+              aria-label="월 준비"
               title="월 준비"
               disabled={!canSaveChanges || isMutatingMonth}
               onClick={() => void prepareCurrentMonth()}
@@ -515,7 +522,15 @@ export default function App() {
               </span>
             </div>
             <ChartErrorBoundary resetKey={month}>
-              <Suspense fallback={<div className="h-72 min-h-72" />}>
+              <Suspense
+                fallback={
+                  <div
+                    className="h-72 min-h-72"
+                    role="status"
+                    aria-label="차트 불러오는 중"
+                  />
+                }
+              >
                 <DailyCompletionChart data={chartData} />
               </Suspense>
             </ChartErrorBoundary>
@@ -527,6 +542,7 @@ export default function App() {
               <button
                 className="icon-button"
                 type="button"
+                aria-label="목표 추가"
                 title="목표 추가"
                 disabled={!canSaveChanges || isMutatingMonth}
                 onClick={() => {
@@ -544,6 +560,7 @@ export default function App() {
               >
                 <input
                   className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  aria-label="새 목표 제목"
                   value={newGoalTitle}
                   disabled={savingGoal}
                   placeholder="새 목표"
@@ -553,6 +570,7 @@ export default function App() {
                   <input
                     className="h-9 min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                     type="date"
+                    aria-label="새 목표 시작일"
                     min={monthStartDate(month)}
                     max={monthEndDate(month)}
                     value={newGoalStartDate}
@@ -564,6 +582,7 @@ export default function App() {
                   <button
                     className="icon-button"
                     type="submit"
+                    aria-label="목표 저장"
                     title="목표 저장"
                     disabled={savingGoal}
                   >
@@ -593,6 +612,7 @@ export default function App() {
                       >
                         <input
                           className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                          aria-label={`${goal.title} 제목 수정`}
                           value={editingGoalTitle}
                           disabled={savingGoalTitle}
                           onChange={(event) =>
@@ -607,6 +627,7 @@ export default function App() {
                             <button
                               className="mini-icon-button"
                               type="submit"
+                              aria-label={`${goal.title} 저장`}
                               title="목표 저장"
                               disabled={savingGoalTitle}
                             >
@@ -615,6 +636,7 @@ export default function App() {
                             <button
                               className="mini-icon-button"
                               type="button"
+                              aria-label={`${goal.title} 수정 취소`}
                               title="수정 취소"
                               disabled={savingGoalTitle}
                               onClick={cancelEditingGoal}
@@ -638,6 +660,7 @@ export default function App() {
                           <button
                             className="mini-icon-button"
                             type="button"
+                            aria-label={`${goal.title} 수정`}
                             title="목표 수정"
                             disabled={!canSaveChanges || isMutatingMonth}
                             onClick={() => startEditingGoal(goal)}
@@ -647,6 +670,11 @@ export default function App() {
                           <button
                             className="mini-icon-button"
                             type="button"
+                            aria-label={
+                              alreadyDeactivated
+                                ? `${goal.title} 이미 비활성화됨`
+                                : `${goal.title} 비활성화`
+                            }
                             title={
                               alreadyDeactivated
                                 ? "이미 비활성화됨"
@@ -741,6 +769,8 @@ export default function App() {
                                   : "check-button inactive"
                               }
                               type="button"
+                              aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
+                              aria-pressed={checked}
                               disabled={
                                 !active ||
                                 !canSaveChanges ||
@@ -760,6 +790,7 @@ export default function App() {
                           className={memoInputClassName(
                             savingMemos.includes(day.date),
                           )}
+                          aria-label={`${shortDate(day.date)} 메모`}
                           value={day.memo}
                           disabled={!canSaveChanges || isMutatingMonth}
                           onChange={(event) =>
