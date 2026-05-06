@@ -19,15 +19,20 @@ func NewDailyMemoRepository(database *gorm.DB) *DailyMemoRepository {
 
 func (r *DailyMemoRepository) Upsert(ctx context.Context, date time.Time, memo string) (*domain.DailyMemo, error) {
 	date = normalizeDate(date)
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	dailyMemo := domain.DailyMemo{
-		Date: date,
-		Memo: memo,
+		UserID: userID,
+		Date:   date,
+		Memo:   memo,
 	}
 
 	if err := r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "date"}},
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "date"}},
 			DoUpdates: clause.AssignmentColumns([]string{"memo", "updated_at"}),
 		}).
 		Create(&dailyMemo).Error; err != nil {
@@ -39,9 +44,13 @@ func (r *DailyMemoRepository) Upsert(ctx context.Context, date time.Time, memo s
 
 func (r *DailyMemoRepository) FindByDate(ctx context.Context, date time.Time) (*domain.DailyMemo, error) {
 	date = normalizeDate(date)
+	scopedDB, _, err := scopedByUser(ctx, r.db)
+	if err != nil {
+		return nil, err
+	}
 
 	var dailyMemo domain.DailyMemo
-	if err := r.db.WithContext(ctx).
+	if err := scopedDB.
 		Where("date = ?", date).
 		First(&dailyMemo).Error; err != nil {
 		return nil, err
@@ -53,9 +62,13 @@ func (r *DailyMemoRepository) FindByDate(ctx context.Context, date time.Time) (*
 func (r *DailyMemoRepository) ListByDateRange(ctx context.Context, startDate, endDate time.Time) ([]domain.DailyMemo, error) {
 	startDate = normalizeDate(startDate)
 	endDate = normalizeDate(endDate)
+	scopedDB, _, err := scopedByUser(ctx, r.db)
+	if err != nil {
+		return nil, err
+	}
 
 	var dailyMemos []domain.DailyMemo
-	if err := r.db.WithContext(ctx).
+	if err := scopedDB.
 		Where("date BETWEEN ? AND ?", startDate, endDate).
 		Order("date ASC").
 		Find(&dailyMemos).Error; err != nil {

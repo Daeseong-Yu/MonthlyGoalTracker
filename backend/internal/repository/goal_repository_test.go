@@ -15,11 +15,13 @@ import (
 func TestGoalRepositoryIntegration(t *testing.T) {
 	database := openIntegrationDatabase(t)
 	repo := NewGoalRepository(database)
-	ctx := context.Background()
 
 	prefix := "goal repository integration " + time.Now().UTC().Format("20060102150405.000000000")
+	username := prefix + " user"
+	ctx := integrationUserContext(t, database, username)
 	t.Cleanup(func() {
 		cleanupGoalsByTitlePrefix(t, database, prefix)
+		cleanupIntegrationUserByUsername(t, database, username)
 	})
 	cleanupGoalsByTitlePrefix(t, database, prefix)
 
@@ -62,23 +64,23 @@ func TestGoalRepositoryIntegration(t *testing.T) {
 		t.Fatalf("expected end date %s, got %v", endDate.Format(time.DateOnly), ended.EndDate)
 	}
 
-	createGoal(t, repo, prefix+" before open", rangeStart.AddDate(0, 0, -10), nil)
-	createGoal(t, repo, prefix+" inside open", rangeStart.AddDate(0, 0, 5), nil)
+	createGoal(t, ctx, repo, prefix+" before open", rangeStart.AddDate(0, 0, -10), nil)
+	createGoal(t, ctx, repo, prefix+" inside open", rangeStart.AddDate(0, 0, 5), nil)
 
 	beforeRangeEnd := rangeStart.AddDate(0, 0, -1)
-	createGoal(t, repo, prefix+" before ended", rangeStart.AddDate(0, 0, -10), &beforeRangeEnd)
+	createGoal(t, ctx, repo, prefix+" before ended", rangeStart.AddDate(0, 0, -10), &beforeRangeEnd)
 
 	afterRangeStart := rangeEnd.AddDate(0, 0, 1)
-	createGoal(t, repo, prefix+" after open", afterRangeStart, nil)
+	createGoal(t, ctx, repo, prefix+" after open", afterRangeStart, nil)
 
 	endsOnRangeStart := rangeStart
-	createGoal(t, repo, prefix+" ends on range start", rangeStart.AddDate(0, 0, -10), &endsOnRangeStart)
+	createGoal(t, ctx, repo, prefix+" ends on range start", rangeStart.AddDate(0, 0, -10), &endsOnRangeStart)
 
 	startsOnRangeEnd := rangeEnd
-	createGoal(t, repo, prefix+" starts on range end", startsOnRangeEnd, nil)
+	createGoal(t, ctx, repo, prefix+" starts on range end", startsOnRangeEnd, nil)
 
 	oneDayBoundary := rangeStart
-	createGoal(t, repo, prefix+" one day on range start", rangeStart, &oneDayBoundary)
+	createGoal(t, ctx, repo, prefix+" one day on range start", rangeStart, &oneDayBoundary)
 
 	goals, err := repo.ListOverlappingDateRange(ctx, rangeStart, rangeEnd)
 	if err != nil {
@@ -144,7 +146,7 @@ func openIntegrationDatabase(t *testing.T) *gorm.DB {
 	return database
 }
 
-func createGoal(t *testing.T, repo *GoalRepository, title string, startDate time.Time, endDate *time.Time) *domain.Goal {
+func createGoal(t *testing.T, ctx context.Context, repo *GoalRepository, title string, startDate time.Time, endDate *time.Time) *domain.Goal {
 	t.Helper()
 
 	goal := &domain.Goal{
@@ -152,7 +154,7 @@ func createGoal(t *testing.T, repo *GoalRepository, title string, startDate time
 		StartDate: startDate,
 		EndDate:   endDate,
 	}
-	if err := repo.Create(context.Background(), goal); err != nil {
+	if err := repo.Create(ctx, goal); err != nil {
 		t.Fatalf("expected goal %q create to succeed, got %v", title, err)
 	}
 

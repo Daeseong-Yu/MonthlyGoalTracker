@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -12,16 +11,21 @@ import (
 func TestDailyMemoRepositoryIntegration(t *testing.T) {
 	database := openIntegrationDatabase(t)
 	repo := NewDailyMemoRepository(database)
-	ctx := context.Background()
 
 	startDate := uniqueIntegrationDate()
 	memoDate := startDate.AddDate(0, 0, 14)
 	endDate := startDate.AddDate(0, 0, 30)
 	testDates := []time.Time{startDate, memoDate, endDate}
+	username := "daily memo repository integration " + time.Now().UTC().Format("20060102150405.000000000") + " user"
+	otherUsername := username + " other"
+	ctx := integrationUserContext(t, database, username)
+	otherCtx := integrationUserContext(t, database, otherUsername)
 
 	cleanupDailyMemosByDates(t, database, testDates)
 	t.Cleanup(func() {
 		cleanupDailyMemosByDates(t, database, testDates)
+		cleanupIntegrationUserByUsername(t, database, username)
+		cleanupIntegrationUserByUsername(t, database, otherUsername)
 	})
 
 	created, err := repo.Upsert(ctx, memoDate, "first memo")
@@ -41,6 +45,14 @@ func TestDailyMemoRepositoryIntegration(t *testing.T) {
 	}
 	if updated.Memo != "updated memo" {
 		t.Fatalf("expected updated memo, got %q", updated.Memo)
+	}
+
+	otherCreated, err := repo.Upsert(otherCtx, memoDate, "other user memo")
+	if err != nil {
+		t.Fatalf("expected other user memo upsert to succeed, got %v", err)
+	}
+	if otherCreated.ID == created.ID {
+		t.Fatal("expected same date memo for other user to use a separate row")
 	}
 
 	found, err := repo.FindByDate(ctx, memoDate)

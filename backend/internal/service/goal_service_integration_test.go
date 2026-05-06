@@ -8,6 +8,7 @@ import (
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/db"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/repository"
 	"gorm.io/gorm"
 )
@@ -16,13 +17,15 @@ func TestGoalServiceIntegrationPreservesNonUTCLocalCalendarDay(t *testing.T) {
 	database := openServiceIntegrationDatabase(t)
 	repo := repository.NewGoalRepository(database)
 	service := NewGoalService(repo)
-	ctx := context.Background()
 	kst := time.FixedZone("KST", 9*60*60)
 
 	prefix := "goal service integration " + time.Now().UTC().Format("20060102150405.000000000")
+	username := prefix + " user"
+	ctx := serviceIntegrationUserContext(t, database, username)
 	title := prefix + " create"
 	t.Cleanup(func() {
 		cleanupServiceGoalsByTitlePrefix(t, database, prefix)
+		cleanupServiceUserByUsername(t, database, username)
 	})
 	cleanupServiceGoalsByTitlePrefix(t, database, prefix)
 
@@ -113,6 +116,25 @@ func cleanupServiceGoalsByTitlePrefix(t *testing.T, database *gorm.DB, prefix st
 
 	if err := database.Where("title LIKE ?", prefix+"%").Delete(&domain.Goal{}).Error; err != nil {
 		t.Fatalf("failed to clean goals: %v", err)
+	}
+}
+
+func serviceIntegrationUserContext(t *testing.T, database *gorm.DB, username string) context.Context {
+	t.Helper()
+
+	user, err := repository.NewUserRepository(database).EnsureByUsername(context.Background(), username)
+	if err != nil {
+		t.Fatalf("expected integration user %q, got %v", username, err)
+	}
+
+	return principal.WithUser(context.Background(), *user)
+}
+
+func cleanupServiceUserByUsername(t *testing.T, database *gorm.DB, username string) {
+	t.Helper()
+
+	if err := database.Where("username = ?", username).Delete(&domain.User{}).Error; err != nil {
+		t.Fatalf("failed to clean user %q: %v", username, err)
 	}
 }
 

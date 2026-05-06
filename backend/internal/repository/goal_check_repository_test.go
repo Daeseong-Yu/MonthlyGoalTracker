@@ -1,23 +1,29 @@
 package repository
 
 import (
-	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
+	"gorm.io/gorm"
 )
 
 func TestGoalCheckRepositoryIntegration(t *testing.T) {
 	database := openIntegrationDatabase(t)
 	goalRepo := NewGoalRepository(database)
 	checkRepo := NewGoalCheckRepository(database)
-	ctx := context.Background()
 
 	prefix := "goal check repository integration " + time.Now().UTC().Format("20060102150405.000000000")
+	username := prefix + " user"
+	otherUsername := prefix + " other user"
+	ctx := integrationUserContext(t, database, username)
+	otherCtx := integrationUserContext(t, database, otherUsername)
 	t.Cleanup(func() {
 		cleanupGoalsByTitlePrefix(t, database, prefix)
+		cleanupIntegrationUserByUsername(t, database, username)
+		cleanupIntegrationUserByUsername(t, database, otherUsername)
 	})
 	cleanupGoalsByTitlePrefix(t, database, prefix)
 
@@ -25,7 +31,7 @@ func TestGoalCheckRepositoryIntegration(t *testing.T) {
 	rangeEnd := rangeStart.AddDate(0, 0, 30)
 	checkDate := rangeStart.AddDate(0, 0, 14)
 
-	goal := createGoal(t, goalRepo, prefix+" goal", rangeStart, nil)
+	goal := createGoal(t, ctx, goalRepo, prefix+" goal", rangeStart, nil)
 
 	if err := checkRepo.SetCompleted(ctx, goal.ID, checkDate, true); err != nil {
 		t.Fatalf("expected check insert to succeed, got %v", err)
@@ -42,12 +48,20 @@ func TestGoalCheckRepositoryIntegration(t *testing.T) {
 		t.Fatal("expected check to exist")
 	}
 
-	otherGoal := createGoal(t, goalRepo, prefix+" other goal", rangeStart, nil)
+	otherGoal := createGoal(t, ctx, goalRepo, prefix+" other goal", rangeStart, nil)
 	if err := checkRepo.SetCompleted(ctx, otherGoal.ID, rangeStart, true); err != nil {
 		t.Fatalf("expected range start check insert to succeed, got %v", err)
 	}
 	if err := checkRepo.SetCompleted(ctx, otherGoal.ID, rangeEnd, true); err != nil {
 		t.Fatalf("expected range end check insert to succeed, got %v", err)
+	}
+
+	otherUserGoal := createGoal(t, otherCtx, goalRepo, prefix+" isolated other user goal", rangeStart, nil)
+	if err := checkRepo.SetCompleted(otherCtx, otherUserGoal.ID, rangeStart, true); err != nil {
+		t.Fatalf("expected other user check insert to succeed, got %v", err)
+	}
+	if err := checkRepo.SetCompleted(ctx, otherUserGoal.ID, rangeStart, true); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected other user goal check write to be rejected, got %v", err)
 	}
 
 	goalChecks, err := checkRepo.ListByDateRange(ctx, rangeStart, rangeEnd)
@@ -62,6 +76,17 @@ func TestGoalCheckRepositoryIntegration(t *testing.T) {
 		goalCheckKey(goal.ID, checkDate),
 		goalCheckKey(otherGoal.ID, rangeStart),
 		goalCheckKey(otherGoal.ID, rangeEnd),
+	})
+
+	otherGoalChecks, err := checkRepo.ListByDateRange(otherCtx, rangeStart, rangeEnd)
+	if err != nil {
+		t.Fatalf("expected other user goal checks list to succeed, got %v", err)
+	}
+	otherChecksByGoalAndDate := goalChecksByGoalAndDate(otherGoalChecks, map[uint]bool{
+		otherUserGoal.ID: true,
+	})
+	assertExactGoalChecks(t, otherChecksByGoalAndDate, []string{
+		goalCheckKey(otherUserGoal.ID, rangeStart),
 	})
 
 	if err := checkRepo.SetCompleted(ctx, goal.ID, checkDate, false); err != nil {
