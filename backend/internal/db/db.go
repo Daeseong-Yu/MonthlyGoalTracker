@@ -46,6 +46,7 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 	}
 
 	return database.WithContext(ctx).AutoMigrate(
+		&domain.User{},
 		&domain.Goal{},
 		&domain.DailyMemo{},
 		&domain.GoalCheck{},

@@ -134,11 +134,26 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 
 	baseDate := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC).
 		AddDate(0, 0, int(time.Now().Unix()%10000))
+	username := "integration-user-" + baseDate.Format("20060102")
 
-	cleanupIntegrationRows(t, database, baseDate)
+	cleanupIntegrationRows(t, database, baseDate, username)
 	t.Cleanup(func() {
-		cleanupIntegrationRows(t, database, baseDate)
+		cleanupIntegrationRows(t, database, baseDate, username)
 	})
+
+	user := domain.User{
+		Username: username,
+	}
+	if err := database.Create(&user).Error; err != nil {
+		t.Fatalf("expected first user insert to succeed, got %v", err)
+	}
+
+	duplicateUser := domain.User{
+		Username: username,
+	}
+	if err := database.Create(&duplicateUser).Error; err == nil {
+		t.Fatal("expected duplicate username to fail")
+	}
 
 	memo := domain.DailyMemo{
 		Date: baseDate,
@@ -200,12 +215,16 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 	}
 }
 
-func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time) {
+func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time, username string) {
 	t.Helper()
 
 	dates := []time.Time{
 		baseDate,
 		baseDate.AddDate(0, 0, 1),
+	}
+
+	if err := database.Where("username = ?", username).Delete(&domain.User{}).Error; err != nil {
+		t.Fatalf("failed to clean users: %v", err)
 	}
 
 	if err := database.Where("date IN ?", dates).Delete(&domain.GoalCheck{}).Error; err != nil {

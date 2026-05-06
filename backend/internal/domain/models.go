@@ -2,6 +2,13 @@ package domain
 
 import "time"
 
+type User struct {
+	ID        uint   `gorm:"primaryKey"`
+	Username  string `gorm:"size:100;not null;uniqueIndex"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type Goal struct {
 	ID        uint       `gorm:"primaryKey"`
 	Title     string     `gorm:"size:100;not null"`

@@ -4,11 +4,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/repository"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -71,9 +75,14 @@ func TestSetupRouterProtectsAPIRoutesWhenBasicAuthEnabled(t *testing.T) {
 func TestBasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	database, mock, closeDB := newMockRouterDatabase(t)
+	defer closeDB()
+	expectResolvedUserInsert(mock, "app-user", 7)
+
 	engine := gin.New()
 	engine.Use(principalMiddleware(principal.Default()))
 	engine.Use(basicAuthMiddleware(basicAuthConfigForTest(t)))
+	engine.Use(userMiddleware(repository.NewUserRepository(database)))
 	engine.GET("/protected", func(c *gin.Context) {
 		current := principal.FromContext(c.Request.Context())
 		if current.Username != "app-user" {
@@ -81,6 +90,13 @@ func TestBasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
 		}
 		if !current.Authenticated {
 			t.Fatal("expected principal to be authenticated")
+		}
+		currentUser, ok := principal.UserFromContext(c.Request.Context())
+		if !ok {
+			t.Fatal("expected resolved user in request context")
+		}
+		if currentUser.ID != 7 || currentUser.Username != "app-user" {
+			t.Fatalf("expected resolved user ID 7 username app-user, got %+v", currentUser)
 		}
 
 		c.Status(http.StatusNoContent)
@@ -94,16 +110,31 @@ func TestBasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
 }
 
-func TestPrincipalMiddlewareAssignsDefaultPrincipal(t *testing.T) {
+func TestPrincipalMiddlewareAssignsDefaultPrincipalAndUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+
+	database, mock, closeDB := newMockRouterDatabase(t)
+	defer closeDB()
+	expectResolvedUserInsert(mock, "single-user", 11)
 
 	engine := gin.New()
 	engine.Use(principalMiddleware(principal.Default()))
+	engine.Use(userMiddleware(repository.NewUserRepository(database)))
 	engine.GET("/protected", func(c *gin.Context) {
 		if got := principal.FromContext(c.Request.Context()); got != principal.Default() {
 			t.Fatalf("expected default principal %+v, got %+v", principal.Default(), got)
+		}
+		currentUser, ok := principal.UserFromContext(c.Request.Context())
+		if !ok {
+			t.Fatal("expected resolved user in request context")
+		}
+		if currentUser.ID != 11 || currentUser.Username != "single-user" {
+			t.Fatalf("expected resolved user ID 11 username single-user, got %+v", currentUser)
 		}
 
 		c.Status(http.StatusNoContent)
@@ -115,6 +146,9 @@ func TestPrincipalMiddlewareAssignsDefaultPrincipal(t *testing.T) {
 
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
 
@@ -160,6 +194,35 @@ func routeSet(routes []gin.RouteInfo) map[string]bool {
 	return values
 }
 
+func TestUserMiddlewareReturnsInternalServerErrorOnRepositoryFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	database, mock, closeDB := newMockRouterDatabase(t)
+	defer closeDB()
+
+	mock.ExpectQuery(`INSERT INTO "users" \("username","created_at","updated_at"\) VALUES \(\$1,\$2,\$3\) ON CONFLICT \("username"\) DO NOTHING RETURNING "id"`).
+		WithArgs("single-user", routerFixedNow(), routerFixedNow()).
+		WillReturnError(gorm.ErrInvalidDB)
+
+	engine := gin.New()
+	engine.Use(principalMiddleware(principal.Default()))
+	engine.Use(userMiddleware(repository.NewUserRepository(database)))
+	engine.GET("/protected", func(c *gin.Context) {
+		t.Fatal("protected handler should not be called")
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, recorder.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func basicAuthConfigForTest(t *testing.T) config.BasicAuthConfig {
 	t.Helper()
 
@@ -172,4 +235,39 @@ func basicAuthConfigForTest(t *testing.T) config.BasicAuthConfig {
 		Username:     "app-user",
 		PasswordHash: string(hash),
 	}
+}
+
+func newMockRouterDatabase(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sql mock: %v", err)
+	}
+
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		Conn:                 sqlDB,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DisableAutomaticPing:   true,
+		SkipDefaultTransaction: true,
+		NowFunc:                routerFixedNow,
+	})
+	if err != nil {
+		t.Fatalf("failed to create gorm database: %v", err)
+	}
+
+	return database, mock, func() {
+		_ = sqlDB.Close()
+	}
+}
+
+func expectResolvedUserInsert(mock sqlmock.Sqlmock, username string, id uint) {
+	mock.ExpectQuery(`INSERT INTO "users" \("username","created_at","updated_at"\) VALUES \(\$1,\$2,\$3\) ON CONFLICT \("username"\) DO NOTHING RETURNING "id"`).
+		WithArgs(username, routerFixedNow(), routerFixedNow()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
+}
+
+func routerFixedNow() time.Time {
+	return time.Date(2099, time.January, 1, 1, 2, 3, 0, time.UTC)
 }

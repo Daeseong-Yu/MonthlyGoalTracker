@@ -19,15 +19,24 @@ func Default() Principal {
 }
 
 func NewAuthenticated(username string) Principal {
-	trimmedUsername := strings.TrimSpace(username)
-	if trimmedUsername == "" {
+	if strings.TrimSpace(username) == "" {
 		return Default()
 	}
 
+	normalizedUsername := NormalizeUsername(username)
 	return Principal{
-		Username:      trimmedUsername,
+		Username:      normalizedUsername,
 		Authenticated: true,
 	}
+}
+
+func NormalizeUsername(username string) string {
+	trimmedUsername := strings.TrimSpace(username)
+	if trimmedUsername == "" {
+		return defaultUsername
+	}
+
+	return trimmedUsername
 }
 
 func WithContext(ctx context.Context, current Principal) context.Context {
@@ -52,10 +61,10 @@ func FromContext(ctx context.Context) Principal {
 }
 
 func normalize(current Principal) Principal {
-	username := strings.TrimSpace(current.Username)
-	if username == "" {
+	if strings.TrimSpace(current.Username) == "" {
 		return Default()
 	}
 
+	username := NormalizeUsername(current.Username)
 	return Principal{Username: username, Authenticated: current.Authenticated}
 }

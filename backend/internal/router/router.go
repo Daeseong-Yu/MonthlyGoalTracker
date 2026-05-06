@@ -13,6 +13,7 @@ import (
 func SetupRouter(database *gorm.DB, auth config.BasicAuthConfig) *gin.Engine {
 	r := gin.Default()
 
+	userRepo := repository.NewUserRepository(database)
 	goalRepo := repository.NewGoalRepository(database)
 	memoRepo := repository.NewDailyMemoRepository(database)
 	checkRepo := repository.NewGoalCheckRepository(database)
@@ -34,6 +35,7 @@ func SetupRouter(database *gorm.DB, auth config.BasicAuthConfig) *gin.Engine {
 	if auth.Enabled() {
 		api.Use(basicAuthMiddleware(auth))
 	}
+	api.Use(userMiddleware(userRepo))
 
 	api.POST("/months/:month/ensure", monthHandler.Ensure)
 	api.GET("/months/:month", monthHandler.Get)

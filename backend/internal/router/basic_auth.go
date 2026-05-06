@@ -8,6 +8,7 @@ import (
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/repository"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -43,6 +44,20 @@ func basicAuthMiddleware(auth config.BasicAuthConfig) gin.HandlerFunc {
 func principalMiddleware(current principal.Principal) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		attachPrincipal(c, current)
+		c.Next()
+	}
+}
+
+func userMiddleware(userRepo *repository.UserRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		currentPrincipal := principal.FromContext(c.Request.Context())
+		user, err := userRepo.EnsureByUsername(c.Request.Context(), currentPrincipal.Username)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			return
+		}
+
+		c.Request = c.Request.WithContext(principal.WithUser(c.Request.Context(), *user))
 		c.Next()
 	}
 }
