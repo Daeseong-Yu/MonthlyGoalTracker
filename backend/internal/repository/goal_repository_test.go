@@ -2,12 +2,10 @@ package repository
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/db"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"gorm.io/gorm"
 )
@@ -98,54 +96,6 @@ func TestGoalRepositoryIntegration(t *testing.T) {
 	assertNotContainsTitle(t, titles, prefix+" after open")
 }
 
-func openIntegrationDatabase(t *testing.T) *gorm.DB {
-	t.Helper()
-
-	if os.Getenv("RUN_DB_INTEGRATION") != "1" {
-		t.Skip("set RUN_DB_INTEGRATION=1 to run repository integration tests")
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for repository integration tests")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	var (
-		database *gorm.DB
-		err      error
-	)
-	for {
-		database, err = db.Connect(ctx, databaseURL)
-		if err == nil {
-			break
-		}
-		if ctx.Err() != nil {
-			t.Fatalf("expected database connection, got %v", err)
-		}
-
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	if err := db.Migrate(ctx, database); err != nil {
-		t.Fatalf("expected migration to succeed, got %v", err)
-	}
-
-	sqlDB, err := database.DB()
-	if err != nil {
-		t.Fatalf("expected sql database handle, got %v", err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("failed to close database connection: %v", err)
-		}
-	})
-
-	return database
-}
-
 func createGoal(t *testing.T, ctx context.Context, repo *GoalRepository, title string, startDate time.Time, endDate *time.Time) *domain.Goal {
 	t.Helper()
 
@@ -194,10 +144,6 @@ func assertNotContainsTitle(t *testing.T, titles map[string]bool, title string) 
 	if titles[title] {
 		t.Fatalf("expected title %q to be absent from results", title)
 	}
-}
-
-func date(year int, month time.Month, day int) time.Time {
-	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
 func sameDate(left, right time.Time) bool {

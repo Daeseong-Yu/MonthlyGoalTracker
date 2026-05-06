@@ -108,8 +108,3 @@ func assertMemoForDate(t *testing.T, memosByDate map[string]string, date time.Ti
 		t.Fatalf("expected memo for %s to be %q, got %q", key, expectedMemo, memosByDate[key])
 	}
 }
-
-func uniqueIntegrationDate() time.Time {
-	offset := int(time.Now().UnixNano() % 20000)
-	return date(2100, time.January, 1).AddDate(0, 0, offset)
-}
