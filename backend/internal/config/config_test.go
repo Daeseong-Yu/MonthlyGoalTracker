@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestLoadUsesDefaultValues(t *testing.T) {
@@ -27,12 +29,20 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 	if cfg.DatabaseURL != "" {
 		t.Fatalf("expected empty default database URL, got %q", cfg.DatabaseURL)
 	}
+
+	if cfg.Auth.Enabled() {
+		t.Fatal("expected basic auth to be disabled by default")
+	}
 }
 
 func TestLoadUsesEnvironmentValues(t *testing.T) {
+	passwordHash := basicAuthHash(t, "secret")
+
 	t.Setenv("APP_HOST", "localhost")
 	t.Setenv("APP_PORT", "9000")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/monthly_goal_tracker?sslmode=disable")
+	t.Setenv("APP_BASIC_AUTH_USERNAME", "app-user")
+	t.Setenv("APP_BASIC_AUTH_PASSWORD_HASH", passwordHash)
 
 	cfg := Load()
 
@@ -50,6 +60,14 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 
 	if cfg.DatabaseURL != "postgres://postgres:postgres@localhost:5432/monthly_goal_tracker?sslmode=disable" {
 		t.Fatalf("expected database URL from environment, got %q", cfg.DatabaseURL)
+	}
+
+	if cfg.Auth.Username != "app-user" {
+		t.Fatalf("expected basic auth username from environment, got %q", cfg.Auth.Username)
+	}
+
+	if cfg.Auth.PasswordHash != passwordHash {
+		t.Fatal("expected basic auth password hash from environment")
 	}
 }
 
@@ -87,4 +105,93 @@ func TestValidateRejectsNonLoopbackHost(t *testing.T) {
 	if !errors.Is(err, ErrUnsafeHost) {
 		t.Fatalf("expected ErrUnsafeHost, got %v", err)
 	}
+}
+
+func TestValidateAllowsCompleteBasicAuthConfig(t *testing.T) {
+	cfg := Config{
+		Host: "127.0.0.1",
+		Port: "8080",
+		Auth: BasicAuthConfig{
+			Username:     "app-user",
+			PasswordHash: basicAuthHash(t, "secret"),
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected complete basic auth config to be allowed, got %v", err)
+	}
+}
+
+func TestValidateRejectsPartialBasicAuthConfig(t *testing.T) {
+	testCases := []struct {
+		name string
+		auth BasicAuthConfig
+	}{
+		{
+			name: "missing password hash",
+			auth: BasicAuthConfig{Username: "app-user"},
+		},
+		{
+			name: "missing username",
+			auth: BasicAuthConfig{PasswordHash: basicAuthHash(t, "secret")},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := Config{Host: "127.0.0.1", Port: "8080", Auth: testCase.auth}
+
+			err := cfg.Validate()
+			if !errors.Is(err, ErrInvalidAuthConfig) {
+				t.Fatalf("expected ErrInvalidAuthConfig, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsInvalidBasicAuthPasswordHash(t *testing.T) {
+	cfg := Config{
+		Host: "127.0.0.1",
+		Port: "8080",
+		Auth: BasicAuthConfig{
+			Username:     "app-user",
+			PasswordHash: "not-a-bcrypt-hash",
+		},
+	}
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidAuthConfig) {
+		t.Fatalf("expected ErrInvalidAuthConfig, got %v", err)
+	}
+}
+
+func TestValidateRejectsWeakBasicAuthPasswordHash(t *testing.T) {
+	cfg := Config{
+		Host: "127.0.0.1",
+		Port: "8080",
+		Auth: BasicAuthConfig{
+			Username:     "app-user",
+			PasswordHash: basicAuthHashWithCost(t, "secret", bcrypt.MinCost),
+		},
+	}
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidAuthConfig) {
+		t.Fatalf("expected ErrInvalidAuthConfig, got %v", err)
+	}
+}
+
+func basicAuthHash(t *testing.T, password string) string {
+	return basicAuthHashWithCost(t, password, minimumBcryptCost)
+}
+
+func basicAuthHashWithCost(t *testing.T, password string, cost int) string {
+	t.Helper()
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+	if err != nil {
+		t.Fatalf("failed to generate bcrypt hash: %v", err)
+	}
+
+	return string(hash)
 }

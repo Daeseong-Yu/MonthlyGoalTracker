@@ -1,8 +1,8 @@
 # EC2 Deployment
 
 This guide describes an EC2 deployment for the current version of Monthly Goal
-Tracker. Application-level authentication is not implemented yet, so the Go API
-stays on loopback and the site is protected with HTTPS Basic Auth.
+Tracker. Optional application-level Basic Auth can protect API routes, but the
+Go API still stays on loopback and the site is protected with HTTPS Basic Auth.
 
 ## Architecture
 
@@ -95,7 +95,15 @@ Expected build artifacts:
    APP_HOST=127.0.0.1
    APP_PORT=8080
    DATABASE_URL=postgres://monthly_goal_tracker:<strong-password>@127.0.0.1:5433/monthly_goal_tracker?sslmode=disable
+   APP_BASIC_AUTH_USERNAME=app-user
+   APP_BASIC_AUTH_PASSWORD_HASH=<bcrypt-password-hash>
    ```
+
+   Leave both `APP_BASIC_AUTH_*` values blank to disable app-level Basic Auth.
+   If enabled, use a bcrypt password hash with cost 10 or higher, not a
+   plaintext password. During the prototype phase, keep the backend Basic Auth
+   account aligned with the Caddy Basic Auth account so browser API requests
+   use the same credentials.
 
    Install the systemd unit from `monthly-goal-api.service.example`, then run:
 
@@ -205,5 +213,5 @@ Then verify the main workflow in the browser:
 - Keep real secrets only in `/etc/monthly-goal-tracker/*.env`.
 - Keep PostgreSQL bound to loopback.
 - Back up the Docker volume before replacing or rebuilding the EC2 instance.
-- Treat Basic Auth as a temporary access guard, not the final application
+- Treat Basic Auth as a temporary access guard, not the final multi-user
   authentication model.

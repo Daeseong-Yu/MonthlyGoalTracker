@@ -561,7 +561,7 @@ uses: actions/checkout@<FULL_COMMIT_SHA> # vX.Y.Z
 - `.env`, `.env.local`, `*.pem`, `*.key`는 commit하지 않습니다.
 - 실제 account ID, ARN, instance ID, bucket 이름, private hostname, IP 주소는
   public 문서에 기록하지 않습니다.
-- Basic Auth는 임시 접근 보호입니다. 애플리케이션 인증이 들어가기 전까지만
+- Basic Auth는 임시 접근 보호입니다. 최종 multi-user 인증이 들어가기 전까지만
   사용합니다.
 - API와 DB는 loopback으로만 노출합니다.
 - SSM, OIDC, S3 권한은 대상 repository, production environment, artifact

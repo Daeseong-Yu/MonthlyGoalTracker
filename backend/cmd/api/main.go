@@ -43,7 +43,7 @@ func run(cfg config.Config) error {
 			return database.DB()
 		},
 		serve: func(database *gorm.DB, addr string) error {
-			return router.SetupRouter(database).Run(addr)
+			return router.SetupRouter(database, cfg.Auth).Run(addr)
 		},
 	})
 }

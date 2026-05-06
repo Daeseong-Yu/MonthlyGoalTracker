@@ -1,16 +1,20 @@
 package router
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 func TestSetupRouterRegistersAPIRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	engine := SetupRouter(&gorm.DB{})
+	engine := SetupRouter(&gorm.DB{}, config.BasicAuthConfig{})
 	routes := routeSet(engine.Routes())
 
 	expectedRoutes := []string{
@@ -31,6 +35,89 @@ func TestSetupRouterRegistersAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestSetupRouterKeepsHealthPublicWhenBasicAuthEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := SetupRouter(&gorm.DB{}, basicAuthConfigForTest(t))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+}
+
+func TestSetupRouterProtectsAPIRoutesWhenBasicAuthEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := SetupRouter(&gorm.DB{}, basicAuthConfigForTest(t))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/months/2026-05", nil)
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+
+	if recorder.Header().Get("WWW-Authenticate") != basicAuthChallenge {
+		t.Fatalf("expected basic auth challenge header, got %q", recorder.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestBasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(basicAuthMiddleware(basicAuthConfigForTest(t)))
+	engine.GET("/protected", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	request.SetBasicAuth("app-user", "secret")
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+}
+
+func TestBasicAuthMiddlewareRejectsInvalidCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(basicAuthMiddleware(basicAuthConfigForTest(t)))
+	engine.GET("/protected", func(c *gin.Context) {
+		t.Fatal("protected handler should not be called")
+	})
+
+	testCases := []struct {
+		name     string
+		username string
+		password string
+	}{
+		{name: "wrong username", username: "wrong-user", password: "secret"},
+		{name: "wrong password", username: "app-user", password: "wrong-secret"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+			request.SetBasicAuth(testCase.username, testCase.password)
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+			}
+		})
+	}
+}
+
 func routeSet(routes []gin.RouteInfo) map[string]bool {
 	values := make(map[string]bool, len(routes))
 	for _, route := range routes {
@@ -38,4 +125,18 @@ func routeSet(routes []gin.RouteInfo) map[string]bool {
 	}
 
 	return values
+}
+
+func basicAuthConfigForTest(t *testing.T) config.BasicAuthConfig {
+	t.Helper()
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to generate bcrypt hash: %v", err)
+	}
+
+	return config.BasicAuthConfig{
+		Username:     "app-user",
+		PasswordHash: string(hash),
+	}
 }

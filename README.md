@@ -144,13 +144,14 @@ Start with `deploy/README.md` when preparing an EC2 deployment.
 
 ## Notes
 
-- Application-level authentication is not implemented yet.
+- Optional application-level Basic Auth can protect API routes. Multi-user
+  authentication is not implemented yet.
 - AI-assisted product insights are planned and are not part of the current
   implementation.
 - The API is bound to loopback by default and should not be exposed directly to
   the public internet.
-- If the app is deployed before authentication is added, place it behind HTTPS
-  and Basic Auth.
+- Keep deployed environments behind HTTPS and Basic Auth until a full
+  multi-user authentication model is added.
 - Use strong, server-only PostgreSQL credentials for any deployed environment.
 - Do not commit `.env` or other machine-specific configuration files.
 
