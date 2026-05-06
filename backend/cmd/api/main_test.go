@@ -39,7 +39,7 @@ func TestRunWithDepsReturnsConnectError(t *testing.T) {
 			served = true
 			return nil
 		},
-	})
+	}, false)
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected connect error, got %v", err)
@@ -71,7 +71,7 @@ func TestRunWithDepsRejectsNonLoopbackHostBeforeConnect(t *testing.T) {
 			t.Fatal("serve should not be called")
 			return nil
 		},
-	})
+	}, false)
 
 	if !errors.Is(err, config.ErrUnsafeHost) {
 		t.Fatalf("expected unsafe host error, got %v", err)
@@ -101,7 +101,7 @@ func TestRunWithDepsClosesDatabaseOnMigrateError(t *testing.T) {
 			t.Fatal("serve should not be called")
 			return nil
 		},
-	})
+	}, false)
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected migrate error, got %v", err)
@@ -136,7 +136,7 @@ func TestRunWithDepsServesConfiguredAddress(t *testing.T) {
 			servedAddr = addr
 			return nil
 		},
-	})
+	}, false)
 
 	if err != nil {
 		t.Fatalf("expected run to succeed, got %v", err)
@@ -183,7 +183,7 @@ func TestRunWithDepsUsesSeparateConnectAndMigrateTimeouts(t *testing.T) {
 		serve: func(*gorm.DB, string) error {
 			return nil
 		},
-	})
+	}, false)
 
 	if err != nil {
 		t.Fatalf("expected run to succeed, got %v", err)
@@ -195,6 +195,35 @@ func TestRunWithDepsUsesSeparateConnectAndMigrateTimeouts(t *testing.T) {
 
 	if migrateBudget <= dbConnectTimeout {
 		t.Fatalf("expected independent migrate budget greater than connect budget, got %v", migrateBudget)
+	}
+}
+
+func TestRunWithDepsMigrateOnlySkipsServe(t *testing.T) {
+	testDB := &gorm.DB{}
+	testSQL := &testCloser{}
+
+	err := runWithDeps(testConfig(), appDeps{
+		connect: func(context.Context, string) (*gorm.DB, error) {
+			return testDB, nil
+		},
+		migrate: func(context.Context, *gorm.DB) error {
+			return nil
+		},
+		sqlDB: func(*gorm.DB) (closer, error) {
+			return testSQL, nil
+		},
+		serve: func(*gorm.DB, string) error {
+			t.Fatal("serve should not be called")
+			return nil
+		},
+	}, true)
+
+	if err != nil {
+		t.Fatalf("expected migrate-only run to succeed, got %v", err)
+	}
+
+	if !testSQL.closed {
+		t.Fatal("expected database to be closed")
 	}
 }
 
