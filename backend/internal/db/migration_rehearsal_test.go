@@ -50,8 +50,12 @@ func TestMigrateRehearsesLegacySchemaIntegration(t *testing.T) {
 	if err := Migrate(ctx, schemaDB); err != nil {
 		t.Fatalf("expected migration rehearsal to succeed, got %v", err)
 	}
+	if err := Migrate(ctx, schemaDB); err != nil {
+		t.Fatalf("expected repeated migration rehearsal to succeed, got %v", err)
+	}
 
 	assertDailyMemoIndexesMigrated(t, schemaDB)
+	assertGoalCheckOwnershipConstraintMigrated(t, schemaDB)
 
 	var defaultUser domain.User
 	if err := schemaDB.WithContext(ctx).
@@ -165,6 +169,54 @@ func TestMigrateRehearsesLegacySchemaIntegration(t *testing.T) {
 
 	if err := goalCheckRepo.SetCompleted(defaultCtx, otherGoal.ID, legacy.memoDate.AddDate(0, 0, 1), true); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("expected cross-user goal check write to be rejected, got %v", err)
+	}
+
+	crossUserCheck := domain.GoalCheck{
+		UserID: otherUser.ID,
+		GoalID: legacy.goalID,
+		Date:   legacy.memoDate.AddDate(0, 0, 2),
+	}
+	if err := schemaDB.WithContext(ctx).Create(&crossUserCheck).Error; err == nil {
+		t.Fatal("expected DB-level cross-user goal check insert to fail after migration")
+	}
+}
+
+func TestMigrateRejectsExistingGoalCheckOwnershipMismatchIntegration(t *testing.T) {
+	if os.Getenv("RUN_DB_INTEGRATION") != "1" {
+		t.Skip("set RUN_DB_INTEGRATION=1 to run database migration rehearsal test")
+	}
+
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Fatal("DATABASE_URL is required for database migration rehearsal test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	adminDB := openIntegrationDatabaseWithoutMigration(t, ctx, databaseURL)
+	t.Cleanup(func() {
+		closeIntegrationDatabase(t, adminDB)
+	})
+
+	schemaName := fmt.Sprintf("migration_mismatch_%d", time.Now().UTC().UnixNano())
+	createSchema(t, adminDB, schemaName)
+
+	schemaDB := openIntegrationDatabaseWithoutMigration(t, ctx, databaseURLWithSearchPath(t, databaseURL, schemaName))
+	t.Cleanup(func() {
+		dropSchema(t, adminDB, schemaName)
+	})
+	t.Cleanup(func() {
+		closeIntegrationDatabase(t, schemaDB)
+	})
+
+	if err := Migrate(ctx, schemaDB); err != nil {
+		t.Fatalf("expected initial migration to succeed, got %v", err)
+	}
+	seedGoalCheckOwnershipMismatchData(t, schemaDB)
+
+	if err := Migrate(ctx, schemaDB); !errors.Is(err, ErrGoalCheckOwnershipMismatch) {
+		t.Fatalf("expected ownership mismatch migration error, got %v", err)
 	}
 }
 
@@ -334,6 +386,64 @@ func seedLegacySchema(t *testing.T, database *gorm.DB) legacyFixture {
 	}
 }
 
+func seedGoalCheckOwnershipMismatchData(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	if err := database.Exec(`ALTER TABLE goal_checks DROP CONSTRAINT IF EXISTS fk_goal_checks_goal_user`).Error; err != nil {
+		t.Fatalf("failed to drop ownership constraint for mismatch fixture: %v", err)
+	}
+
+	timestamp := time.Date(2099, time.April, 10, 9, 0, 0, 0, time.UTC)
+	firstUserID := insertMismatchUser(t, database, "migration mismatch first user")
+	secondUserID := insertMismatchUser(t, database, "migration mismatch second user")
+	goalID := insertMismatchGoal(t, database, firstUserID, timestamp)
+
+	if err := database.Exec(
+		`INSERT INTO goal_checks (user_id, goal_id, date, created_at)
+		 VALUES (?, ?, ?, ?)`,
+		secondUserID,
+		goalID,
+		time.Date(2099, time.April, 14, 0, 0, 0, 0, time.UTC),
+		timestamp,
+	).Error; err != nil {
+		t.Fatalf("failed to insert mismatched goal check: %v", err)
+	}
+}
+
+func insertMismatchUser(t *testing.T, database *gorm.DB, username string) uint {
+	t.Helper()
+
+	user := domain.User{Username: username}
+	if err := database.Create(&user).Error; err != nil {
+		t.Fatalf("failed to insert mismatch user: %v", err)
+	}
+
+	return user.ID
+}
+
+func insertMismatchGoal(t *testing.T, database *gorm.DB, userID uint, timestamp time.Time) uint {
+	t.Helper()
+
+	row := struct {
+		ID uint
+	}{}
+	if err := database.Raw(
+		`INSERT INTO goals (user_id, title, start_date, end_date, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 RETURNING id`,
+		userID,
+		"migration mismatch goal",
+		time.Date(2099, time.April, 14, 0, 0, 0, 0, time.UTC),
+		nil,
+		timestamp,
+		timestamp,
+	).Scan(&row).Error; err != nil {
+		t.Fatalf("failed to insert mismatch goal: %v", err)
+	}
+
+	return row.ID
+}
+
 func assertDailyMemoIndexesMigrated(t *testing.T, database *gorm.DB) {
 	t.Helper()
 
@@ -358,6 +468,36 @@ func assertDailyMemoIndexesMigrated(t *testing.T, database *gorm.DB) {
 	}
 	if !strings.Contains(indexDefinition, "UNIQUE INDEX") || !strings.Contains(indexDefinition, "(user_id, date)") {
 		t.Fatalf("expected idx_daily_memos_user_date to enforce unique (user_id, date), got %q", indexDefinition)
+	}
+}
+
+func assertGoalCheckOwnershipConstraintMigrated(t *testing.T, database *gorm.DB) {
+	t.Helper()
+
+	var goalIndexDefinition string
+	if err := database.Raw(
+		`SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_goals_id_user'`,
+	).Scan(&goalIndexDefinition).Error; err != nil {
+		t.Fatalf("failed to inspect migrated goals ownership index: %v", err)
+	}
+	if goalIndexDefinition == "" {
+		t.Fatal("expected idx_goals_id_user to exist after migration")
+	}
+	if !strings.Contains(goalIndexDefinition, "UNIQUE INDEX") || !strings.Contains(goalIndexDefinition, "(id, user_id)") {
+		t.Fatalf("expected idx_goals_id_user to enforce unique (id, user_id), got %q", goalIndexDefinition)
+	}
+
+	var foreignKeyCount int64
+	if err := database.Raw(
+		`SELECT COUNT(*)
+		 FROM pg_constraint
+		 WHERE conname = 'fk_goal_checks_goal_user'
+		   AND conrelid = 'goal_checks'::regclass`,
+	).Scan(&foreignKeyCount).Error; err != nil {
+		t.Fatalf("failed to inspect migrated goal check ownership constraint: %v", err)
+	}
+	if foreignKeyCount != 1 {
+		t.Fatalf("expected fk_goal_checks_goal_user to exist after migration, found %d entries", foreignKeyCount)
 	}
 }
 

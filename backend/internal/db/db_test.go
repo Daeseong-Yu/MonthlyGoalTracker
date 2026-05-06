@@ -237,6 +237,15 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 	if err := database.Create(&orphanCheck).Error; err == nil {
 		t.Fatal("expected orphan goal check to fail")
 	}
+
+	crossUserCheck := domain.GoalCheck{
+		UserID: otherUser.ID,
+		GoalID: goal.ID,
+		Date:   baseDate.AddDate(0, 0, 2),
+	}
+	if err := database.Create(&crossUserCheck).Error; err == nil {
+		t.Fatal("expected cross-user goal check to fail")
+	}
 }
 
 func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time, usernames ...string) {
@@ -245,6 +254,7 @@ func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time,
 	dates := []time.Time{
 		baseDate,
 		baseDate.AddDate(0, 0, 1),
+		baseDate.AddDate(0, 0, 2),
 	}
 
 	if err := database.Where("date IN ?", dates).Delete(&domain.GoalCheck{}).Error; err != nil {

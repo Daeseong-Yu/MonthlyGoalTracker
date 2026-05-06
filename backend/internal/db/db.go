@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
@@ -13,8 +14,9 @@ import (
 )
 
 var (
-	ErrDatabaseURLRequired = errors.New("database URL is required")
-	ErrDatabaseRequired    = errors.New("database is required")
+	ErrDatabaseURLRequired        = errors.New("database URL is required")
+	ErrDatabaseRequired           = errors.New("database is required")
+	ErrGoalCheckOwnershipMismatch = errors.New("goal check ownership mismatch")
 )
 
 func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
@@ -94,12 +96,52 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 		}
 	}
 
-	return database.WithContext(ctx).AutoMigrate(
+	if err := database.WithContext(ctx).AutoMigrate(
 		&domain.User{},
 		&domain.Goal{},
 		&domain.DailyMemo{},
 		&domain.GoalCheck{},
-	)
+	); err != nil {
+		return err
+	}
+
+	return enforceGoalCheckOwnershipConstraint(ctx, database)
+}
+
+func enforceGoalCheckOwnershipConstraint(ctx context.Context, database *gorm.DB) error {
+	if err := database.WithContext(ctx).Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_goals_id_user ON goals (id, user_id)`).Error; err != nil {
+		return err
+	}
+
+	var mismatchCount int64
+	if err := database.WithContext(ctx).Raw(`
+		SELECT count(*)
+		FROM goal_checks
+		INNER JOIN goals ON goals.id = goal_checks.goal_id
+		WHERE goal_checks.user_id <> goals.user_id`,
+	).Scan(&mismatchCount).Error; err != nil {
+		return err
+	}
+	if mismatchCount > 0 {
+		return fmt.Errorf("%w: %d goal_checks rows reference goals owned by another user", ErrGoalCheckOwnershipMismatch, mismatchCount)
+	}
+
+	return database.WithContext(ctx).Exec(`DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM pg_constraint
+		WHERE conname = 'fk_goal_checks_goal_user'
+			AND conrelid = 'goal_checks'::regclass
+	) THEN
+		ALTER TABLE goal_checks
+			ADD CONSTRAINT fk_goal_checks_goal_user
+			FOREIGN KEY (goal_id, user_id)
+			REFERENCES goals (id, user_id)
+			ON UPDATE CASCADE
+			ON DELETE CASCADE;
+	END IF;
+END $$;`).Error
 }
 
 func ensureUser(ctx context.Context, database *gorm.DB, username string) (uint, error) {
