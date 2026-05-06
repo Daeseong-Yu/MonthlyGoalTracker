@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -73,6 +74,45 @@ func TestGoalHandlerCreateRejectsInvalidStartDate(t *testing.T) {
 	}
 	if goalService.createGoalCalls != 0 {
 		t.Fatalf("expected create goal not to be called, got %d", goalService.createGoalCalls)
+	}
+}
+
+func TestGoalHandlerCreateForwardsRequestPrincipal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	expectedPrincipal := principal.NewAuthenticated("app-user")
+	goalService := &stubGoalService{
+		createGoalFunc: func(ctx context.Context, month string, title string, startDate time.Time) (*domain.Goal, error) {
+			if got := principal.FromContext(ctx); got != expectedPrincipal {
+				t.Fatalf("expected principal %+v, got %+v", expectedPrincipal, got)
+			}
+
+			return &domain.Goal{ID: 8, Title: title, StartDate: startDate}, nil
+		},
+	}
+	goalHandler := NewGoalHandler(goalService)
+
+	router := gin.New()
+	router.POST("/api/months/:month/goals", goalHandler.Create)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/months/2026-04/goals", bytes.NewReader([]byte(`{"title":"Exercise","startDate":"2026-04-10"}`)))
+	request.Header.Set("Content-Type", "application/json")
+	request = request.WithContext(principal.WithContext(request.Context(), expectedPrincipal))
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, recorder.Code, recorder.Body.String())
+	}
+	if goalService.createGoalCalls != 1 {
+		t.Fatalf("expected create goal to be called once, got %d", goalService.createGoalCalls)
+	}
+
+	var response goalResponse
+	decodeJSON(t, recorder.Body.Bytes(), &response)
+	if response.ID != 8 || response.Title != "Exercise" || response.StartDate != "2026-04-10" {
+		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 

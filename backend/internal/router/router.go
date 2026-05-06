@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/handler"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/repository"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/service"
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,7 @@ func SetupRouter(database *gorm.DB, auth config.BasicAuthConfig) *gin.Engine {
 	r.GET("/api/health", handler.Health)
 
 	api := r.Group("/api")
+	api.Use(principalMiddleware(principal.Default()))
 	if auth.Enabled() {
 		api.Use(basicAuthMiddleware(auth))
 	}

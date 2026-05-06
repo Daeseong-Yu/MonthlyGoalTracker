@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -34,8 +35,20 @@ func basicAuthMiddleware(auth config.BasicAuthConfig) gin.HandlerFunc {
 			return
 		}
 
+		attachPrincipal(c, principal.NewAuthenticated(username))
 		c.Next()
 	}
+}
+
+func principalMiddleware(current principal.Principal) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		attachPrincipal(c, current)
+		c.Next()
+	}
+}
+
+func attachPrincipal(c *gin.Context, current principal.Principal) {
+	c.Request = c.Request.WithContext(principal.WithContext(c.Request.Context(), current))
 }
 
 func rejectBasicAuth(c *gin.Context) {

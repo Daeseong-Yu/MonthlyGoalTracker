@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -71,8 +72,17 @@ func TestBasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
+	engine.Use(principalMiddleware(principal.Default()))
 	engine.Use(basicAuthMiddleware(basicAuthConfigForTest(t)))
 	engine.GET("/protected", func(c *gin.Context) {
+		current := principal.FromContext(c.Request.Context())
+		if current.Username != "app-user" {
+			t.Fatalf("expected username app-user, got %q", current.Username)
+		}
+		if !current.Authenticated {
+			t.Fatal("expected principal to be authenticated")
+		}
+
 		c.Status(http.StatusNoContent)
 	})
 
@@ -86,10 +96,33 @@ func TestBasicAuthMiddlewareAllowsValidCredentials(t *testing.T) {
 	}
 }
 
+func TestPrincipalMiddlewareAssignsDefaultPrincipal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(principalMiddleware(principal.Default()))
+	engine.GET("/protected", func(c *gin.Context) {
+		if got := principal.FromContext(c.Request.Context()); got != principal.Default() {
+			t.Fatalf("expected default principal %+v, got %+v", principal.Default(), got)
+		}
+
+		c.Status(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+}
+
 func TestBasicAuthMiddlewareRejectsInvalidCredentials(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
+	engine.Use(principalMiddleware(principal.Default()))
 	engine.Use(basicAuthMiddleware(basicAuthConfigForTest(t)))
 	engine.GET("/protected", func(c *gin.Context) {
 		t.Fatal("protected handler should not be called")
