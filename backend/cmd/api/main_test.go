@@ -39,7 +39,7 @@ func TestRunWithDepsReturnsConnectError(t *testing.T) {
 			served = true
 			return nil
 		},
-	}, false)
+	}, runOptions{mode: runModeServe})
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected connect error, got %v", err)
@@ -71,7 +71,7 @@ func TestRunWithDepsRejectsNonLoopbackHostBeforeConnect(t *testing.T) {
 			t.Fatal("serve should not be called")
 			return nil
 		},
-	}, false)
+	}, runOptions{mode: runModeServe})
 
 	if !errors.Is(err, config.ErrUnsafeHost) {
 		t.Fatalf("expected unsafe host error, got %v", err)
@@ -101,7 +101,7 @@ func TestRunWithDepsClosesDatabaseOnMigrateError(t *testing.T) {
 			t.Fatal("serve should not be called")
 			return nil
 		},
-	}, false)
+	}, runOptions{mode: runModeServe})
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected migrate error, got %v", err)
@@ -136,7 +136,7 @@ func TestRunWithDepsServesConfiguredAddress(t *testing.T) {
 			servedAddr = addr
 			return nil
 		},
-	}, false)
+	}, runOptions{mode: runModeServe})
 
 	if err != nil {
 		t.Fatalf("expected run to succeed, got %v", err)
@@ -183,7 +183,7 @@ func TestRunWithDepsUsesSeparateConnectAndMigrateTimeouts(t *testing.T) {
 		serve: func(*gorm.DB, string) error {
 			return nil
 		},
-	}, false)
+	}, runOptions{mode: runModeServe})
 
 	if err != nil {
 		t.Fatalf("expected run to succeed, got %v", err)
@@ -216,7 +216,7 @@ func TestRunWithDepsMigrateOnlySkipsServe(t *testing.T) {
 			t.Fatal("serve should not be called")
 			return nil
 		},
-	}, true)
+	}, runOptions{mode: runModeMigrateOnly})
 
 	if err != nil {
 		t.Fatalf("expected migrate-only run to succeed, got %v", err)
