@@ -14,6 +14,7 @@ import {
   activeGoalLimitReachedForNewGoal,
   buildDailyRecordGoalSlots,
   checkKey,
+  isGoalVisibleInDisplay,
   maxActiveGoalsPerDay,
   nextDate,
 } from "./goalSlots";
@@ -94,7 +95,7 @@ export function useMonthController() {
     ? currentDate()
     : monthStartDate(month);
   const visibleGoals = goals.filter((goal) =>
-    isGoalActiveInDisplay(goal, goalListReferenceDate),
+    isGoalVisibleInDisplay(goal, goalListReferenceDate),
   );
   const dailyRecordGoalSlots = useMemo(
     () => buildDailyRecordGoalSlots(goals),
@@ -511,11 +512,4 @@ export function useMonthController() {
     deactivateGoalFromMonth,
     cancelEditingGoal,
   };
-}
-
-function isGoalActiveInDisplay(goal: Goal, referenceDate: string) {
-  return (
-    goal.startDate <= referenceDate &&
-    (goal.endDate === null || referenceDate < goal.endDate)
-  );
 }
