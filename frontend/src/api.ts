@@ -3,38 +3,18 @@ import type { MonthView } from "./types";
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 export async function getMonthView(month: string): Promise<MonthView> {
-  const response = await fetch(
-    `${apiBaseURL}/api/months/${encodeURIComponent(month)}`,
-    {
-      headers: {
-        Accept: "application/json",
-      },
-    },
+  return requestJSON<MonthView>(
+    `/api/months/${encodeURIComponent(month)}`,
+    "month request",
   );
-
-  if (!response.ok) {
-    throw new Error(`month request failed with status ${response.status}`);
-  }
-
-  return (await response.json()) as MonthView;
 }
 
 export async function ensureMonth(month: string): Promise<MonthView> {
-  const response = await fetch(
-    `${apiBaseURL}/api/months/${encodeURIComponent(month)}/ensure`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-      },
-    },
+  return requestJSON<MonthView>(
+    `/api/months/${encodeURIComponent(month)}/ensure`,
+    "month ensure request",
+    { method: "POST" },
   );
-
-  if (!response.ok) {
-    throw new Error(`month ensure request failed with status ${response.status}`);
-  }
-
-  return (await response.json()) as MonthView;
 }
 
 export async function createGoal(
@@ -42,59 +22,31 @@ export async function createGoal(
   title: string,
   startDate: string,
 ): Promise<void> {
-  const response = await fetch(
-    `${apiBaseURL}/api/months/${encodeURIComponent(month)}/goals`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ title, startDate }),
-    },
+  await requestVoid(
+    `/api/months/${encodeURIComponent(month)}/goals`,
+    "goal request",
+    { method: "POST", body: { title, startDate } },
   );
-
-  if (!response.ok) {
-    throw new Error(`goal request failed with status ${response.status}`);
-  }
 }
 
 export async function updateGoalTitle(
   goalId: number,
   title: string,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseURL}/api/goals/${goalId}`, {
+  await requestVoid(`/api/goals/${goalId}`, "goal update request", {
     method: "PATCH",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ title }),
+    body: { title },
   });
-
-  if (!response.ok) {
-    throw new Error(`goal update request failed with status ${response.status}`);
-  }
 }
 
 export async function deactivateGoal(
   goalId: number,
   endDate: string,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseURL}/api/goals/${goalId}/deactivate`, {
+  await requestVoid(`/api/goals/${goalId}/deactivate`, "goal deactivate request", {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ endDate }),
+    body: { endDate },
   });
-
-  if (!response.ok) {
-    throw new Error(
-      `goal deactivate request failed with status ${response.status}`,
-    );
-  }
 }
 
 export async function setGoalCompleted(
@@ -102,34 +54,73 @@ export async function setGoalCompleted(
   date: string,
   completed: boolean,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseURL}/api/checks`, {
+  await requestVoid("/api/checks", "check request", {
     method: "PUT",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ goalId, date, completed }),
+    body: { goalId, date, completed },
   });
-
-  if (!response.ok) {
-    throw new Error(`check request failed with status ${response.status}`);
-  }
 }
 
 export async function saveMemo(date: string, memo: string): Promise<void> {
-  const response = await fetch(
-    `${apiBaseURL}/api/memos/${encodeURIComponent(date)}`,
-    {
-      method: "PUT",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ memo }),
-    },
+  await requestVoid(
+    `/api/memos/${encodeURIComponent(date)}`,
+    "memo request",
+    { method: "PUT", body: { memo } },
   );
+}
 
+type RequestOptions = {
+  body?: unknown;
+  method?: string;
+};
+
+async function requestJSON<T>(
+  path: string,
+  errorLabel: string,
+  options?: RequestOptions,
+): Promise<T> {
+  const response = await request(path, errorLabel, options);
+  return (await response.json()) as T;
+}
+
+async function requestVoid(
+  path: string,
+  errorLabel: string,
+  options?: RequestOptions,
+): Promise<void> {
+  await request(path, errorLabel, options);
+}
+
+async function request(
+  path: string,
+  errorLabel: string,
+  options?: RequestOptions,
+) {
+  const response = await fetch(`${apiBaseURL}${path}`, requestInit(options));
   if (!response.ok) {
-    throw new Error(`memo request failed with status ${response.status}`);
+    throw new Error(`${errorLabel} failed with status ${response.status}`);
   }
+
+  return response;
+}
+
+function requestInit(options?: RequestOptions): RequestInit {
+  const init: RequestInit = {
+    headers: {
+      Accept: "application/json",
+    },
+  };
+
+  if (options?.method) {
+    init.method = options.method;
+  }
+
+  if (options && "body" in options) {
+    init.headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    init.body = JSON.stringify(options.body);
+  }
+
+  return init;
 }
