@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteDeployArtifacts",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::<DEPLOY_ARTIFACT_BUCKET>/releases/*"
+    },
+    {
+      "Sid": "ListDeployArtifactBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<DEPLOY_ARTIFACT_BUCKET>",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "releases/*"
+        }
+      }
+    },
+    {
+      "Sid": "SendDeployCommandToTargetInstance",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ssm:<AWS_REGION>::document/AWS-RunShellScript",
+        "arn:aws:ec2:<AWS_REGION>:<AWS_ACCOUNT_ID>:instance/<EC2_INSTANCE_ID>"
+      ]
+    },
+    {
+      "Sid": "ReadDeployCommandResult",
+      "Effect": "Allow",
+      "Action": "ssm:GetCommandInvocation",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "<AWS_REGION>"
+        }
+      }
+    }
+  ]
+}
