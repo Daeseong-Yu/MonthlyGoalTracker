@@ -161,7 +161,8 @@ EC2_INSTANCE_ID
 ```
 
 See `DEPLOYMENT_SSM.md` for the AWS OIDC provider, deploy role, EC2 instance
-profile, S3 lifecycle, and post-deployment cleanup steps.
+profile, S3 lifecycle, happy path, post-deployment checks, rollback, and
+troubleshooting.
 
 Backend deployments build `linux/amd64` and `linux/arm64` binaries in GitHub
 Actions, upload them to S3, and use Systems Manager Run Command to execute the
@@ -187,7 +188,7 @@ After DNS and HTTPS are active:
 
 ```sh
 curl -I https://example.com
-curl -u app-user:<password> https://example.com/api/health
+curl -u app-user https://example.com/api/health
 ```
 
 Then verify the main workflow in the browser:

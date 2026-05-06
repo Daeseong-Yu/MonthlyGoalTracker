@@ -5,11 +5,6 @@ on:
     branches:
       - develop
       - main
-    paths:
-      - backend/**
-      - .github/workflows/backend-ci.yml
-      - .github/workflows/deploy.yml
-      - scripts/verify.sh
   push:
     branches:
       - feature/**
