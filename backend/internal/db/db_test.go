@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -81,45 +80,12 @@ func TestConnectUsesContextForPing(t *testing.T) {
 }
 
 func TestConnectIntegration(t *testing.T) {
-	if os.Getenv("RUN_DB_INTEGRATION") != "1" {
-		t.Skip("set RUN_DB_INTEGRATION=1 to run database integration test")
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for database integration test")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel, databaseURL := requireDatabaseIntegration(t, "database integration test")
 	defer cancel()
 
-	var (
-		database *gorm.DB
-		err      error
-	)
-
-	for {
-		database, err = Connect(ctx, databaseURL)
-		if err == nil {
-			break
-		}
-
-		if ctx.Err() != nil {
-			t.Fatalf("expected database connection, got %v", err)
-		}
-
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	sqlDB, err := database.DB()
-	if err != nil {
-		t.Fatalf("expected sql database handle, got %v", err)
-	}
-
+	database := openIntegrationDatabase(t, ctx, databaseURL)
 	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("failed to close database connection: %v", err)
-		}
+		closeIntegrationDatabase(t, database)
 	})
 
 	if err := Migrate(ctx, database); err != nil {

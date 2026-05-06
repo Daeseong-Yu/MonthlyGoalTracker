@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,33 +15,15 @@ import (
 )
 
 func TestMigrateRehearsesLegacySchemaIntegration(t *testing.T) {
-	if os.Getenv("RUN_DB_INTEGRATION") != "1" {
-		t.Skip("set RUN_DB_INTEGRATION=1 to run database migration rehearsal test")
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for database migration rehearsal test")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel, databaseURL := requireDatabaseIntegration(t, "database migration rehearsal test")
 	defer cancel()
 
-	adminDB := openIntegrationDatabaseWithoutMigration(t, ctx, databaseURL)
+	adminDB := openIntegrationDatabase(t, ctx, databaseURL)
 	t.Cleanup(func() {
 		closeIntegrationDatabase(t, adminDB)
 	})
 
-	schemaName := fmt.Sprintf("migration_rehearsal_%d", time.Now().UTC().UnixNano())
-	createSchema(t, adminDB, schemaName)
-
-	schemaDB := openIntegrationDatabaseWithoutMigration(t, ctx, databaseURLWithSearchPath(t, databaseURL, schemaName))
-	t.Cleanup(func() {
-		dropSchema(t, adminDB, schemaName)
-	})
-	t.Cleanup(func() {
-		closeIntegrationDatabase(t, schemaDB)
-	})
+	schemaDB := openIntegrationSchemaDatabase(t, ctx, adminDB, databaseURL, "migration_rehearsal")
 
 	legacy := seedLegacySchema(t, schemaDB)
 
@@ -182,33 +162,15 @@ func TestMigrateRehearsesLegacySchemaIntegration(t *testing.T) {
 }
 
 func TestMigrateRejectsExistingGoalCheckOwnershipMismatchIntegration(t *testing.T) {
-	if os.Getenv("RUN_DB_INTEGRATION") != "1" {
-		t.Skip("set RUN_DB_INTEGRATION=1 to run database migration rehearsal test")
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for database migration rehearsal test")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel, databaseURL := requireDatabaseIntegration(t, "database migration rehearsal test")
 	defer cancel()
 
-	adminDB := openIntegrationDatabaseWithoutMigration(t, ctx, databaseURL)
+	adminDB := openIntegrationDatabase(t, ctx, databaseURL)
 	t.Cleanup(func() {
 		closeIntegrationDatabase(t, adminDB)
 	})
 
-	schemaName := fmt.Sprintf("migration_mismatch_%d", time.Now().UTC().UnixNano())
-	createSchema(t, adminDB, schemaName)
-
-	schemaDB := openIntegrationDatabaseWithoutMigration(t, ctx, databaseURLWithSearchPath(t, databaseURL, schemaName))
-	t.Cleanup(func() {
-		dropSchema(t, adminDB, schemaName)
-	})
-	t.Cleanup(func() {
-		closeIntegrationDatabase(t, schemaDB)
-	})
+	schemaDB := openIntegrationSchemaDatabase(t, ctx, adminDB, databaseURL, "migration_mismatch")
 
 	if err := Migrate(ctx, schemaDB); err != nil {
 		t.Fatalf("expected initial migration to succeed, got %v", err)
@@ -226,69 +188,6 @@ type legacyFixture struct {
 	memoID      uint
 	goalCheckID uint
 	memoDate    time.Time
-}
-
-func openIntegrationDatabaseWithoutMigration(t *testing.T, ctx context.Context, databaseURL string) *gorm.DB {
-	t.Helper()
-
-	var (
-		database *gorm.DB
-		err      error
-	)
-	for {
-		database, err = Connect(ctx, databaseURL)
-		if err == nil {
-			return database
-		}
-		if ctx.Err() != nil {
-			t.Fatalf("expected database connection, got %v", err)
-		}
-
-		time.Sleep(500 * time.Millisecond)
-	}
-}
-
-func closeIntegrationDatabase(t *testing.T, database *gorm.DB) {
-	t.Helper()
-
-	sqlDB, err := database.DB()
-	if err != nil {
-		t.Fatalf("expected sql database handle, got %v", err)
-	}
-
-	if err := sqlDB.Close(); err != nil {
-		t.Fatalf("failed to close database connection: %v", err)
-	}
-}
-
-func createSchema(t *testing.T, database *gorm.DB, schemaName string) {
-	t.Helper()
-
-	if err := database.Exec(`CREATE SCHEMA ` + quoteIdentifier(schemaName)).Error; err != nil {
-		t.Fatalf("failed to create schema %q: %v", schemaName, err)
-	}
-}
-
-func dropSchema(t *testing.T, database *gorm.DB, schemaName string) {
-	t.Helper()
-
-	if err := database.Exec(`DROP SCHEMA IF EXISTS ` + quoteIdentifier(schemaName) + ` CASCADE`).Error; err != nil {
-		t.Fatalf("failed to drop schema %q: %v", schemaName, err)
-	}
-}
-
-func databaseURLWithSearchPath(t *testing.T, databaseURL, schemaName string) string {
-	t.Helper()
-
-	parsedURL, err := url.Parse(databaseURL)
-	if err != nil {
-		t.Fatalf("failed to parse database URL: %v", err)
-	}
-
-	query := parsedURL.Query()
-	query.Set("search_path", schemaName)
-	parsedURL.RawQuery = query.Encode()
-	return parsedURL.String()
 }
 
 func seedLegacySchema(t *testing.T, database *gorm.DB) legacyFixture {
@@ -554,8 +453,4 @@ func containsGoalCheckForGoal(goalChecks []domain.GoalCheck, goalID, userID uint
 	}
 
 	return false
-}
-
-func quoteIdentifier(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
 }
