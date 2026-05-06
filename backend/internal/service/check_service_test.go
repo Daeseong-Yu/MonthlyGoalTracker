@@ -38,7 +38,7 @@ func TestSetGoalCompletedSavesForActiveGoal(t *testing.T) {
 	if !checkRepo.lastSetCompleted {
 		t.Fatal("expected completed=true")
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 12, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 12))
 }
 
 func TestSetGoalCompletedRejectsBeforeStartDate(t *testing.T) {
@@ -109,7 +109,7 @@ func TestSetGoalCompletedAllowsEndDateDay(t *testing.T) {
 	if checkRepo.setCalls != 1 {
 		t.Fatalf("expected set completed once, got %d", checkRepo.setCalls)
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 15, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 15))
 }
 
 func TestSetGoalCompletedFalseUsesSetCompletedDeletePath(t *testing.T) {
@@ -138,7 +138,7 @@ func TestSetGoalCompletedFalseUsesSetCompletedDeletePath(t *testing.T) {
 	if checkRepo.lastSetCompleted {
 		t.Fatal("expected completed=false")
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 12, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 12))
 }
 
 func TestSetGoalCompletedNormalizesFixedZoneInputDate(t *testing.T) {
@@ -159,7 +159,7 @@ func TestSetGoalCompletedNormalizesFixedZoneInputDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected fixed-zone date to succeed, got %v", err)
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 1))
 }
 
 func TestSetGoalCompletedPropagatesGoalLookupError(t *testing.T) {
@@ -237,8 +237,8 @@ func TestListChecksForMonthPassesCorrectRange(t *testing.T) {
 	if len(checks) != 1 || checks[0].ID != expectedChecks[0].ID {
 		t.Fatalf("expected checks %v, got %v", expectedChecks, checks)
 	}
-	assertDateEqual(t, checkRepo.lastListStartDate, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, checkRepo.lastListEndDate, time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastListStartDate, date(2026, time.February, 1))
+	assertDateEqual(t, checkRepo.lastListEndDate, date(2026, time.February, 28))
 }
 
 func TestListChecksForMonthPropagatesRepositoryError(t *testing.T) {

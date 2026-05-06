@@ -37,13 +37,13 @@ func TestCreateGoalAcceptsFixedZoneStartDateWithinMonth(t *testing.T) {
 	if goal == nil {
 		t.Fatal("expected goal")
 	}
-	assertDateEqual(t, goal.StartDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListStartDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListEndDate, time.Date(2026, time.April, 30, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, goal.StartDate, date(2026, time.April, 1))
+	assertDateEqual(t, repo.lastListStartDate, date(2026, time.April, 1))
+	assertDateEqual(t, repo.lastListEndDate, date(2026, time.April, 30))
 	if repo.createdGoal == nil {
 		t.Fatal("expected created goal to be recorded")
 	}
-	assertDateEqual(t, repo.createdGoal.StartDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.createdGoal.StartDate, date(2026, time.April, 1))
 }
 
 func TestCreateGoalRejectsWhitespaceTitle(t *testing.T) {
@@ -86,7 +86,7 @@ func TestCreateGoalRejectsWhenSelectedMonthActiveGoalLimitExceeded(t *testing.T)
 				goals = append(goals, domain.Goal{
 					ID:        uint(i + 1),
 					Title:     "existing goal",
-					StartDate: time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC),
+					StartDate: date(2026, time.April, 1),
 				})
 			}
 			return goals, nil
@@ -104,8 +104,8 @@ func TestCreateGoalRejectsWhenSelectedMonthActiveGoalLimitExceeded(t *testing.T)
 	if repo.createCalls != 0 {
 		t.Fatal("expected create not to be called")
 	}
-	assertDateEqual(t, repo.lastListStartDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListEndDate, time.Date(2026, time.April, 30, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.lastListStartDate, date(2026, time.April, 10))
+	assertDateEqual(t, repo.lastListEndDate, date(2026, time.April, 30))
 }
 
 func TestCreateGoalAllowsFifthActiveGoalAtInclusiveLimitBoundary(t *testing.T) {
@@ -116,7 +116,7 @@ func TestCreateGoalAllowsFifthActiveGoalAtInclusiveLimitBoundary(t *testing.T) {
 				goals = append(goals, domain.Goal{
 					ID:        uint(i + 1),
 					Title:     "existing goal",
-					StartDate: time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC),
+					StartDate: date(2026, time.April, 10),
 				})
 			}
 			return goals, nil
@@ -134,21 +134,21 @@ func TestCreateGoalAllowsFifthActiveGoalAtInclusiveLimitBoundary(t *testing.T) {
 	if repo.createCalls != 1 {
 		t.Fatalf("expected create to be called once, got %d", repo.createCalls)
 	}
-	assertDateEqual(t, goal.StartDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListStartDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListEndDate, time.Date(2026, time.April, 30, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, goal.StartDate, date(2026, time.April, 10))
+	assertDateEqual(t, repo.lastListStartDate, date(2026, time.April, 10))
+	assertDateEqual(t, repo.lastListEndDate, date(2026, time.April, 30))
 }
 
 func TestCreateGoalChecksActiveGoalLimitWithinSelectedMonthOnly(t *testing.T) {
 	repo := &stubGoalRepository{
 		listOverlappingDateRangeFunc: func(_ context.Context, startDate, endDate time.Time) ([]domain.Goal, error) {
-			assertDateEqual(t, startDate, time.Date(2026, time.April, 28, 0, 0, 0, 0, time.UTC))
-			assertDateEqual(t, endDate, time.Date(2026, time.April, 30, 0, 0, 0, 0, time.UTC))
+			assertDateEqual(t, startDate, date(2026, time.April, 28))
+			assertDateEqual(t, endDate, date(2026, time.April, 30))
 			return []domain.Goal{
 				{
 					ID:        1,
 					Title:     "future goal",
-					StartDate: time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+					StartDate: date(2026, time.May, 1),
 				},
 			}, nil
 		},
@@ -184,7 +184,7 @@ func TestCreateGoalCreatesTrimmedGoal(t *testing.T) {
 	if goal.Title != "Ship feature" {
 		t.Fatalf("expected trimmed title, got %q", goal.Title)
 	}
-	assertDateEqual(t, goal.StartDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, goal.StartDate, date(2026, time.April, 10))
 	if repo.createCalls != 1 {
 		t.Fatalf("expected create to be called once, got %d", repo.createCalls)
 	}
@@ -194,7 +194,7 @@ func TestCreateGoalCreatesTrimmedGoal(t *testing.T) {
 	if repo.createdGoal.Title != "Ship feature" {
 		t.Fatalf("expected repository title %q, got %q", "Ship feature", repo.createdGoal.Title)
 	}
-	assertDateEqual(t, repo.createdGoal.StartDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.createdGoal.StartDate, date(2026, time.April, 10))
 }
 
 func TestUpdateGoalTitleRejectsEmptyTitle(t *testing.T) {
@@ -277,7 +277,7 @@ func TestDeactivateGoalSetsInclusiveNormalizedEndDate(t *testing.T) {
 	if goal == nil || goal.EndDate == nil {
 		t.Fatal("expected goal with end date")
 	}
-	assertDateEqual(t, *goal.EndDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, *goal.EndDate, date(2026, time.April, 10))
 	if repo.lastFindGoalID != 42 {
 		t.Fatalf("expected find by id to use 42, got %d", repo.lastFindGoalID)
 	}
@@ -287,7 +287,7 @@ func TestDeactivateGoalSetsInclusiveNormalizedEndDate(t *testing.T) {
 	if repo.lastSetEndDate == nil {
 		t.Fatal("expected end date to be recorded")
 	}
-	assertDateEqual(t, *repo.lastSetEndDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, *repo.lastSetEndDate, date(2026, time.April, 10))
 }
 
 func TestDeactivateGoalPreservesFixedZoneLocalCalendarDay(t *testing.T) {
@@ -313,11 +313,11 @@ func TestDeactivateGoalPreservesFixedZoneLocalCalendarDay(t *testing.T) {
 	if goal == nil || goal.EndDate == nil {
 		t.Fatal("expected goal with end date")
 	}
-	assertDateEqual(t, *goal.EndDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, *goal.EndDate, date(2026, time.April, 1))
 	if repo.lastSetEndDate == nil {
 		t.Fatal("expected end date to be recorded")
 	}
-	assertDateEqual(t, *repo.lastSetEndDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, *repo.lastSetEndDate, date(2026, time.April, 1))
 }
 
 func TestListGoalsForMonthUsesMonthRange(t *testing.T) {
@@ -336,8 +336,8 @@ func TestListGoalsForMonthUsesMonthRange(t *testing.T) {
 	if len(goals) != 1 || goals[0].ID != expectedGoals[0].ID {
 		t.Fatalf("expected goals %v, got %v", expectedGoals, goals)
 	}
-	assertDateEqual(t, repo.lastListStartDate, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListEndDate, time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.lastListStartDate, date(2026, time.February, 1))
+	assertDateEqual(t, repo.lastListEndDate, date(2026, time.February, 28))
 }
 
 type stubGoalRepository struct {
@@ -411,11 +411,4 @@ func (s *stubGoalRepository) ListOverlappingDateRange(ctx context.Context, start
 		return s.listOverlappingDateRangeFunc(ctx, startDate, endDate)
 	}
 	return nil, nil
-}
-
-func assertDateEqual(t *testing.T, actual time.Time, expected time.Time) {
-	t.Helper()
-	if !actual.Equal(expected) {
-		t.Fatalf("expected date %s, got %s", expected.Format(time.RFC3339), actual.Format(time.RFC3339))
-	}
 }

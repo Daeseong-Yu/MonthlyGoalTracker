@@ -9,24 +9,24 @@ import (
 )
 
 func TestGetMonthViewBuildsDailyStatsAndChart(t *testing.T) {
-	endDate := time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)
+	endDate := date(2026, time.April, 2)
 	goalRepo := &stubGoalRepository{
 		listOverlappingDateRangeFunc: func(context.Context, time.Time, time.Time) ([]domain.Goal, error) {
 			return []domain.Goal{
 				{
 					ID:        1,
 					Title:     "all month",
-					StartDate: time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC),
+					StartDate: date(2026, time.April, 1),
 				},
 				{
 					ID:        2,
 					Title:     "starts later",
-					StartDate: time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC),
+					StartDate: date(2026, time.April, 2),
 				},
 				{
 					ID:        3,
 					Title:     "ends early",
-					StartDate: time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC),
+					StartDate: date(2026, time.April, 1),
 					EndDate:   &endDate,
 				},
 			}, nil
@@ -35,17 +35,17 @@ func TestGetMonthViewBuildsDailyStatsAndChart(t *testing.T) {
 	memoRepo := &stubMemoRepository{
 		listByDateRangeFunc: func(context.Context, time.Time, time.Time) ([]domain.DailyMemo, error) {
 			return []domain.DailyMemo{
-				{Date: time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC), Memo: "memo"},
+				{Date: date(2026, time.April, 2), Memo: "memo"},
 			}, nil
 		},
 	}
 	checkRepo := &stubGoalCheckRepository{
 		listByDateRangeFunc: func(context.Context, time.Time, time.Time) ([]domain.GoalCheck, error) {
 			return []domain.GoalCheck{
-				{GoalID: 1, Date: time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC)},
-				{GoalID: 1, Date: time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)},
-				{GoalID: 2, Date: time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC)},
-				{GoalID: 3, Date: time.Date(2026, time.April, 3, 0, 0, 0, 0, time.UTC)},
+				{GoalID: 1, Date: date(2026, time.April, 1)},
+				{GoalID: 1, Date: date(2026, time.April, 2)},
+				{GoalID: 2, Date: date(2026, time.April, 2)},
+				{GoalID: 3, Date: date(2026, time.April, 3)},
 			}, nil
 		},
 	}
@@ -63,26 +63,26 @@ func TestGetMonthViewBuildsDailyStatsAndChart(t *testing.T) {
 		t.Fatalf("expected 30 chart points, got %d", len(view.Chart))
 	}
 
-	april1 := findDayEntry(t, view.Days, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	april1 := findDayEntry(t, view.Days, date(2026, time.April, 1))
 	assertDayStats(t, april1, 2, 1, 0.5)
 
-	april2 := findDayEntry(t, view.Days, time.Date(2026, time.April, 2, 0, 0, 0, 0, time.UTC))
+	april2 := findDayEntry(t, view.Days, date(2026, time.April, 2))
 	assertDayStats(t, april2, 3, 2, float64(2)/float64(3))
 	if april2.Memo != "memo" {
 		t.Fatalf("expected memo %q, got %q", "memo", april2.Memo)
 	}
 
-	april3 := findDayEntry(t, view.Days, time.Date(2026, time.April, 3, 0, 0, 0, 0, time.UTC))
+	april3 := findDayEntry(t, view.Days, date(2026, time.April, 3))
 	assertDayStats(t, april3, 2, 0, 0)
 }
 
 func TestEnsureMonthCopiesPreviousActiveGoalsAndEndsOriginal(t *testing.T) {
-	monthStart := time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC)
-	previousMonthEnd := time.Date(2026, time.March, 31, 0, 0, 0, 0, time.UTC)
+	monthStart := date(2026, time.April, 1)
+	previousMonthEnd := date(2026, time.March, 31)
 	previousGoal := domain.Goal{
 		ID:        7,
 		Title:     "Exercise",
-		StartDate: time.Date(2026, time.March, 1, 0, 0, 0, 0, time.UTC),
+		StartDate: date(2026, time.March, 1),
 	}
 
 	listCalls := 0
