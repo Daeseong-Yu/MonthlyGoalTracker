@@ -28,6 +28,12 @@ Recommended EC2 exposure:
   loopback.
 - `monthly-goal-api.service.example`: systemd service for the Go API.
 - `env.production.example`: placeholder environment values for the EC2 host.
+- `DEPLOYMENT_SSM.md`: GitHub Actions OIDC, S3 artifacts, and Systems Manager
+  deployment setup.
+- `aws/*.example.json`: placeholder IAM and S3 lifecycle examples for SSM
+  deployment.
+- `scripts/deploy-*.sh`: scripts executed on EC2 by Systems Manager Run
+  Command.
 
 ## Server Layout
 
@@ -50,19 +56,18 @@ Expected build artifacts:
 
 1. Prepare the EC2 instance.
 
-   Install Git, Docker with the Compose plugin, Caddy, curl, rsync, and the
-   OpenSSH server. Assign an Elastic IP and point your domain A record to that
-   IP. Go, Node.js, and pnpm are not required on the EC2 host when GitHub
-   Actions performs production builds.
+   Install Git, Docker with the Compose plugin, Caddy, curl, AWS CLI, and make
+   sure SSM Agent is running. Assign an Elastic IP and point your domain A
+   record to that IP. Go, Node.js, and pnpm are not required on the EC2 host
+   when GitHub Actions performs production builds.
 
 2. Clone the deployment templates and create the application directories.
 
    ```sh
-   export DEPLOY_USER=<deploy-user>
-   sudo install -d -m 0755 -o "$DEPLOY_USER" -g "$DEPLOY_USER" /opt/monthly-goal-tracker
-   git clone <repo-url> /opt/monthly-goal-tracker
-   mkdir -p /opt/monthly-goal-tracker/backend/releases
-   mkdir -p /opt/monthly-goal-tracker/frontend/releases
+   sudo install -d -m 0755 /opt/monthly-goal-tracker
+   sudo git clone <repo-url> /opt/monthly-goal-tracker
+   sudo mkdir -p /opt/monthly-goal-tracker/backend/releases
+   sudo mkdir -p /opt/monthly-goal-tracker/frontend/releases
    ```
 
    The EC2 host keeps the deployment examples and Compose file from the
@@ -137,9 +142,8 @@ production deployment.
   `scripts/verify.sh` changes on `feature/**` or `develop`, and on PRs to
   `develop` or `main`.
 - `deploy.yml`: runs on `main` pushes and deploys only the changed component.
-  Manual dispatch can deploy `all`, `backend`, or `frontend`.
-  Changes outside `backend/**` and `frontend/**` do not automatically replace
-  production artifacts.
+  Manual dispatch can deploy `all`, `backend`, or `frontend`. Deploy script
+  changes and deploy workflow changes also trigger production deployment.
 
 Recommended branch flow:
 
@@ -147,29 +151,22 @@ Recommended branch flow:
 feature/* -> develop -> main -> production deploy
 ```
 
-Configure these GitHub secrets before enabling production deployment:
+Configure GitHub Actions variables before enabling production deployment:
 
 ```text
-EC2_HOST
-EC2_USER
-EC2_SSH_PRIVATE_KEY
-EC2_SSH_KNOWN_HOSTS
-EC2_SSH_PORT # optional, defaults to 22
+AWS_ROLE_TO_ASSUME
+AWS_REGION
+DEPLOY_ARTIFACT_BUCKET
+EC2_INSTANCE_ID
 ```
 
-The deploy user should own `/opt/monthly-goal-tracker` so CI can replace build
-artifacts without broad passwordless sudo. It only needs passwordless sudo for
-the API restart:
-
-```text
-<deploy-user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart monthly-goal-api
-```
-
-Adjust `/usr/bin/systemctl` if `command -v systemctl` returns a different path
-on your EC2 image.
+See `DEPLOYMENT_SSM.md` for the AWS OIDC provider, deploy role, EC2 instance
+profile, S3 lifecycle, and post-deployment cleanup steps.
 
 Backend deployments build `linux/amd64` and `linux/arm64` binaries in GitHub
-Actions. The EC2 host selects the right binary with `uname -m`, installs it to
+Actions, upload them to S3, and use Systems Manager Run Command to execute the
+backend deploy script on EC2. The EC2 host selects the right binary with
+`uname -m`, installs it to
 `/opt/monthly-goal-tracker/backend/monthly-goal-api`, restarts systemd, checks
 `http://127.0.0.1:8080/api/health`, and restores the previous binary if the
 health check fails.
@@ -177,9 +174,11 @@ health check fails.
 Each deployment uses a release name derived from the commit SHA, workflow run,
 and run attempt so rerunning the same commit creates a fresh release directory.
 
-Frontend deployments build `frontend/dist` in GitHub Actions, upload it to a
-release directory under `/opt/monthly-goal-tracker/frontend/releases`, switch
-`/opt/monthly-goal-tracker/frontend/dist` to the new release, and keep the most
+Frontend deployments build `frontend/dist` in GitHub Actions, upload a packaged
+artifact to S3, and use Systems Manager Run Command to execute the frontend
+deploy script on EC2. The script extracts the release under
+`/opt/monthly-goal-tracker/frontend/releases`, switches
+`/opt/monthly-goal-tracker/frontend/dist` to the new release, and keeps the most
 recent five releases.
 
 ## Smoke Checks

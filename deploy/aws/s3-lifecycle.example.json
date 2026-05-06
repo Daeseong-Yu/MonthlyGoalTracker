@@ -1,0 +1,20 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-deploy-release-artifacts",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "releases/"
+      },
+      "Expiration": {
+        "Days": 30
+      },
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 30
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 1
+      }
+    }
+  ]
+}

@@ -81,6 +81,16 @@ jobs:
                 frontend/*)
                   frontend=true
                   ;;
+                deploy/scripts/deploy-backend.sh)
+                  backend=true
+                  ;;
+                deploy/scripts/deploy-frontend.sh)
+                  frontend=true
+                  ;;
+                .github/workflows/deploy.yml)
+                  backend=true
+                  frontend=true
+                  ;;
               esac
             done < <(git diff --name-only "${BEFORE_SHA}" "${AFTER_SHA}")
           fi
@@ -119,6 +129,12 @@ jobs:
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/backend/monthly-goal-api-linux-amd64 ./cmd/api
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../dist/backend/monthly-goal-api-linux-arm64 ./cmd/api
 
+      - name: Copy backend deploy script
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0755 ../deploy/scripts/deploy-backend.sh ../dist/backend/deploy-backend.sh
+
       - name: Upload backend artifact
         uses: actions/upload-artifact@v4
         with:
@@ -156,11 +172,19 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Package frontend dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist/frontend
+          tar -C dist -czf ../dist/frontend/frontend-dist.tar.gz .
+          install -m 0755 ../deploy/scripts/deploy-frontend.sh ../dist/frontend/deploy-frontend.sh
+
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: frontend/dist
+          path: dist/frontend
           if-no-files-found: error
 
   deploy-backend:
@@ -172,6 +196,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Download backend artifact
         uses: actions/download-artifact@v4
@@ -179,120 +206,56 @@ jobs:
           name: backend-binaries
           path: dist/backend
 
-      - name: Configure SSH
+      - name: Configure AWS credentials
+        # aws-actions/configure-aws-credentials v4.3.1
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload backend artifacts to S3
         shell: bash
         env:
-          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DEPLOY_ARTIFACT_BUCKET: ${{ vars.DEPLOY_ARTIFACT_BUCKET }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "${EC2_SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
-          printf '%s\n' "${EC2_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          aws s3 cp dist/backend "s3://${DEPLOY_ARTIFACT_BUCKET}/releases/${RELEASE_ID}/backend/" --recursive --region "${AWS_REGION}"
 
-      - name: Upload backend binary
+      - name: Deploy backend with SSM
         shell: bash
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DEPLOY_ARTIFACT_BUCKET: ${{ vars.DEPLOY_ARTIFACT_BUCKET }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          SSH_PORT="${EC2_SSH_PORT:-22}"
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "mkdir -p '${RELEASE_DIR}/backend'"
-          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key -p ${SSH_PORT} -o IdentitiesOnly=yes" dist/backend/ "${EC2_USER}@${EC2_HOST}:${RELEASE_DIR}/backend/"
+          cat > backend-ssm-parameters.json <<EOF
+          {
+            "commands": [
+              "aws s3 cp s3://${DEPLOY_ARTIFACT_BUCKET}/releases/${RELEASE_ID}/backend/deploy-backend.sh /tmp/monthly-goal-tracker-deploy-backend.sh --region ${AWS_REGION}",
+              "chmod 0755 /tmp/monthly-goal-tracker-deploy-backend.sh",
+              "DEPLOY_ARTIFACT_BUCKET=${DEPLOY_ARTIFACT_BUCKET} RELEASE_ID=${RELEASE_ID} AWS_REGION=${AWS_REGION} /tmp/monthly-goal-tracker-deploy-backend.sh"
+            ]
+          }
+          EOF
 
-      - name: Restart backend
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          SSH_PORT="${EC2_SSH_PORT:-22}"
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "RELEASE_DIR='${RELEASE_DIR}' bash -s" <<'REMOTE'
-          set -euo pipefail
+          command_id="$(aws ssm send-command \
+            --instance-ids "${EC2_INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy Monthly Goal Tracker backend ${RELEASE_ID}" \
+            --parameters file://backend-ssm-parameters.json \
+            --region "${AWS_REGION}" \
+            --query "Command.CommandId" \
+            --output text)"
 
-          case "$(uname -m)" in
-            x86_64)
-              artifact="monthly-goal-api-linux-amd64"
-              ;;
-            aarch64|arm64)
-              artifact="monthly-goal-api-linux-arm64"
-              ;;
-            *)
-              echo "unsupported server architecture: $(uname -m)" >&2
-              exit 1
-              ;;
-          esac
-
-          release_root="/opt/monthly-goal-tracker/backend/releases"
-          release_name="$(basename "${RELEASE_DIR}")"
-          release_dir="${release_root}/${release_name}"
-          current_binary="/opt/monthly-goal-tracker/backend/monthly-goal-api"
-          previous_binary=""
-
-          install -d -m 0755 "${release_root}"
-          rm -rf "${release_dir}"
-          mkdir -p "${release_dir}"
-          install -m 0755 "${RELEASE_DIR}/backend/${artifact}" "${release_dir}/monthly-goal-api"
-
-          if [ -L "${current_binary}" ]; then
-            previous_binary="$(readlink -f "${current_binary}")"
-          elif [ -f "${current_binary}" ]; then
-            previous_dir="${release_root}/pre-cicd-$(date +%Y%m%d%H%M%S)"
-            mkdir -p "${previous_dir}"
-            cp "${current_binary}" "${previous_dir}/monthly-goal-api"
-            chmod 0755 "${previous_dir}/monthly-goal-api"
-            previous_binary="${previous_dir}/monthly-goal-api"
+          if ! aws ssm wait command-executed --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"; then
+            aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}" || true
+            exit 1
           fi
-
-          ln -sfn "${release_dir}/monthly-goal-api" "${current_binary}.next"
-          mv -Tf "${current_binary}.next" "${current_binary}"
-
-          if sudo systemctl restart monthly-goal-api; then
-            for _ in $(seq 1 10); do
-              if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then
-                cd "${release_root}"
-                ls -1dt */ 2>/dev/null | tail -n +6 | while IFS= read -r old_release; do
-                  rm -rf -- "${release_root}/${old_release%/}"
-                done
-                exit 0
-              fi
-              sleep 2
-            done
-          fi
-
-          if [ -n "${previous_binary}" ] && [ -x "${previous_binary}" ]; then
-            ln -sfn "${previous_binary}" "${current_binary}.next"
-            mv -Tf "${current_binary}.next" "${current_binary}"
-            sudo systemctl restart monthly-goal-api || true
-          fi
-
-          systemctl status monthly-goal-api --no-pager
-          exit 1
-          REMOTE
-
-      - name: Clean backend staging directory
-        if: always()
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -u
-          SSH_PORT="${EC2_SSH_PORT:-22}"
-          if [ ! -f ~/.ssh/deploy_key ]; then
-            exit 0
-          fi
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "rm -rf -- '${RELEASE_DIR}/backend'; rmdir -- '${RELEASE_DIR}' 2>/dev/null || true" || true
+          aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"
 
   deploy-frontend:
     name: Deploy frontend
@@ -303,6 +266,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Download frontend artifact
         uses: actions/download-artifact@v4
@@ -310,81 +276,53 @@ jobs:
           name: frontend-dist
           path: dist/frontend
 
-      - name: Configure SSH
+      - name: Configure AWS credentials
+        # aws-actions/configure-aws-credentials v4.3.1
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload frontend artifacts to S3
         shell: bash
         env:
-          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          EC2_SSH_KNOWN_HOSTS: ${{ secrets.EC2_SSH_KNOWN_HOSTS }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DEPLOY_ARTIFACT_BUCKET: ${{ vars.DEPLOY_ARTIFACT_BUCKET }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "${EC2_SSH_PRIVATE_KEY}" > ~/.ssh/deploy_key
-          printf '%s\n' "${EC2_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          aws s3 cp dist/frontend "s3://${DEPLOY_ARTIFACT_BUCKET}/releases/${RELEASE_ID}/frontend/" --recursive --region "${AWS_REGION}"
 
-      - name: Upload frontend dist
+      - name: Deploy frontend with SSM
         shell: bash
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DEPLOY_ARTIFACT_BUCKET: ${{ vars.DEPLOY_ARTIFACT_BUCKET }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          SSH_PORT="${EC2_SSH_PORT:-22}"
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "mkdir -p '${RELEASE_DIR}/frontend/dist'"
-          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key -p ${SSH_PORT} -o IdentitiesOnly=yes" dist/frontend/ "${EC2_USER}@${EC2_HOST}:${RELEASE_DIR}/frontend/dist/"
+          cat > frontend-ssm-parameters.json <<EOF
+          {
+            "commands": [
+              "aws s3 cp s3://${DEPLOY_ARTIFACT_BUCKET}/releases/${RELEASE_ID}/frontend/deploy-frontend.sh /tmp/monthly-goal-tracker-deploy-frontend.sh --region ${AWS_REGION}",
+              "chmod 0755 /tmp/monthly-goal-tracker-deploy-frontend.sh",
+              "DEPLOY_ARTIFACT_BUCKET=${DEPLOY_ARTIFACT_BUCKET} RELEASE_ID=${RELEASE_ID} AWS_REGION=${AWS_REGION} /tmp/monthly-goal-tracker-deploy-frontend.sh"
+            ]
+          }
+          EOF
 
-      - name: Activate frontend release
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          RELEASE_NAME: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          SSH_PORT="${EC2_SSH_PORT:-22}"
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "RELEASE_DIR='${RELEASE_DIR}' RELEASE_NAME='${RELEASE_NAME}' bash -s" <<'REMOTE'
-          set -euo pipefail
+          command_id="$(aws ssm send-command \
+            --instance-ids "${EC2_INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy Monthly Goal Tracker frontend ${RELEASE_ID}" \
+            --parameters file://frontend-ssm-parameters.json \
+            --region "${AWS_REGION}" \
+            --query "Command.CommandId" \
+            --output text)"
 
-          release_root="/opt/monthly-goal-tracker/frontend/releases"
-          release_dir="${release_root}/${RELEASE_NAME}"
-
-          install -d -m 0755 "${release_root}"
-          rm -rf "${release_dir}"
-          mkdir -p "${release_dir}"
-          cp -a "${RELEASE_DIR}/frontend/dist/." "${release_dir}/"
-          test -f "${release_dir}/index.html"
-
-          current_dist="/opt/monthly-goal-tracker/frontend/dist"
-          if [ -d "${current_dist}" ] && [ ! -L "${current_dist}" ]; then
-            mv "${current_dist}" "${release_root}/pre-cicd-$(date +%Y%m%d%H%M%S)"
+          if ! aws ssm wait command-executed --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"; then
+            aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}" || true
+            exit 1
           fi
-
-          ln -sfn "${release_dir}" "${current_dist}.next"
-          mv -Tf "${current_dist}.next" "${current_dist}"
-
-          cd "${release_root}"
-          ls -1dt */ 2>/dev/null | tail -n +6 | while IFS= read -r old_release; do
-            rm -rf -- "${release_root}/${old_release%/}"
-          done
-          REMOTE
-
-      - name: Clean frontend staging directory
-        if: always()
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
-          RELEASE_DIR: /tmp/monthly-goal-tracker-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -u
-          SSH_PORT="${EC2_SSH_PORT:-22}"
-          if [ ! -f ~/.ssh/deploy_key ]; then
-            exit 0
-          fi
-          ssh -i ~/.ssh/deploy_key -p "${SSH_PORT}" -o IdentitiesOnly=yes "${EC2_USER}@${EC2_HOST}" "rm -rf -- '${RELEASE_DIR}/frontend'; rmdir -- '${RELEASE_DIR}' 2>/dev/null || true" || true
+          aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"
