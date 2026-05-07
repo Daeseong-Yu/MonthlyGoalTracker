@@ -40,7 +40,7 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 
 	t.Setenv("APP_HOST", "localhost")
 	t.Setenv("APP_PORT", "9000")
-	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/monthly_goal_tracker?sslmode=disable")
+	t.Setenv("DATABASE_URL", "test-database-url")
 	t.Setenv("APP_BASIC_AUTH_USERNAME", "app-user")
 	t.Setenv("APP_BASIC_AUTH_PASSWORD_HASH", passwordHash)
 
@@ -58,7 +58,7 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 		t.Fatalf("expected addr from environment, got %q", cfg.Addr())
 	}
 
-	if cfg.DatabaseURL != "postgres://postgres:postgres@localhost:5432/monthly_goal_tracker?sslmode=disable" {
+	if cfg.DatabaseURL != "test-database-url" {
 		t.Fatalf("expected database URL from environment, got %q", cfg.DatabaseURL)
 	}
 
@@ -85,7 +85,8 @@ func TestValidateAllowsLoopbackHosts(t *testing.T) {
 
 	for _, host := range testCases {
 		t.Run(host.host, func(t *testing.T) {
-			cfg := Config{Host: host.host, Port: "8080"}
+			cfg := testConfig()
+			cfg.Host = host.host
 
 			if err := cfg.Validate(); err != nil {
 				t.Fatalf("expected loopback host %q to be allowed, got %v", host.host, err)
@@ -99,7 +100,8 @@ func TestValidateAllowsLoopbackHosts(t *testing.T) {
 }
 
 func TestValidateRejectsNonLoopbackHost(t *testing.T) {
-	cfg := Config{Host: "0.0.0.0", Port: "8080"}
+	cfg := testConfig()
+	cfg.Host = "0.0.0.0"
 
 	err := cfg.Validate()
 	if !errors.Is(err, ErrUnsafeHost) {
@@ -108,14 +110,8 @@ func TestValidateRejectsNonLoopbackHost(t *testing.T) {
 }
 
 func TestValidateAllowsCompleteBasicAuthConfig(t *testing.T) {
-	cfg := Config{
-		Host: "127.0.0.1",
-		Port: "8080",
-		Auth: BasicAuthConfig{
-			Username:     "app-user",
-			PasswordHash: basicAuthHash(t, "secret"),
-		},
-	}
+	cfg := testConfig()
+	cfg.Auth = testBasicAuthConfig(t)
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected complete basic auth config to be allowed, got %v", err)
@@ -139,7 +135,8 @@ func TestValidateRejectsPartialBasicAuthConfig(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			cfg := Config{Host: "127.0.0.1", Port: "8080", Auth: testCase.auth}
+			cfg := testConfig()
+			cfg.Auth = testCase.auth
 
 			err := cfg.Validate()
 			if !errors.Is(err, ErrInvalidAuthConfig) {
@@ -150,13 +147,10 @@ func TestValidateRejectsPartialBasicAuthConfig(t *testing.T) {
 }
 
 func TestValidateRejectsInvalidBasicAuthPasswordHash(t *testing.T) {
-	cfg := Config{
-		Host: "127.0.0.1",
-		Port: "8080",
-		Auth: BasicAuthConfig{
-			Username:     "app-user",
-			PasswordHash: "not-a-bcrypt-hash",
-		},
+	cfg := testConfig()
+	cfg.Auth = BasicAuthConfig{
+		Username:     "app-user",
+		PasswordHash: "not-a-bcrypt-hash",
 	}
 
 	err := cfg.Validate()
@@ -166,18 +160,28 @@ func TestValidateRejectsInvalidBasicAuthPasswordHash(t *testing.T) {
 }
 
 func TestValidateRejectsWeakBasicAuthPasswordHash(t *testing.T) {
-	cfg := Config{
-		Host: "127.0.0.1",
-		Port: "8080",
-		Auth: BasicAuthConfig{
-			Username:     "app-user",
-			PasswordHash: basicAuthHashWithCost(t, "secret", bcrypt.MinCost),
-		},
+	cfg := testConfig()
+	cfg.Auth = BasicAuthConfig{
+		Username:     "app-user",
+		PasswordHash: basicAuthHashWithCost(t, "secret", bcrypt.MinCost),
 	}
 
 	err := cfg.Validate()
 	if !errors.Is(err, ErrInvalidAuthConfig) {
 		t.Fatalf("expected ErrInvalidAuthConfig, got %v", err)
+	}
+}
+
+func testConfig() Config {
+	return Config{Host: "127.0.0.1", Port: "8080"}
+}
+
+func testBasicAuthConfig(t *testing.T) BasicAuthConfig {
+	t.Helper()
+
+	return BasicAuthConfig{
+		Username:     "app-user",
+		PasswordHash: basicAuthHash(t, "secret"),
 	}
 }
 
