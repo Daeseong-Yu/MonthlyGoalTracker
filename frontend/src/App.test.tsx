@@ -1,10 +1,30 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import {
+  blurInput,
+  cleanupAppTest,
+  clickButton,
+  getButton,
+  getDailyRecordTable,
+  getDashboardLayout,
+  getHeading,
+  getInput,
+  getWeekdayLabel,
+  hasInputValue,
+  precedes,
+  queryButton,
+  renderApp,
+  setInputValue,
+  stubFetch,
+  tableHeaderCells,
+  tableHeaders,
+  waitFor,
+  waitForText,
+} from "./App.testHelpers";
 import { nextDate } from "./goalSlots";
 import { isGoalActiveOnDate, offsetMonth } from "./monthLogic";
 import type { Goal, GoalCheck, MonthView } from "./types";
@@ -24,16 +44,9 @@ vi.mock("./DailyCompletionChart", async () => {
   };
 });
 
-const roots: Root[] = [];
-
 describe("App", () => {
   afterEach(async () => {
-    await act(async () => {
-      roots.forEach((root) => root.unmount());
-    });
-    roots.length = 0;
-    document.body.innerHTML = "";
-    vi.unstubAllGlobals();
+    await cleanupAppTest();
   });
 
   it("renders API month data after loading", async () => {
@@ -41,7 +54,7 @@ describe("App", () => {
       jsonResponse(buildMonthView(monthFromRequest(input))),
     );
 
-    renderApp();
+    renderApp(<App />);
 
     await waitForText("API 데이터");
 
@@ -56,7 +69,7 @@ describe("App", () => {
   it("falls back to sample data and disables API-only actions when loading fails", async () => {
     stubFetch(() => errorResponse(500));
 
-    renderApp();
+    renderApp(<App />);
 
     await waitForText("샘플 데이터");
 
@@ -76,7 +89,7 @@ describe("App", () => {
       ),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     expect(tableHeaders()).toEqual([
@@ -101,7 +114,7 @@ describe("App", () => {
       ),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     expect(tableHeaders()).toEqual([
@@ -137,7 +150,7 @@ describe("App", () => {
       ]));
     });
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     expect(tableHeaders()).toEqual([
@@ -159,7 +172,7 @@ describe("App", () => {
       jsonResponse(buildMonthView(monthFromRequest(input))),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     const initialMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
@@ -182,7 +195,7 @@ describe("App", () => {
       jsonResponse(buildMonthView(monthFromRequest(input))),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     await act(async () => {
@@ -201,7 +214,7 @@ describe("App", () => {
   it("clears stale success feedback when validation fails", async () => {
     stubFetch((input) => jsonResponse(buildMonthView(monthFromRequest(input))));
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     await clickButton("목표 이월");
@@ -228,7 +241,7 @@ describe("App", () => {
       return jsonResponse(buildMonthView(monthFromRequest(input)));
     });
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     await setInputValue("05.01 메모", "saving memo");
@@ -259,7 +272,7 @@ describe("App", () => {
       );
     });
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
@@ -296,7 +309,7 @@ describe("App", () => {
       ),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
@@ -319,7 +332,7 @@ describe("App", () => {
       ),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
@@ -360,7 +373,7 @@ describe("App", () => {
       ),
     );
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
 
     await clickButton("목표 추가");
@@ -431,7 +444,7 @@ describe("App", () => {
       return jsonResponse(view);
     });
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
     const secondDay = `${loadedMonth}-02`;
@@ -516,7 +529,7 @@ describe("App", () => {
       return jsonResponse(buildMonthView(monthFromRequest(input)));
     });
 
-    renderApp();
+    renderApp(<App />);
     await waitForText("API 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
     const secondDay = `${loadedMonth}-02`;
@@ -553,33 +566,6 @@ describe("App", () => {
     expect(getInput(secondDayMemoInput).value).toBe("memo kept locally");
   });
 });
-
-function renderApp() {
-  const container = document.createElement("div");
-  document.body.append(container);
-
-  const root = createRoot(container);
-  roots.push(root);
-
-  act(() => {
-    root.render(<App />);
-  });
-
-  return container;
-}
-
-function stubFetch(
-  handler: (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ) => Response | Promise<Response>,
-) {
-  const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) =>
-    handler(input, init),
-  );
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
 
 function buildMonthView(
   month: string,
@@ -781,151 +767,6 @@ function requestPath(input: RequestInfo | URL) {
     : input instanceof URL
       ? input.pathname
       : input.url;
-}
-
-async function waitForText(text: string) {
-  await waitFor(() => document.body.textContent?.includes(text) === true);
-}
-
-async function waitFor(assertion: () => boolean) {
-  const start = Date.now();
-
-  while (Date.now() - start < 1000) {
-    if (assertion()) {
-      return;
-    }
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-  }
-
-  throw new Error("timed out waiting for app state");
-}
-
-function getButton(label: string) {
-  const button = queryButton(label);
-
-  if (!button) {
-    throw new Error(`expected button with aria-label ${label}`);
-  }
-
-  return button;
-}
-
-async function clickButton(label: string) {
-  await act(async () => {
-    getButton(label).dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-}
-
-function queryButton(label: string) {
-  return document.querySelector<HTMLButtonElement>(
-    `button[aria-label="${label}"]`,
-  );
-}
-
-function getInput(label: string) {
-  const input = document.querySelector<HTMLInputElement>(
-    `input[aria-label="${label}"]`,
-  );
-
-  if (!input) {
-    throw new Error(`expected input with aria-label ${label}`);
-  }
-
-  return input;
-}
-
-async function setInputValue(label: string, value: string) {
-  const input = getInput(label);
-  const valueSetter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )?.set;
-
-  await act(async () => {
-    valueSetter?.call(input, value);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
-async function blurInput(label: string) {
-  await act(async () => {
-    getInput(label).dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-  });
-}
-
-function getHeading(text: string) {
-  const heading = Array.from(document.querySelectorAll("h2")).find(
-    (item) => item.textContent === text,
-  );
-
-  if (!heading) {
-    throw new Error(`expected heading ${text}`);
-  }
-
-  return heading;
-}
-
-function precedes(first: Element, second: Element) {
-  return Boolean(
-    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
-  );
-}
-
-function getDailyRecordTable() {
-  const table = document.querySelector("table");
-
-  if (!table) {
-    throw new Error("expected daily record table");
-  }
-
-  return table;
-}
-
-function getDashboardLayout() {
-  const layout = Array.from(document.querySelectorAll("section")).find(
-    (section) => section.className.includes("xl:grid-cols-"),
-  );
-
-  if (!layout) {
-    throw new Error("expected dashboard layout");
-  }
-
-  return layout;
-}
-
-function tableHeaderCells() {
-  return Array.from(getDailyRecordTable().querySelectorAll("thead th"));
-}
-
-function tableHeaders() {
-  return tableHeaderCells().map((header) => header.textContent?.trim() ?? "");
-}
-
-function getWeekdayLabel(shortDay: string) {
-  const dateCell = Array.from(
-    getDailyRecordTable().querySelectorAll("tbody th"),
-  ).find((cell) => cell.textContent?.includes(shortDay));
-
-  if (!dateCell) {
-    throw new Error(`expected date cell ${shortDay}`);
-  }
-
-  const weekdayLabel = dateCell.querySelector("span:nth-child(2)");
-
-  if (!weekdayLabel) {
-    throw new Error(`expected weekday label for ${shortDay}`);
-  }
-
-  return weekdayLabel;
-}
-
-function hasInputValue(value: string) {
-  return Array.from(document.querySelectorAll("input")).some(
-    (input) => input.value === value,
-  );
 }
 
 function bodyEndDate(init: RequestInit | undefined) {
