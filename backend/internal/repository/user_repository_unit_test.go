@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 func TestUserRepositoryEnsureByUsernameDefaultsBlankPrincipalToSingleUser(t *testing.T) {
@@ -87,24 +85,6 @@ func TestUserRepositoryEnsureByUsernamePropagatesInsertError(t *testing.T) {
 func newMockUserRepository(t *testing.T) (*UserRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 
-	sqlDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to create sql mock: %v", err)
-	}
-
-	database, err := gorm.Open(postgres.New(postgres.Config{
-		Conn:                 sqlDB,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		DisableAutomaticPing:   true,
-		SkipDefaultTransaction: true,
-		NowFunc:                fixedNow,
-	})
-	if err != nil {
-		t.Fatalf("failed to create gorm database: %v", err)
-	}
-
-	return NewUserRepository(database), mock, func() {
-		_ = sqlDB.Close()
-	}
+	database, mock, closeDB := newMockDatabase(t)
+	return NewUserRepository(database), mock, closeDB
 }

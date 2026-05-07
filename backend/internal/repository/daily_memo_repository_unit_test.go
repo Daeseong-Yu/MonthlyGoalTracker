@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -92,24 +91,6 @@ func TestDailyMemoRepositoryListByDateRangeUsesInclusiveRange(t *testing.T) {
 func newMockDailyMemoRepository(t *testing.T) (*DailyMemoRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 
-	sqlDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to create sql mock: %v", err)
-	}
-
-	database, err := gorm.Open(postgres.New(postgres.Config{
-		Conn:                 sqlDB,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		DisableAutomaticPing:   true,
-		SkipDefaultTransaction: true,
-		NowFunc:                fixedNow,
-	})
-	if err != nil {
-		t.Fatalf("failed to create gorm database: %v", err)
-	}
-
-	return NewDailyMemoRepository(database), mock, func() {
-		_ = sqlDB.Close()
-	}
+	database, mock, closeDB := newMockDatabase(t)
+	return NewDailyMemoRepository(database), mock, closeDB
 }

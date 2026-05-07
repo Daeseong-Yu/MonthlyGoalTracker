@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/db"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -19,6 +21,31 @@ func scopedUserContext() context.Context {
 		ID:       testUserID,
 		Username: "app-user",
 	})
+}
+
+func newMockDatabase(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	t.Helper()
+
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sql mock: %v", err)
+	}
+
+	database, err := gorm.Open(postgres.New(postgres.Config{
+		Conn:                 sqlDB,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		DisableAutomaticPing:   true,
+		SkipDefaultTransaction: true,
+		NowFunc:                fixedNow,
+	})
+	if err != nil {
+		t.Fatalf("failed to create gorm database: %v", err)
+	}
+
+	return database, mock, func() {
+		_ = sqlDB.Close()
+	}
 }
 
 func openIntegrationDatabase(t *testing.T) *gorm.DB {

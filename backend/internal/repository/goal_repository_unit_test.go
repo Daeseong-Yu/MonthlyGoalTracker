@@ -7,7 +7,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -115,26 +114,8 @@ func TestGoalRepositoryListOverlappingDateRangeUsesInclusiveOverlapPredicate(t *
 func newMockGoalRepository(t *testing.T) (*GoalRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 
-	sqlDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to create sql mock: %v", err)
-	}
-
-	database, err := gorm.Open(postgres.New(postgres.Config{
-		Conn:                 sqlDB,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		DisableAutomaticPing:   true,
-		SkipDefaultTransaction: true,
-		NowFunc:                fixedNow,
-	})
-	if err != nil {
-		t.Fatalf("failed to create gorm database: %v", err)
-	}
-
-	return NewGoalRepository(database), mock, func() {
-		_ = sqlDB.Close()
-	}
+	database, mock, closeDB := newMockDatabase(t)
+	return NewGoalRepository(database), mock, closeDB
 }
 
 func fixedNow() time.Time {
