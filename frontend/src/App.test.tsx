@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { nextDate } from "./goalSlots";
 import { isGoalActiveOnDate, offsetMonth } from "./monthLogic";
 import type { Goal, GoalCheck, MonthView } from "./types";
 
@@ -949,10 +950,5 @@ function dateAfter(date: string | null) {
     throw new Error("expected date");
   }
 
-  const next = new Date(`${date}T00:00:00`);
-  next.setDate(next.getDate() + 1);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(
-    2,
-    "0",
-  )}-${String(next.getDate()).padStart(2, "0")}`;
+  return nextDate(date);
 }
