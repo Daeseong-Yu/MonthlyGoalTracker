@@ -2,6 +2,16 @@ import { nextDate } from "./goalSlots";
 import { isGoalActiveOnDate } from "./monthLogic";
 import type { Goal, GoalCheck, MonthView } from "./types";
 
+type MonthViewOptions = {
+  firstGoalEndDate?: string | null;
+  goalCount?: number;
+  includeSunday?: boolean;
+};
+
+type MonthViewOptionsInput =
+  | MonthViewOptions
+  | ((month: string) => MonthViewOptions);
+
 type AppFetchHandler = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -9,11 +19,7 @@ type AppFetchHandler = (
 
 export function buildMonthView(
   month: string,
-  options: {
-    firstGoalEndDate?: string | null;
-    goalCount?: number;
-    includeSunday?: boolean;
-  } = {},
+  options: MonthViewOptions = {},
 ): MonthView {
   const goals = buildGoals(month, options);
   const days = buildDays(month, goals, options.includeSunday === true);
@@ -243,6 +249,18 @@ export function dateAfter(date: string | null) {
   }
 
   return nextDate(date);
+}
+
+export function createMonthViewApiHandler(
+  options: MonthViewOptionsInput = {},
+): AppFetchHandler {
+  return (input) => {
+    const month = monthFromRequest(input);
+    const resolvedOptions =
+      typeof options === "function" ? options(month) : options;
+
+    return jsonResponse(buildMonthView(month, resolvedOptions));
+  };
 }
 
 export function createWorkflowApiHandler(): AppFetchHandler {

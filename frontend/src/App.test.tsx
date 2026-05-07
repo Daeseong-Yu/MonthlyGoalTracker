@@ -10,6 +10,7 @@ import {
   buildMonthView,
   buildMonthViewFromGoals,
   createFailingWorkflowApiHandler,
+  createMonthViewApiHandler,
   createWorkflowApiHandler,
   dateAfter,
   errorResponse,
@@ -67,9 +68,7 @@ describe("App", () => {
   });
 
   it("renders API month data after loading", async () => {
-    const fetchMock = stubFetch((input) =>
-      jsonResponse(buildMonthView(monthFromRequest(input))),
-    );
+    const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
 
@@ -98,13 +97,7 @@ describe("App", () => {
   });
 
   it("reserves five daily goal columns when no goals exist", async () => {
-    stubFetch((input) =>
-      jsonResponse(
-        buildMonthView(monthFromRequest(input), {
-          goalCount: 0,
-        }),
-      ),
-    );
+    stubFetch(createMonthViewApiHandler({ goalCount: 0 }));
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -123,13 +116,7 @@ describe("App", () => {
   });
 
   it("does not expand past five daily goal columns", async () => {
-    stubFetch((input) =>
-      jsonResponse(
-        buildMonthView(monthFromRequest(input), {
-          goalCount: 6,
-        }),
-      ),
-    );
+    stubFetch(createMonthViewApiHandler({ goalCount: 6 }));
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -185,9 +172,7 @@ describe("App", () => {
   });
 
   it("loads the previous month from the navigation control", async () => {
-    const fetchMock = stubFetch((input) =>
-      jsonResponse(buildMonthView(monthFromRequest(input))),
-    );
+    const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -208,9 +193,7 @@ describe("App", () => {
   });
 
   it("shows feedback after carrying goals into the current month", async () => {
-    const fetchMock = stubFetch((input) =>
-      jsonResponse(buildMonthView(monthFromRequest(input))),
-    );
+    const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -229,7 +212,7 @@ describe("App", () => {
   });
 
   it("clears stale success feedback when validation fails", async () => {
-    stubFetch((input) => jsonResponse(buildMonthView(monthFromRequest(input))));
+    stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -246,6 +229,8 @@ describe("App", () => {
 
   it("disables memo editing while a memo save is pending", async () => {
     let resolveMemoSave: (() => void) | null = null;
+    const monthViewApiHandler = createMonthViewApiHandler();
+
     stubFetch((input) => {
       const path = requestPath(input);
 
@@ -255,7 +240,7 @@ describe("App", () => {
         });
       }
 
-      return jsonResponse(buildMonthView(monthFromRequest(input)));
+      return monthViewApiHandler(input);
     });
 
     renderApp(<App />);
@@ -318,12 +303,10 @@ describe("App", () => {
   });
 
   it("hides an already ended goal from cards while preserving table history", async () => {
-    const fetchMock = stubFetch((input) =>
-      jsonResponse(
-        buildMonthView(monthFromRequest(input), {
-          firstGoalEndDate: `${monthFromRequest(input)}-01`,
-        }),
-      ),
+    const fetchMock = stubFetch(
+      createMonthViewApiHandler((month) => ({
+        firstGoalEndDate: `${month}-01`,
+      })),
     );
 
     renderApp(<App />);
@@ -382,13 +365,7 @@ describe("App", () => {
   });
 
   it("blocks adding a sixth active goal", async () => {
-    const fetchMock = stubFetch((input) =>
-      jsonResponse(
-        buildMonthView(monthFromRequest(input), {
-          goalCount: 5,
-        }),
-      ),
-    );
+    const fetchMock = stubFetch(createMonthViewApiHandler({ goalCount: 5 }));
 
     renderApp(<App />);
     await waitForText("API 데이터");
