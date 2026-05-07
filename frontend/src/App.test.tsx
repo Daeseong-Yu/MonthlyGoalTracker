@@ -5,6 +5,28 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import {
+  appendGoal,
+  bodyEndDate,
+  buildGoals,
+  buildMonthView,
+  buildMonthViewFromGoals,
+  dateAfter,
+  errorResponse,
+  jsonResponse,
+  monthFromGoalCreatePath,
+  monthFromRequest,
+  okResponse,
+  pendingResponse,
+  requestBody,
+  requestPath,
+  requiredView,
+  shortDate,
+  shortFirstDayLabel,
+  updateCheckInView,
+  updateGoalInView,
+  updateMemoInView,
+} from "./App.testFixtures";
+import {
   blurInput,
   cleanupAppTest,
   clickButton,
@@ -25,9 +47,8 @@ import {
   waitFor,
   waitForText,
 } from "./App.testHelpers";
-import { nextDate } from "./goalSlots";
-import { isGoalActiveOnDate, offsetMonth } from "./monthLogic";
-import type { Goal, GoalCheck, MonthView } from "./types";
+import { offsetMonth } from "./monthLogic";
+import type { Goal, MonthView } from "./types";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -566,230 +587,3 @@ describe("App", () => {
     expect(getInput(secondDayMemoInput).value).toBe("memo kept locally");
   });
 });
-
-function buildMonthView(
-  month: string,
-  options: {
-    firstGoalEndDate?: string | null;
-    goalCount?: number;
-    includeSunday?: boolean;
-  } = {},
-): MonthView {
-  const goals = buildGoals(month, options);
-  const days = buildDays(month, goals, options.includeSunday === true);
-
-  return {
-    month,
-    goals,
-    days,
-    checks: [{ goalId: 1, date: `${month}-01`, completed: true }],
-    chart: days,
-  };
-}
-
-function buildMonthViewFromGoals(month: string, goals: Goal[]): MonthView {
-  const days = buildDays(month, goals, false);
-
-  return {
-    month,
-    goals,
-    days,
-    checks: [{ goalId: 1, date: `${month}-01`, completed: true }],
-    chart: days,
-  };
-}
-
-function buildGoals(
-  month: string,
-  options: { firstGoalEndDate?: string | null; goalCount?: number },
-) {
-  const titles = [
-    "API walk",
-    "API read",
-    "API focus",
-    "API strength",
-    "API stretch",
-    "API journal",
-  ];
-  const goalCount = options.goalCount ?? 2;
-
-  return titles.slice(0, goalCount).map<Goal>((title, index) => ({
-    id: index + 1,
-    title,
-    startDate: `${month}-${index === 1 ? "02" : "01"}`,
-    endDate: index === 0 ? options.firstGoalEndDate ?? null : null,
-  }));
-}
-
-function buildDays(month: string, goals: Goal[], includeSunday: boolean) {
-  const dayNumbers = includeSunday ? [1, 2, 3] : [1, 2];
-
-  return dayNumbers.map((dayNumber) => {
-    const date = `${month}-${String(dayNumber).padStart(2, "0")}`;
-    const activeGoalCount = goals.filter((goal) =>
-      isGoalActiveOnDate(goal, date),
-    ).length;
-    const completedCount = dayNumber === 1 ? 1 : 0;
-
-    return {
-      date,
-      memo: dayNumber === 1 ? "api memo" : "",
-      activeGoalCount,
-      completedCount,
-      completionRate:
-        activeGoalCount === 0 ? 0 : completedCount / activeGoalCount,
-    };
-  });
-}
-
-function appendGoal(
-  view: MonthView,
-  id: number,
-  title: string,
-  startDate: string,
-) {
-  return {
-    ...view,
-    goals: [...view.goals, { id, title, startDate, endDate: null }],
-  };
-}
-
-function updateGoalInView(view: MonthView, goalId: number, title: string) {
-  return {
-    ...view,
-    goals: view.goals.map((goal) =>
-      goal.id === goalId ? { ...goal, title } : goal,
-    ),
-  };
-}
-
-function updateCheckInView(
-  view: MonthView,
-  goalId: number,
-  date: string,
-  completed: boolean,
-) {
-  if (!completed) {
-    return {
-      ...view,
-      checks: view.checks.filter(
-        (check) => !(check.goalId === goalId && check.date === date),
-      ),
-    };
-  }
-
-  if (
-    view.checks.some((check) => check.goalId === goalId && check.date === date)
-  ) {
-    return view;
-  }
-
-  const check: GoalCheck = { goalId, date, completed: true };
-
-  return {
-    ...view,
-    checks: [...view.checks, check],
-  };
-}
-
-function updateMemoInView(view: MonthView, date: string, memo: string) {
-  return {
-    ...view,
-    days: view.days.map((day) =>
-      day.date === date ? { ...day, memo } : day,
-    ),
-  };
-}
-
-function requiredView(view: MonthView | null) {
-  if (view === null) {
-    throw new Error("expected loaded month view");
-  }
-
-  return view;
-}
-
-function jsonResponse(body: unknown) {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-}
-
-function errorResponse(status: number) {
-  return new Response(null, { status });
-}
-
-function okResponse() {
-  return new Response(null, { status: 204 });
-}
-
-function pendingResponse(captureResolve: (resolve: () => void) => void) {
-  return new Promise<Response>((resolve) => {
-    captureResolve(() => resolve(okResponse()));
-  });
-}
-
-function monthFromRequest(input: RequestInfo | URL) {
-  const path = requestPath(input);
-  const match = /\/api\/months\/([^/]+)/.exec(path);
-
-  if (!match) {
-    throw new Error(`expected month API request, got ${path}`);
-  }
-
-  return decodeURIComponent(match[1]);
-}
-
-function monthFromGoalCreatePath(path: string) {
-  const match = /\/api\/months\/([^/]+)\/goals$/.exec(path);
-
-  if (!match) {
-    throw new Error(`expected goal create API request, got ${path}`);
-  }
-
-  return decodeURIComponent(match[1]);
-}
-
-function shortFirstDayLabel(month: string) {
-  return `${month.slice(5)}.01`;
-}
-
-function shortDate(date: string) {
-  return date.slice(5).replace("-", ".");
-}
-
-function requestPath(input: RequestInfo | URL) {
-  return typeof input === "string"
-    ? input
-    : input instanceof URL
-      ? input.pathname
-      : input.url;
-}
-
-function bodyEndDate(init: RequestInit | undefined) {
-  const body = requestBody<{ endDate?: string }>(init);
-  if (body.endDate === undefined) {
-    throw new Error("expected endDate in request body");
-  }
-
-  return body.endDate;
-}
-
-function requestBody<T>(init: RequestInit | undefined) {
-  if (typeof init?.body !== "string") {
-    throw new Error("expected JSON request body");
-  }
-
-  return JSON.parse(init.body) as T;
-}
-
-function dateAfter(date: string | null) {
-  if (date === null) {
-    throw new Error("expected date");
-  }
-
-  return nextDate(date);
-}
