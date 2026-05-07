@@ -111,23 +111,7 @@ export function useMonthController() {
   }
 
   async function loadMonth(nextMonth: string) {
-    setLoadStatus("loading");
-    setLoadError(null);
-    setSaveError(null);
-    setSaveMessage(null);
-    setSavingChecks([]);
-    setSavingMemos([]);
-    setGoalFormOpen(false);
-    setNewGoalTitle("");
-    setNewGoalStartDate(monthStartDate(nextMonth));
-    setEditingGoalID(null);
-    setEditingGoalTitle("");
-    setSavingGoalTitle(false);
-    preparingMonthRef.current = false;
-    setPreparingMonth(false);
-    deactivatingGoalIDSetRef.current.clear();
-    setDeactivatingGoalIDs([]);
-    setMonthView(buildMockMonthView(nextMonth));
+    resetMonthLoadState(nextMonth);
 
     try {
       setMonthView(await getMonthView(nextMonth));
@@ -151,8 +135,7 @@ export function useMonthController() {
     const submittedMonth = month;
     preparingMonthRef.current = true;
     setPreparingMonth(true);
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
     setGoalFormOpen(false);
     cancelEditingGoal();
 
@@ -194,8 +177,7 @@ export function useMonthController() {
       (check) => check.goalId === goalId && check.date === date,
     );
 
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
     setSavingChecks((currentKeys) => [...currentKeys, key]);
     setMonthView((currentView) =>
       applyCheckState(currentView, goalId, date, completed),
@@ -234,8 +216,7 @@ export function useMonthController() {
       return;
     }
 
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
     setSavingMemos((currentDates) => [...currentDates, date]);
 
     try {
@@ -284,8 +265,7 @@ export function useMonthController() {
     }
 
     const submittedMonth = month;
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
     setSavingGoal(true);
 
     try {
@@ -313,8 +293,7 @@ export function useMonthController() {
       return;
     }
 
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
     setGoalFormOpen(false);
     setEditingGoalID(goal.id);
     setEditingGoalTitle(goal.title);
@@ -348,8 +327,7 @@ export function useMonthController() {
       return;
     }
 
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
     setSavingGoalTitle(true);
 
     try {
@@ -391,8 +369,7 @@ export function useMonthController() {
       return;
     }
 
-    setSaveError(null);
-    setSaveMessage(null);
+    clearSaveFeedback();
 
     try {
       try {
@@ -445,6 +422,24 @@ export function useMonthController() {
     setDeactivatingGoalIDs([...deactivatingGoalIDSetRef.current]);
   }
 
+  function resetMonthLoadState(nextMonth: string) {
+    setLoadStatus("loading");
+    setLoadError(null);
+    clearSaveFeedback();
+    setSavingChecks([]);
+    setSavingMemos([]);
+    setGoalFormOpen(false);
+    setNewGoalTitle("");
+    setNewGoalStartDate(monthStartDate(nextMonth));
+    cancelEditingGoal();
+    setSavingGoalTitle(false);
+    preparingMonthRef.current = false;
+    setPreparingMonth(false);
+    deactivatingGoalIDSetRef.current.clear();
+    setDeactivatingGoalIDs([]);
+    setMonthView(buildMockMonthView(nextMonth));
+  }
+
   async function refreshMonthView(
     submittedMonth: string,
     failureMessage: string,
@@ -461,6 +456,11 @@ export function useMonthController() {
       }
       return false;
     }
+  }
+
+  function clearSaveFeedback() {
+    setSaveError(null);
+    setSaveMessage(null);
   }
 
   function setSaveFailure(message: string) {
