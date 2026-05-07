@@ -76,6 +76,12 @@ export async function clickButton(label: string) {
   });
 }
 
+export async function resolvePending(resolve: (() => void) | null) {
+  await act(async () => {
+    resolve?.();
+  });
+}
+
 export function queryButton(label: string) {
   return document.querySelector<HTMLButtonElement>(
     `button[aria-label="${label}"]`,

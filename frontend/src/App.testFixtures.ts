@@ -17,6 +17,12 @@ type AppFetchHandler = (
   init?: RequestInit,
 ) => Response | Promise<Response>;
 
+type FetchCallSource = {
+  mock: {
+    calls: Parameters<typeof fetch>[];
+  };
+};
+
 export function buildMonthView(
   month: string,
   options: MonthViewOptions = {},
@@ -241,6 +247,36 @@ export function requestBody<T>(init: RequestInit | undefined) {
   }
 
   return JSON.parse(init.body) as T;
+}
+
+export function hasFetchedPath(
+  fetchMock: FetchCallSource,
+  matchesPath: (path: string) => boolean,
+) {
+  return fetchMock.mock.calls.some(([input]) => matchesPath(requestPath(input)));
+}
+
+export function hasNoFetchedPath(
+  fetchMock: FetchCallSource,
+  matchesPath: (path: string) => boolean,
+) {
+  return fetchMock.mock.calls.every(
+    ([input]) => !matchesPath(requestPath(input)),
+  );
+}
+
+export function hasFetchedJsonBody<T>(
+  fetchMock: FetchCallSource,
+  matchesPath: (path: string) => boolean,
+  matchesBody: (body: T) => boolean,
+) {
+  return fetchMock.mock.calls.some(([input, init]) => {
+    if (!matchesPath(requestPath(input))) {
+      return false;
+    }
+
+    return matchesBody(requestBody<T>(init));
+  });
 }
 
 export function dateAfter(date: string | null) {

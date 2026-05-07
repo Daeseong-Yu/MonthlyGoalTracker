@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
@@ -14,11 +13,13 @@ import {
   createWorkflowApiHandler,
   dateAfter,
   errorResponse,
+  hasFetchedJsonBody,
+  hasFetchedPath,
+  hasNoFetchedPath,
   jsonResponse,
   monthFromRequest,
   okResponse,
   pendingResponse,
-  requestBody,
   requestPath,
   shortDate,
   shortFirstDayLabel,
@@ -37,6 +38,7 @@ import {
   precedes,
   queryButton,
   renderApp,
+  resolvePending,
   setInputValue,
   stubFetch,
   tableHeaderCells,
@@ -179,11 +181,7 @@ describe("App", () => {
 
     const initialMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
-    await act(async () => {
-      getButton("이전 달").dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
+    await clickButton("이전 달");
 
     await waitFor(() => fetchMock.mock.calls.length >= 2);
 
@@ -198,17 +196,13 @@ describe("App", () => {
     renderApp(<App />);
     await waitForText("API 데이터");
 
-    await act(async () => {
-      getButton("목표 이월").dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
+    await clickButton("목표 이월");
 
     await waitForText("목표를 이월했습니다.");
 
-    expect(fetchMock.mock.calls.some(([input]) =>
-      requestPath(input).endsWith("/ensure"),
-    )).toBe(true);
+    expect(hasFetchedPath(fetchMock, (path) => path.endsWith("/ensure"))).toBe(
+      true,
+    );
   });
 
   it("clears stale success feedback when validation fails", async () => {
@@ -251,9 +245,7 @@ describe("App", () => {
 
     await waitFor(() => getInput("05.01 메모").disabled);
 
-    await act(async () => {
-      resolveMemoSave?.();
-    });
+    await resolvePending(resolveMemoSave);
 
     await waitFor(() => !getInput("05.01 메모").disabled);
   });
@@ -278,26 +270,18 @@ describe("App", () => {
     await waitForText("API 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
-    await act(async () => {
-      getButton("API walk 종료").dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
+    await clickButton("API walk 종료");
 
     await waitForText("목표를 종료했습니다.");
 
-    expect(fetchMock.mock.calls.some(([input]) =>
-      requestPath(input).includes("/api/goals/1/deactivate"),
+    expect(hasFetchedPath(fetchMock, (path) =>
+      path.includes("/api/goals/1/deactivate"),
     )).toBe(true);
     expect(queryButton("API walk 종료")).toBeNull();
     expect(getButton(`${shortFirstDayLabel(loadedMonth)} API walk 완료`))
       .toBeTruthy();
 
-    await act(async () => {
-      getButton("목표 추가").dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
+    await clickButton("목표 추가");
 
     expect(getInput("새 목표 시작일").value).toBe(dateAfter(endedDate));
   });
@@ -317,8 +301,8 @@ describe("App", () => {
     expect(getButton(`${shortFirstDayLabel(loadedMonth)} API walk 완료`))
       .toBeTruthy();
 
-    expect(fetchMock.mock.calls.every(([input]) =>
-      !requestPath(input).includes("/api/goals/1/deactivate"),
+    expect(hasNoFetchedPath(fetchMock, (path) =>
+      path.includes("/api/goals/1/deactivate"),
     )).toBe(true);
   });
 
@@ -375,9 +359,9 @@ describe("App", () => {
     await clickButton("목표 저장");
 
     await waitForText("할일은 날짜별로 최대 5개까지 등록할 수 있습니다.");
-    expect(fetchMock.mock.calls.every(([input]) =>
-      !requestPath(input).endsWith("/goals"),
-    )).toBe(true);
+    expect(hasNoFetchedPath(fetchMock, (path) => path.endsWith("/goals"))).toBe(
+      true,
+    );
     expect(getInput("새 목표 제목").value).toBe("API overflow");
   });
 
@@ -394,27 +378,23 @@ describe("App", () => {
     await clickButton("목표 저장");
 
     await waitForText("API plan");
-    expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (!requestPath(input).endsWith("/goals")) {
-        return false;
-      }
-
-      const body = requestBody<{ title: string; startDate: string }>(init);
-      return body.title === "API plan" && body.startDate === `${loadedMonth}-01`;
-    })).toBe(true);
+    expect(hasFetchedJsonBody<{ title: string; startDate: string }>(
+      fetchMock,
+      (path) => path.endsWith("/goals"),
+      (body) =>
+        body.title === "API plan" && body.startDate === `${loadedMonth}-01`,
+    )).toBe(true);
 
     await clickButton("API walk 수정");
     await setInputValue("API walk 제목 수정", "API walk revised");
     await clickButton("API walk 저장");
 
     await waitForText("API walk revised");
-    expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (requestPath(input) !== "/api/goals/1") {
-        return false;
-      }
-
-      return requestBody<{ title: string }>(init).title === "API walk revised";
-    })).toBe(true);
+    expect(hasFetchedJsonBody<{ title: string }>(
+      fetchMock,
+      (path) => path === "/api/goals/1",
+      (body) => body.title === "API walk revised",
+    )).toBe(true);
 
     await clickButton(`${shortDate(secondDay)} API read 완료`);
 
@@ -423,34 +403,29 @@ describe("App", () => {
         "aria-pressed",
       ) === "true",
     );
-    expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (requestPath(input) !== "/api/checks") {
-        return false;
-      }
-
-      const body = requestBody<{
-        goalId: number;
-        date: string;
-        completed: boolean;
-      }>(init);
-      return body.goalId === 2 && body.date === secondDay && body.completed;
-    })).toBe(true);
+    expect(hasFetchedJsonBody<{
+      goalId: number;
+      date: string;
+      completed: boolean;
+    }>(
+      fetchMock,
+      (path) => path === "/api/checks",
+      (body) => body.goalId === 2 && body.date === secondDay && body.completed,
+    )).toBe(true);
 
     await setInputValue(`${shortDate(secondDay)} 메모`, "follow-up");
     await blurInput(`${shortDate(secondDay)} 메모`);
 
     await waitFor(() =>
-      fetchMock.mock.calls.some(([input]) =>
-        requestPath(input).includes(`/api/memos/${secondDay}`),
+      hasFetchedPath(fetchMock, (path) =>
+        path.includes(`/api/memos/${secondDay}`),
       ),
     );
-    expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (!requestPath(input).includes(`/api/memos/${secondDay}`)) {
-        return false;
-      }
-
-      return requestBody<{ memo: string }>(init).memo === "follow-up";
-    })).toBe(true);
+    expect(hasFetchedJsonBody<{ memo: string }>(
+      fetchMock,
+      (path) => path.includes(`/api/memos/${secondDay}`),
+      (body) => body.memo === "follow-up",
+    )).toBe(true);
   });
 
   it("keeps UI state predictable when workflow saves fail", async () => {
