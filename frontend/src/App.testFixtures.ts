@@ -2,6 +2,11 @@ import { nextDate } from "./goalSlots";
 import { isGoalActiveOnDate } from "./monthLogic";
 import type { Goal, GoalCheck, MonthView } from "./types";
 
+type AppFetchHandler = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Response | Promise<Response>;
+
 export function buildMonthView(
   month: string,
   options: {
@@ -238,4 +243,86 @@ export function dateAfter(date: string | null) {
   }
 
   return nextDate(date);
+}
+
+export function createWorkflowApiHandler(): AppFetchHandler {
+  let view: MonthView | null = null;
+  let nextGoalID = 3;
+
+  return (input, init) => {
+    const path = requestPath(input);
+
+    if (path.endsWith("/goals")) {
+      const body = requestBody<{ title: string; startDate: string }>(init);
+      view = appendGoal(
+        view ?? buildMonthView(monthFromGoalCreatePath(path)),
+        nextGoalID,
+        body.title,
+        body.startDate,
+      );
+      nextGoalID += 1;
+      return okResponse();
+    }
+
+    if (path === "/api/goals/1") {
+      const body = requestBody<{ title: string }>(init);
+      view = updateGoalInView(requiredView(view), 1, body.title);
+      return okResponse();
+    }
+
+    if (path === "/api/checks") {
+      const body = requestBody<{
+        goalId: number;
+        date: string;
+        completed: boolean;
+      }>(init);
+      view = updateCheckInView(
+        requiredView(view),
+        body.goalId,
+        body.date,
+        body.completed,
+      );
+      return okResponse();
+    }
+
+    if (path.includes("/api/memos/")) {
+      const body = requestBody<{ memo: string }>(init);
+      view = updateMemoInView(
+        requiredView(view),
+        decodeURIComponent(path.split("/").pop() ?? ""),
+        body.memo,
+      );
+      return okResponse();
+    }
+
+    const month = monthFromRequest(input);
+    if (view === null || view.month !== month) {
+      view = buildMonthView(month);
+    }
+
+    return jsonResponse(view);
+  };
+}
+
+export function createFailingWorkflowApiHandler(
+  status = 500,
+): AppFetchHandler {
+  return (input) => {
+    const path = requestPath(input);
+
+    if (isWorkflowWritePath(path)) {
+      return errorResponse(status);
+    }
+
+    return jsonResponse(buildMonthView(monthFromRequest(input)));
+  };
+}
+
+function isWorkflowWritePath(path: string) {
+  return (
+    path.endsWith("/goals") ||
+    path === "/api/goals/1" ||
+    path === "/api/checks" ||
+    path.includes("/api/memos/")
+  );
 }

@@ -5,26 +5,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import {
-  appendGoal,
   bodyEndDate,
   buildGoals,
   buildMonthView,
   buildMonthViewFromGoals,
+  createFailingWorkflowApiHandler,
+  createWorkflowApiHandler,
   dateAfter,
   errorResponse,
   jsonResponse,
-  monthFromGoalCreatePath,
   monthFromRequest,
   okResponse,
   pendingResponse,
   requestBody,
   requestPath,
-  requiredView,
   shortDate,
   shortFirstDayLabel,
-  updateCheckInView,
-  updateGoalInView,
-  updateMemoInView,
 } from "./App.testFixtures";
 import {
   blurInput,
@@ -409,61 +405,7 @@ describe("App", () => {
   });
 
   it("handles the core goal and daily record workflow", async () => {
-    let view: MonthView | null = null;
-    let nextGoalID = 3;
-    const fetchMock = stubFetch((input, init) => {
-      const path = requestPath(input);
-
-      if (path.endsWith("/goals")) {
-        const body = requestBody<{ title: string; startDate: string }>(init);
-        view = appendGoal(
-          view ?? buildMonthView(monthFromGoalCreatePath(path)),
-          nextGoalID,
-          body.title,
-          body.startDate,
-        );
-        nextGoalID += 1;
-        return okResponse();
-      }
-
-      if (path === "/api/goals/1") {
-        const body = requestBody<{ title: string }>(init);
-        view = updateGoalInView(requiredView(view), 1, body.title);
-        return okResponse();
-      }
-
-      if (path === "/api/checks") {
-        const body = requestBody<{
-          goalId: number;
-          date: string;
-          completed: boolean;
-        }>(init);
-        view = updateCheckInView(
-          requiredView(view),
-          body.goalId,
-          body.date,
-          body.completed,
-        );
-        return okResponse();
-      }
-
-      if (path.includes("/api/memos/")) {
-        const body = requestBody<{ memo: string }>(init);
-        view = updateMemoInView(
-          requiredView(view),
-          decodeURIComponent(path.split("/").pop() ?? ""),
-          body.memo,
-        );
-        return okResponse();
-      }
-
-      const month = monthFromRequest(input);
-      if (view === null || view.month !== month) {
-        view = buildMonthView(month);
-      }
-
-      return jsonResponse(view);
-    });
+    const fetchMock = stubFetch(createWorkflowApiHandler());
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -535,20 +477,7 @@ describe("App", () => {
   });
 
   it("keeps UI state predictable when workflow saves fail", async () => {
-    const fetchMock = stubFetch((input) => {
-      const path = requestPath(input);
-
-      if (
-        path.endsWith("/goals") ||
-        path === "/api/goals/1" ||
-        path === "/api/checks" ||
-        path.includes("/api/memos/")
-      ) {
-        return errorResponse(500);
-      }
-
-      return jsonResponse(buildMonthView(monthFromRequest(input)));
-    });
+    const fetchMock = stubFetch(createFailingWorkflowApiHandler());
 
     renderApp(<App />);
     await waitForText("API 데이터");
