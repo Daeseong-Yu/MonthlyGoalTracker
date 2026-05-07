@@ -1,12 +1,9 @@
 package handler
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -18,8 +15,6 @@ import (
 )
 
 func TestGoalHandlerCreateReturnsCreatedGoal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	expectedDate := date(2026, time.April, 10)
 	goalService := &stubGoalService{
 		createGoalFunc: func(_ context.Context, month string, title string, startDate time.Time) (*domain.Goal, error) {
@@ -38,7 +33,7 @@ func TestGoalHandlerCreateReturnsCreatedGoal(t *testing.T) {
 	}
 	goalHandler := NewGoalHandler(goalService)
 
-	recorder := performRequest(http.MethodPost, "/api/months/2026-04/goals", `{"title":"Exercise","startDate":"2026-04-10"}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPost, "/api/months/2026-04/goals", `{"title":"Exercise","startDate":"2026-04-10"}`, func(router *gin.Engine) {
 		router.POST("/api/months/:month/goals", goalHandler.Create)
 	})
 
@@ -50,7 +45,7 @@ func TestGoalHandlerCreateReturnsCreatedGoal(t *testing.T) {
 	}
 
 	var response goalResponse
-	decodeJSON(t, recorder.Body.Bytes(), &response)
+	decodeJSON(t, recorder, &response)
 	if response.ID != 7 || response.Title != "Exercise" || response.StartDate != "2026-04-10" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
@@ -60,12 +55,10 @@ func TestGoalHandlerCreateReturnsCreatedGoal(t *testing.T) {
 }
 
 func TestGoalHandlerCreateRejectsInvalidStartDate(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	goalService := &stubGoalService{}
 	goalHandler := NewGoalHandler(goalService)
 
-	recorder := performRequest(http.MethodPost, "/api/months/2026-04/goals", `{"title":"Exercise","startDate":"2026/04/10"}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPost, "/api/months/2026-04/goals", `{"title":"Exercise","startDate":"2026/04/10"}`, func(router *gin.Engine) {
 		router.POST("/api/months/:month/goals", goalHandler.Create)
 	})
 
@@ -78,8 +71,6 @@ func TestGoalHandlerCreateRejectsInvalidStartDate(t *testing.T) {
 }
 
 func TestGoalHandlerCreateForwardsRequestPrincipal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	expectedPrincipal := principal.NewAuthenticated("app-user")
 	goalService := &stubGoalService{
 		createGoalFunc: func(ctx context.Context, month string, title string, startDate time.Time) (*domain.Goal, error) {
@@ -92,15 +83,9 @@ func TestGoalHandlerCreateForwardsRequestPrincipal(t *testing.T) {
 	}
 	goalHandler := NewGoalHandler(goalService)
 
-	router := gin.New()
-	router.POST("/api/months/:month/goals", goalHandler.Create)
-
-	request := httptest.NewRequest(http.MethodPost, "/api/months/2026-04/goals", bytes.NewReader([]byte(`{"title":"Exercise","startDate":"2026-04-10"}`)))
-	request.Header.Set("Content-Type", "application/json")
-	request = request.WithContext(principal.WithContext(request.Context(), expectedPrincipal))
-
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, request)
+	recorder := performRequest(t, http.MethodPost, "/api/months/2026-04/goals", `{"title":"Exercise","startDate":"2026-04-10"}`, func(router *gin.Engine) {
+		router.POST("/api/months/:month/goals", goalHandler.Create)
+	}, withPrincipal(expectedPrincipal))
 
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, recorder.Code, recorder.Body.String())
@@ -110,15 +95,13 @@ func TestGoalHandlerCreateForwardsRequestPrincipal(t *testing.T) {
 	}
 
 	var response goalResponse
-	decodeJSON(t, recorder.Body.Bytes(), &response)
+	decodeJSON(t, recorder, &response)
 	if response.ID != 8 || response.Title != "Exercise" || response.StartDate != "2026-04-10" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 
 func TestGoalHandlerUpdateMapsNotFound(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	goalService := &stubGoalService{
 		updateGoalTitleFunc: func(context.Context, uint, string) (*domain.Goal, error) {
 			return nil, gorm.ErrRecordNotFound
@@ -126,7 +109,7 @@ func TestGoalHandlerUpdateMapsNotFound(t *testing.T) {
 	}
 	goalHandler := NewGoalHandler(goalService)
 
-	recorder := performRequest(http.MethodPatch, "/api/goals/42", `{"title":"Updated"}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPatch, "/api/goals/42", `{"title":"Updated"}`, func(router *gin.Engine) {
 		router.PATCH("/api/goals/:id", goalHandler.Update)
 	})
 
@@ -136,8 +119,6 @@ func TestGoalHandlerUpdateMapsNotFound(t *testing.T) {
 }
 
 func TestMemoHandlerSaveReturnsSavedMemo(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	expectedDate := date(2026, time.April, 12)
 	memoService := &stubMemoService{
 		saveMemoFunc: func(_ context.Context, actualDate time.Time, memo string) (*domain.DailyMemo, error) {
@@ -153,7 +134,7 @@ func TestMemoHandlerSaveReturnsSavedMemo(t *testing.T) {
 	}
 	memoHandler := NewMemoHandler(memoService)
 
-	recorder := performRequest(http.MethodPut, "/api/memos/2026-04-12", `{"memo":"Evening walk"}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPut, "/api/memos/2026-04-12", `{"memo":"Evening walk"}`, func(router *gin.Engine) {
 		router.PUT("/api/memos/:date", memoHandler.Save)
 	})
 
@@ -162,19 +143,17 @@ func TestMemoHandlerSaveReturnsSavedMemo(t *testing.T) {
 	}
 
 	var response memoResponse
-	decodeJSON(t, recorder.Body.Bytes(), &response)
+	decodeJSON(t, recorder, &response)
 	if response.Date != "2026-04-12" || response.Memo != "Evening walk" {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 
 func TestMemoHandlerSaveRejectsMissingMemo(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	memoService := &stubMemoService{}
 	memoHandler := NewMemoHandler(memoService)
 
-	recorder := performRequest(http.MethodPut, "/api/memos/2026-04-12", `{}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPut, "/api/memos/2026-04-12", `{}`, func(router *gin.Engine) {
 		router.PUT("/api/memos/:date", memoHandler.Save)
 	})
 
@@ -187,8 +166,6 @@ func TestMemoHandlerSaveRejectsMissingMemo(t *testing.T) {
 }
 
 func TestCheckHandlerSetAcceptsCompletedFalse(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	expectedDate := date(2026, time.April, 12)
 	checkService := &stubCheckService{
 		setGoalCompletedFunc: func(_ context.Context, goalID uint, actualDate time.Time, completed bool) error {
@@ -207,7 +184,7 @@ func TestCheckHandlerSetAcceptsCompletedFalse(t *testing.T) {
 	}
 	checkHandler := NewCheckHandler(checkService)
 
-	recorder := performRequest(http.MethodPut, "/api/checks", `{"goalId":7,"date":"2026-04-12","completed":false}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPut, "/api/checks", `{"goalId":7,"date":"2026-04-12","completed":false}`, func(router *gin.Engine) {
 		router.PUT("/api/checks", checkHandler.Set)
 	})
 
@@ -216,15 +193,13 @@ func TestCheckHandlerSetAcceptsCompletedFalse(t *testing.T) {
 	}
 
 	var response goalCheckResponse
-	decodeJSON(t, recorder.Body.Bytes(), &response)
+	decodeJSON(t, recorder, &response)
 	if response.GoalID != 7 || response.Date != "2026-04-12" || response.Completed {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 
 func TestCheckHandlerSetMapsInactiveGoal(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	checkService := &stubCheckService{
 		setGoalCompletedFunc: func(context.Context, uint, time.Time, bool) error {
 			return service.ErrGoalNotActiveOnDate
@@ -232,7 +207,7 @@ func TestCheckHandlerSetMapsInactiveGoal(t *testing.T) {
 	}
 	checkHandler := NewCheckHandler(checkService)
 
-	recorder := performRequest(http.MethodPut, "/api/checks", `{"goalId":7,"date":"2026-04-12","completed":true}`, func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPut, "/api/checks", `{"goalId":7,"date":"2026-04-12","completed":true}`, func(router *gin.Engine) {
 		router.PUT("/api/checks", checkHandler.Set)
 	})
 
@@ -242,8 +217,6 @@ func TestCheckHandlerSetMapsInactiveGoal(t *testing.T) {
 }
 
 func TestMonthHandlerGetReturnsMonthView(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	monthService := &stubMonthService{
 		getMonthViewFunc: func(_ context.Context, month string) (*service.MonthView, error) {
 			if month != "2026-04" {
@@ -269,7 +242,7 @@ func TestMonthHandlerGetReturnsMonthView(t *testing.T) {
 	}
 	monthHandler := NewMonthHandler(monthService)
 
-	recorder := performRequest(http.MethodGet, "/api/months/2026-04", "", func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodGet, "/api/months/2026-04", "", func(router *gin.Engine) {
 		router.GET("/api/months/:month", monthHandler.Get)
 	})
 
@@ -278,15 +251,13 @@ func TestMonthHandlerGetReturnsMonthView(t *testing.T) {
 	}
 
 	var response monthViewResponse
-	decodeJSON(t, recorder.Body.Bytes(), &response)
+	decodeJSON(t, recorder, &response)
 	if response.Month != "2026-04" || len(response.Goals) != 1 || len(response.Days) != 1 || len(response.Checks) != 1 || len(response.Chart) != 1 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 
 func TestMonthHandlerEnsureMapsInvalidMonth(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
 	monthService := &stubMonthService{
 		ensureMonthFunc: func(context.Context, string) (*service.MonthView, error) {
 			return nil, service.ErrInvalidMonth
@@ -294,7 +265,7 @@ func TestMonthHandlerEnsureMapsInvalidMonth(t *testing.T) {
 	}
 	monthHandler := NewMonthHandler(monthService)
 
-	recorder := performRequest(http.MethodPost, "/api/months/invalid/ensure", "", func(router *gin.Engine) {
+	recorder := performRequest(t, http.MethodPost, "/api/months/invalid/ensure", "", func(router *gin.Engine) {
 		router.POST("/api/months/:month/ensure", monthHandler.Ensure)
 	})
 
@@ -382,36 +353,4 @@ func (s *stubMonthService) GetMonthView(ctx context.Context, month string) (*ser
 	}
 
 	return nil, errors.New("unexpected GetMonthView call")
-}
-
-func performRequest(method string, path string, body string, register func(*gin.Engine)) *httptest.ResponseRecorder {
-	router := gin.New()
-	register(router)
-
-	var requestBody *bytes.Reader
-	if body == "" {
-		requestBody = bytes.NewReader(nil)
-	} else {
-		requestBody = bytes.NewReader([]byte(body))
-	}
-
-	request := httptest.NewRequest(method, path, requestBody)
-	request.Header.Set("Content-Type", "application/json")
-
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, request)
-
-	return recorder
-}
-
-func decodeJSON(t *testing.T, data []byte, target any) {
-	t.Helper()
-
-	if err := json.Unmarshal(data, target); err != nil {
-		t.Fatalf("failed to decode JSON %q: %v", string(data), err)
-	}
-}
-
-func date(year int, month time.Month, day int) time.Time {
-	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
