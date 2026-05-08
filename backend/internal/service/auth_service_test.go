@@ -369,6 +369,179 @@ func TestAuthServiceVerifyEmailConsumesTokenAndCreatesSession(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRequestPasswordResetSendsTokenForVerifiedEmail(t *testing.T) {
+	now := date(2026, time.May, 8)
+	verifiedAt := now.Add(-time.Hour)
+	users := &fakeAuthUserRepository{
+		findByEmailUser: &domain.User{
+			ID:              7,
+			Email:           "owner@example.com",
+			PasswordHash:    "existing-password-hash",
+			EmailVerifiedAt: &verifiedAt,
+			Locale:          "en",
+		},
+	}
+	resetTokens := &fakePasswordResetRepository{}
+	resetSender := &fakePasswordResetEmailSender{}
+	authService := NewAuthService(users, &fakeAuthSessionRepository{}, time.Hour, "")
+	authService.now = func() time.Time { return now }
+	authService.EnableEmailVerification(&fakeEmailVerificationRepository{}, &fakeVerificationEmailSender{}, 24*time.Hour)
+	authService.EnablePasswordReset(resetTokens, resetSender, time.Hour)
+
+	result, err := authService.RequestPasswordReset(context.Background(), " Owner@Example.com ", "en")
+	if err != nil {
+		t.Fatalf("expected password reset request to succeed, got %v", err)
+	}
+	if result.Locale != "en" {
+		t.Fatalf("expected locale en, got %q", result.Locale)
+	}
+	if users.findByEmailEmail != "owner@example.com" {
+		t.Fatalf("expected normalized lookup email, got %q", users.findByEmailEmail)
+	}
+	if resetTokens.createdToken == nil {
+		t.Fatal("expected password reset token to be stored")
+	}
+	if resetTokens.createdToken.UserID != 7 {
+		t.Fatalf("expected token for user 7, got %d", resetTokens.createdToken.UserID)
+	}
+	if !resetTokens.createdToken.ExpiresAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("expected 1 hour token expiry, got %s", resetTokens.createdToken.ExpiresAt)
+	}
+	if resetSender.to != "owner@example.com" {
+		t.Fatalf("expected reset email recipient owner@example.com, got %q", resetSender.to)
+	}
+	if resetSender.locale != "en" {
+		t.Fatalf("expected reset email locale en, got %q", resetSender.locale)
+	}
+	if resetSender.token == "" {
+		t.Fatal("expected raw password reset token to be sent")
+	}
+	if resetTokens.createdToken.TokenHash != hashToken(resetSender.token) {
+		t.Fatal("expected stored reset token hash to match emailed token")
+	}
+}
+
+func TestAuthServiceRequestPasswordResetHidesMissingOrUnverifiedEmail(t *testing.T) {
+	verifiedAt := date(2026, time.May, 8)
+	testCases := []struct {
+		name string
+		user *domain.User
+	}{
+		{
+			name: "missing email",
+		},
+		{
+			name: "unverified email",
+			user: &domain.User{
+				ID:           7,
+				Email:        "owner@example.com",
+				PasswordHash: "existing-password-hash",
+			},
+		},
+		{
+			name: "passwordless account",
+			user: &domain.User{
+				ID:              7,
+				Email:           "owner@example.com",
+				EmailVerifiedAt: &verifiedAt,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			users := &fakeAuthUserRepository{findByEmailUser: testCase.user}
+			resetTokens := &fakePasswordResetRepository{}
+			resetSender := &fakePasswordResetEmailSender{}
+			authService := NewAuthService(users, &fakeAuthSessionRepository{}, time.Hour, "")
+			authService.EnableEmailVerification(&fakeEmailVerificationRepository{}, &fakeVerificationEmailSender{}, 24*time.Hour)
+			authService.EnablePasswordReset(resetTokens, resetSender, time.Hour)
+
+			result, err := authService.RequestPasswordReset(context.Background(), "owner@example.com", "ko")
+			if err != nil {
+				t.Fatalf("expected request to hide account state, got %v", err)
+			}
+			if result.Locale != "ko" {
+				t.Fatalf("expected locale ko, got %q", result.Locale)
+			}
+			if resetTokens.createdToken != nil {
+				t.Fatal("expected no token for hidden account state")
+			}
+			if resetSender.token != "" {
+				t.Fatal("expected no reset email for hidden account state")
+			}
+		})
+	}
+}
+
+func TestAuthServiceResetPasswordConsumesTokenInvalidatesSessionsAndCreatesSession(t *testing.T) {
+	now := date(2026, time.May, 8)
+	sessions := &fakeAuthSessionRepository{}
+	resetTokens := &fakePasswordResetRepository{
+		consumeUser: &domain.User{
+			ID:     7,
+			Email:  "owner@example.com",
+			Locale: "ko",
+		},
+	}
+	authService := NewAuthService(&fakeAuthUserRepository{}, sessions, time.Hour, "")
+	authService.now = func() time.Time { return now }
+	authService.hashPassword = func(password string) (string, error) {
+		if password != "new-secret" {
+			t.Fatalf("expected password new-secret, got %q", password)
+		}
+		return "hashed-new-secret", nil
+	}
+	authService.EnablePasswordReset(resetTokens, &fakePasswordResetEmailSender{}, time.Hour)
+
+	result, err := authService.ResetPassword(context.Background(), " raw-token ", "new-secret")
+	if err != nil {
+		t.Fatalf("expected password reset to succeed, got %v", err)
+	}
+	if resetTokens.consumedHash != hashToken("raw-token") {
+		t.Fatal("expected reset token hash to be consumed")
+	}
+	if resetTokens.consumedPasswordHash != "hashed-new-secret" {
+		t.Fatalf("expected consumed password hash, got %q", resetTokens.consumedPasswordHash)
+	}
+	if !resetTokens.consumedAt.Equal(now) {
+		t.Fatalf("expected consume time %s, got %s", now, resetTokens.consumedAt)
+	}
+	if sessions.deletedUserID != 7 {
+		t.Fatalf("expected existing sessions for user 7 to be deleted, got %d", sessions.deletedUserID)
+	}
+	if sessions.createdSession == nil {
+		t.Fatal("expected new session to be created")
+	}
+	if result.User.PasswordHash != "hashed-new-secret" {
+		t.Fatalf("expected returned user to have updated password hash, got %q", result.User.PasswordHash)
+	}
+}
+
+func TestAuthServiceResetPasswordRejectsInvalidToken(t *testing.T) {
+	sessions := &fakeAuthSessionRepository{}
+	resetTokens := &fakePasswordResetRepository{consumeErr: gorm.ErrRecordNotFound}
+	authService := NewAuthService(&fakeAuthUserRepository{}, sessions, time.Hour, "")
+	authService.hashPassword = func(password string) (string, error) {
+		return "hashed-new-secret", nil
+	}
+	authService.EnablePasswordReset(resetTokens, &fakePasswordResetEmailSender{}, time.Hour)
+
+	result, err := authService.ResetPassword(context.Background(), "raw-token", "new-secret")
+	if result != nil {
+		t.Fatal("expected nil auth result")
+	}
+	if !errors.Is(err, ErrInvalidPasswordResetToken) {
+		t.Fatalf("expected ErrInvalidPasswordResetToken, got %v", err)
+	}
+	if sessions.deletedUserID != 0 {
+		t.Fatal("expected invalid token to avoid deleting sessions")
+	}
+	if sessions.createdSession != nil {
+		t.Fatal("expected invalid token to avoid creating a session")
+	}
+}
+
 type fakeAuthUserRepository struct {
 	findByEmailUser   *domain.User
 	findByEmailErr    error
@@ -378,6 +551,7 @@ type fakeAuthUserRepository struct {
 	hashDone          *bool
 	hashDoneAtFind    bool
 	email             string
+	findByEmailEmail  string
 	locale            string
 	passwordHash      string
 	claimLegacy       bool
@@ -407,8 +581,8 @@ func (r *fakeAuthUserRepository) CreateWithPassword(ctx context.Context, email, 
 
 func (r *fakeAuthUserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	_ = ctx
-	_ = email
 	r.findByEmailCalled = true
+	r.findByEmailEmail = email
 	if r.hashDone != nil {
 		r.hashDoneAtFind = *r.hashDone
 	}
@@ -438,6 +612,7 @@ func (r *fakeAuthUserRepository) UpdateLocale(ctx context.Context, id uint, loca
 type fakeAuthSessionRepository struct {
 	createdSession *domain.Session
 	createErr      error
+	deletedUserID  uint
 }
 
 type fakeEmailVerificationRepository struct {
@@ -489,6 +664,59 @@ func (s *fakeVerificationEmailSender) SendVerificationEmail(ctx context.Context,
 	return s.err
 }
 
+type fakePasswordResetRepository struct {
+	createdToken         *domain.PasswordResetToken
+	createErr            error
+	consumeUser          *domain.User
+	consumeErr           error
+	consumedHash         string
+	consumedPasswordHash string
+	consumedAt           time.Time
+}
+
+func (r *fakePasswordResetRepository) Create(ctx context.Context, token *domain.PasswordResetToken) error {
+	_ = ctx
+	if r.createErr != nil {
+		return r.createErr
+	}
+
+	tokenCopy := *token
+	r.createdToken = &tokenCopy
+	return nil
+}
+
+func (r *fakePasswordResetRepository) Consume(ctx context.Context, tokenHash, passwordHash string, now time.Time) (*domain.User, error) {
+	_ = ctx
+	r.consumedHash = tokenHash
+	r.consumedPasswordHash = passwordHash
+	r.consumedAt = now
+	if r.consumeErr != nil {
+		return nil, r.consumeErr
+	}
+	if r.consumeUser != nil {
+		user := *r.consumeUser
+		user.PasswordHash = passwordHash
+		return &user, nil
+	}
+
+	return nil, gorm.ErrRecordNotFound
+}
+
+type fakePasswordResetEmailSender struct {
+	to     string
+	locale string
+	token  string
+	err    error
+}
+
+func (s *fakePasswordResetEmailSender) SendPasswordResetEmail(ctx context.Context, to, locale, token string) error {
+	_ = ctx
+	s.to = to
+	s.locale = locale
+	s.token = token
+	return s.err
+}
+
 func (r *fakeAuthSessionRepository) Create(ctx context.Context, session *domain.Session) error {
 	_ = ctx
 	if r.createErr != nil {
@@ -510,6 +738,12 @@ func (r *fakeAuthSessionRepository) FindByTokenHash(ctx context.Context, tokenHa
 func (r *fakeAuthSessionRepository) DeleteByTokenHash(ctx context.Context, tokenHash string) error {
 	_ = ctx
 	_ = tokenHash
+	return nil
+}
+
+func (r *fakeAuthSessionRepository) DeleteByUserID(ctx context.Context, userID uint) error {
+	_ = ctx
+	r.deletedUserID = userID
 	return nil
 }
 

@@ -32,7 +32,7 @@ func TestWriteAuthErrorDoesNotExposeExistingSignupEmail(t *testing.T) {
 	}
 }
 
-func TestWriteAuthErrorMapsEmailVerificationErrors(t *testing.T) {
+func TestWriteAuthErrorMapsAuthFlowErrors(t *testing.T) {
 	testCases := []struct {
 		name       string
 		err        error
@@ -50,6 +50,12 @@ func TestWriteAuthErrorMapsEmailVerificationErrors(t *testing.T) {
 			err:        service.ErrInvalidVerificationToken,
 			statusCode: http.StatusBadRequest,
 			message:    "invalid verification token",
+		},
+		{
+			name:       "invalid password reset token",
+			err:        service.ErrInvalidPasswordResetToken,
+			statusCode: http.StatusBadRequest,
+			message:    "invalid password reset token",
 		},
 	}
 

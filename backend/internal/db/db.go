@@ -106,6 +106,7 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 	if err := database.WithContext(ctx).AutoMigrate(
 		&domain.User{},
 		&domain.EmailVerificationToken{},
+		&domain.PasswordResetToken{},
 		&domain.Session{},
 		&domain.Goal{},
 		&domain.DailyMemo{},

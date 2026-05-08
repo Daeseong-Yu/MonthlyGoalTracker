@@ -9,6 +9,8 @@ import {
   getMonthView,
   login,
   logoutSession,
+  requestPasswordReset,
+  resetPassword,
   saveMemo,
   setGoalCompleted,
   signUp,
@@ -230,6 +232,96 @@ describe("api client", () => {
         method: "POST",
         credentials: "include",
         headers: jsonHeaders("csrf-verified"),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
+      },
+    );
+  });
+
+  it("requests a password reset without opening a CSRF session", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        status: "password_reset_requested",
+        locale: "ko",
+      }),
+    );
+
+    await expect(
+      requestPasswordReset("owner@example.com", "ko"),
+    ).resolves.toEqual({
+      status: "password_reset_requested",
+      locale: "ko",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/auth/password-reset/request",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          email: "owner@example.com",
+          locale: "ko",
+        }),
+      },
+    );
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
+      },
+    );
+  });
+
+  it("resets a password and stores CSRF for later unsafe requests", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        user: userSession,
+        csrfToken: "csrf-reset",
+        locale: "ko",
+      }),
+    );
+
+    await expect(resetPassword("reset-token", "new-secret123")).resolves.toEqual(
+      {
+        user: userSession,
+        csrfToken: "csrf-reset",
+        locale: "ko",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/auth/password-reset/confirm",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          token: "reset-token",
+          password: "new-secret123",
+        }),
+      },
+    );
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders("csrf-reset"),
         body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
       },
     );

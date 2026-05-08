@@ -342,6 +342,90 @@ describe("App", () => {
       .toBe(true);
   });
 
+  it("requests a password reset from the login screen", async () => {
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/password-reset/request") {
+          return jsonResponse({
+            status: "password_reset_requested",
+            locale: "ko",
+          });
+        }
+
+        return createMonthViewApiHandler()(input);
+      },
+      {
+        bootstrap: { authenticated: false, locale: "ko", user: null },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("월간 목표 트래커");
+    await clickButton("비밀번호 재설정");
+    await setInputValue("이메일", "person@example.com");
+    await submitForm();
+
+    await waitForText(
+      "비밀번호 재설정 메일을 보냈습니다. 받은 편지함을 확인해 주세요.",
+    );
+
+    expect(hasFetchedJsonBody<{ email: string; locale: string }>(
+      fetchMock,
+      (path) => path === "/api/auth/password-reset/request",
+      (body) => body.email === "person@example.com" && body.locale === "ko",
+    )).toBe(true);
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
+  it("resets a password from a URL token before loading the dashboard", async () => {
+    window.history.pushState({}, "", "/#resetToken=password-token");
+
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/password-reset/confirm") {
+          return jsonResponse({
+            user: {
+              id: 4,
+              email: "person@example.com",
+              locale: "ko",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            csrfToken: "csrf-reset",
+            locale: "ko",
+          });
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: { authenticated: false, locale: "ko", user: null },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("새 비밀번호 저장");
+    await setInputValue("비밀번호", "new-secret123");
+    await submitForm();
+
+    await waitForText("API 데이터");
+
+    expect(hasFetchedJsonBody<{ token: string; password: string }>(
+      fetchMock,
+      (path) => path === "/api/auth/password-reset/confirm",
+      (body) =>
+        body.token === "password-token" && body.password === "new-secret123",
+    )).toBe(true);
+    expect(window.location.search).not.toContain("resetToken=");
+    expect(window.location.hash).not.toContain("resetToken=");
+    expect(document.body.textContent).toContain(
+      "person@example.com로 로그인됨",
+    );
+  });
+
   it("retries the current month after falling back to sample data", async () => {
     let failedInitialLoad = false;
     let resolveRetryLoad: (() => void) | null = null;

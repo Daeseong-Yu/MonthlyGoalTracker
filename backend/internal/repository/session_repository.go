@@ -36,6 +36,10 @@ func (r *SessionRepository) DeleteByTokenHash(ctx context.Context, tokenHash str
 	return r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).Delete(&domain.Session{}).Error
 }
 
+func (r *SessionRepository) DeleteByUserID(ctx context.Context, userID uint) error {
+	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&domain.Session{}).Error
+}
+
 func (r *SessionRepository) UpdateLastUsedAt(ctx context.Context, id uint, lastUsedAt time.Time) error {
 	return r.db.WithContext(ctx).
 		Model(&domain.Session{}).

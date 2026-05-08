@@ -30,6 +30,7 @@ const (
 	defaultLoginRateLimitPerMinute    = 10
 	defaultAuthRateLimitMaxBuckets    = 10000
 	defaultEmailVerificationTTLHours  = 24
+	defaultPasswordResetTTLHours      = 1
 	defaultSMTPPort                   = 587
 	minimumLegacyClaimTokenCharacters = 16
 )
@@ -85,6 +86,7 @@ type AuthFlowConfig struct {
 	LoginRateLimitPerMinute   int
 	RateLimitMaxBuckets       int
 	EmailVerificationTTLHours int
+	PasswordResetTTLHours     int
 }
 
 func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
@@ -100,18 +102,22 @@ func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
 	if c.EmailVerificationTTLHours == 0 {
 		c.EmailVerificationTTLHours = defaultEmailVerificationTTLHours
 	}
+	if c.PasswordResetTTLHours == 0 {
+		c.PasswordResetTTLHours = defaultPasswordResetTTLHours
+	}
 	c.LegacyClaimToken = strings.TrimSpace(c.LegacyClaimToken)
 
 	return c
 }
 
 type EmailConfig struct {
-	From                string
-	SMTPHost            string
-	SMTPPort            int
-	SMTPUsername        string
-	SMTPPassword        string
-	VerificationBaseURL string
+	From                 string
+	SMTPHost             string
+	SMTPPort             int
+	SMTPUsername         string
+	SMTPPassword         string
+	VerificationBaseURL  string
+	PasswordResetBaseURL string
 }
 
 func (c EmailConfig) WithDefaults() EmailConfig {
@@ -120,8 +126,12 @@ func (c EmailConfig) WithDefaults() EmailConfig {
 	c.SMTPUsername = strings.TrimSpace(c.SMTPUsername)
 	c.SMTPPassword = strings.TrimSpace(c.SMTPPassword)
 	c.VerificationBaseURL = strings.TrimSpace(c.VerificationBaseURL)
+	c.PasswordResetBaseURL = strings.TrimSpace(c.PasswordResetBaseURL)
 	if c.SMTPPort == 0 {
 		c.SMTPPort = defaultSMTPPort
+	}
+	if c.PasswordResetBaseURL == "" {
+		c.PasswordResetBaseURL = c.VerificationBaseURL
 	}
 
 	return c
@@ -129,7 +139,7 @@ func (c EmailConfig) WithDefaults() EmailConfig {
 
 func (c EmailConfig) Enabled() bool {
 	cfg := c.WithDefaults()
-	return cfg.From != "" || cfg.SMTPHost != "" || cfg.VerificationBaseURL != ""
+	return cfg.From != "" || cfg.SMTPHost != "" || cfg.VerificationBaseURL != "" || cfg.PasswordResetBaseURL != ""
 }
 
 func Load() Config {
@@ -154,14 +164,16 @@ func Load() Config {
 			LoginRateLimitPerMinute:   getEnvInt("APP_LOGIN_RATE_LIMIT_PER_MINUTE", defaultLoginRateLimitPerMinute),
 			RateLimitMaxBuckets:       getEnvInt("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", defaultAuthRateLimitMaxBuckets),
 			EmailVerificationTTLHours: getEnvInt("APP_EMAIL_VERIFICATION_TTL_HOURS", defaultEmailVerificationTTLHours),
+			PasswordResetTTLHours:     getEnvInt("APP_PASSWORD_RESET_TTL_HOURS", defaultPasswordResetTTLHours),
 		},
 		Email: EmailConfig{
-			From:                getEnv("APP_EMAIL_FROM", ""),
-			SMTPHost:            getEnv("APP_SMTP_HOST", ""),
-			SMTPPort:            getEnvInt("APP_SMTP_PORT", defaultSMTPPort),
-			SMTPUsername:        getEnv("APP_SMTP_USERNAME", ""),
-			SMTPPassword:        getEnv("APP_SMTP_PASSWORD", ""),
-			VerificationBaseURL: getEnv("APP_EMAIL_VERIFICATION_BASE_URL", ""),
+			From:                 getEnv("APP_EMAIL_FROM", ""),
+			SMTPHost:             getEnv("APP_SMTP_HOST", ""),
+			SMTPPort:             getEnvInt("APP_SMTP_PORT", defaultSMTPPort),
+			SMTPUsername:         getEnv("APP_SMTP_USERNAME", ""),
+			SMTPPassword:         getEnv("APP_SMTP_PASSWORD", ""),
+			VerificationBaseURL:  getEnv("APP_EMAIL_VERIFICATION_BASE_URL", ""),
+			PasswordResetBaseURL: getEnv("APP_PASSWORD_RESET_BASE_URL", ""),
 		},
 		TrustedProxies: getEnvList("APP_TRUSTED_PROXIES"),
 	}
@@ -255,6 +267,9 @@ func (c AuthFlowConfig) Validate() error {
 	if cfg.EmailVerificationTTLHours <= 0 {
 		return fmt.Errorf("%w: APP_EMAIL_VERIFICATION_TTL_HOURS must be positive", ErrInvalidAuthFlow)
 	}
+	if cfg.PasswordResetTTLHours <= 0 {
+		return fmt.Errorf("%w: APP_PASSWORD_RESET_TTL_HOURS must be positive", ErrInvalidAuthFlow)
+	}
 	if cfg.LegacyClaimToken != "" && len(cfg.LegacyClaimToken) < minimumLegacyClaimTokenCharacters {
 		return fmt.Errorf("%w: APP_LEGACY_CLAIM_TOKEN must be at least %d characters", ErrInvalidAuthFlow, minimumLegacyClaimTokenCharacters)
 	}
@@ -282,12 +297,23 @@ func (c EmailConfig) Validate() error {
 		return fmt.Errorf("%w: APP_SMTP_USERNAME and APP_SMTP_PASSWORD must be set together", ErrInvalidEmailConfig)
 	}
 
-	verificationURL, err := url.Parse(cfg.VerificationBaseURL)
-	if err != nil || verificationURL.Scheme == "" || verificationURL.Host == "" {
-		return fmt.Errorf("%w: APP_EMAIL_VERIFICATION_BASE_URL must be an absolute URL", ErrInvalidEmailConfig)
+	if err := validateEmailActionBaseURL("APP_EMAIL_VERIFICATION_BASE_URL", cfg.VerificationBaseURL); err != nil {
+		return err
 	}
-	if !safeVerificationBaseURL(verificationURL) {
-		return fmt.Errorf("%w: APP_EMAIL_VERIFICATION_BASE_URL must use https outside localhost", ErrInvalidEmailConfig)
+	if err := validateEmailActionBaseURL("APP_PASSWORD_RESET_BASE_URL", cfg.PasswordResetBaseURL); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateEmailActionBaseURL(envName, rawURL string) error {
+	actionURL, err := url.Parse(rawURL)
+	if err != nil || actionURL.Scheme == "" || actionURL.Host == "" {
+		return fmt.Errorf("%w: %s must be an absolute URL", ErrInvalidEmailConfig, envName)
+	}
+	if !safeEmailActionBaseURL(actionURL) {
+		return fmt.Errorf("%w: %s must use https outside localhost", ErrInvalidEmailConfig, envName)
 	}
 
 	return nil
@@ -366,12 +392,12 @@ func isLoopbackHost(host string) bool {
 	return addr.IsLoopback()
 }
 
-func safeVerificationBaseURL(verificationURL *url.URL) bool {
-	switch strings.ToLower(verificationURL.Scheme) {
+func safeEmailActionBaseURL(actionURL *url.URL) bool {
+	switch strings.ToLower(actionURL.Scheme) {
 	case "https":
 		return true
 	case "http":
-		return isLoopbackHost(normalizeHost(verificationURL.Hostname()))
+		return isLoopbackHost(normalizeHost(actionURL.Hostname()))
 	default:
 		return false
 	}

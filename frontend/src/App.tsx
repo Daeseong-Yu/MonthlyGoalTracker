@@ -1,12 +1,15 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   CalendarDays,
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  KeyRound,
   Languages,
   LogIn,
   LogOut,
+  MailCheck,
   RefreshCw,
   UserPlus,
 } from "lucide-react";
@@ -18,6 +21,8 @@ import {
   isAuthResponse,
   login as loginSession,
   logoutSession,
+  requestPasswordReset,
+  resetPassword,
   signUp as signUpSession,
   updateUserLocale,
   verifyEmail,
@@ -31,7 +36,7 @@ import MetricSummary from "./MetricSummary";
 import { useMonthController } from "./useMonthController";
 import type { AppLocale, AuthResponse, UserSession } from "./types";
 
-type AuthMode = "login" | "signup";
+type AuthMode = "login" | "signup" | "forgot" | "reset";
 const localeStorageKey = "monthlyGoalTracker.locale";
 
 export default function App() {
@@ -42,6 +47,9 @@ export default function App() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   const [emailVerificationFailed, setEmailVerificationFailed] = useState(false);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(
+    () => readPasswordResetToken(),
+  );
   const messages = useMemo(() => messagesForLocale(locale), [locale]);
 
   useEffect(() => {
@@ -61,9 +69,14 @@ export default function App() {
         setLocale(nextLocale);
         storeLocale(nextLocale);
         const verificationToken = nextUser ? null : readEmailVerificationToken();
+        const resetToken = nextUser ? null : readPasswordResetToken();
 
         if (nextUser && readEmailVerificationToken()) {
           removeEmailVerificationToken();
+        }
+
+        if (nextUser && readPasswordResetToken()) {
+          removePasswordResetToken();
         }
 
         if (verificationToken) {
@@ -74,12 +87,14 @@ export default function App() {
             }
 
             removeEmailVerificationToken();
+            removePasswordResetToken();
             const verifiedLocale = normalizeLocale(
               authResponse.user.locale ?? authResponse.locale,
             );
             setLocale(verifiedLocale);
             storeLocale(verifiedLocale);
             setUser(authResponse.user);
+            setPasswordResetToken(null);
             setEmailVerificationFailed(false);
             setBootstrapFailed(false);
             return;
@@ -91,6 +106,7 @@ export default function App() {
             clearAuthCSRFToken();
             removeEmailVerificationToken();
             setUser(null);
+            setPasswordResetToken(resetToken);
             setEmailVerificationFailed(true);
             setBootstrapFailed(false);
             return;
@@ -98,6 +114,7 @@ export default function App() {
         }
 
         setUser(nextUser);
+        setPasswordResetToken(resetToken);
         setEmailVerificationFailed(false);
         setBootstrapFailed(false);
       } catch {
@@ -107,6 +124,7 @@ export default function App() {
 
         clearAuthCSRFToken();
         setUser(null);
+        setPasswordResetToken(readPasswordResetToken());
         setEmailVerificationFailed(false);
         setBootstrapFailed(true);
       } finally {
@@ -150,6 +168,9 @@ export default function App() {
     setLocale(nextLocale);
     storeLocale(nextLocale);
     setUser(response.user);
+    setPasswordResetToken(null);
+    removeEmailVerificationToken();
+    removePasswordResetToken();
     setEmailVerificationFailed(false);
     setBootstrapFailed(false);
   }
@@ -157,6 +178,7 @@ export default function App() {
   function handleLoggedOut() {
     clearAuthCSRFToken();
     setUser(null);
+    setPasswordResetToken(readPasswordResetToken());
     setEmailVerificationFailed(false);
   }
 
@@ -175,8 +197,13 @@ export default function App() {
         }
         locale={locale}
         messages={messages}
+        passwordResetToken={passwordResetToken}
         onAuthenticated={handleAuthenticated}
         onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+        onPasswordResetTokenConsumed={() => {
+          setPasswordResetToken(null);
+          removePasswordResetToken();
+        }}
       />
     );
   }
@@ -210,17 +237,23 @@ function AuthScreen({
   verificationError,
   locale,
   messages,
+  passwordResetToken,
   onAuthenticated,
   onLocaleChange,
+  onPasswordResetTokenConsumed,
 }: {
   bootstrapError: string | null;
   verificationError: string | null;
   locale: AppLocale;
   messages: AppMessages;
+  passwordResetToken: string | null;
   onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
+  onPasswordResetTokenConsumed: () => void;
 }) {
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>(
+    () => (passwordResetToken ? "reset" : "login"),
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [legacyClaimToken, setLegacyClaimToken] = useState("");
@@ -228,10 +261,36 @@ function AuthScreen({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const authMessages = messages.auth;
-  const submitLabel =
-    mode === "login" ? authMessages.loginButton : authMessages.signupButton;
-  const submitIcon =
-    mode === "login" ? <LogIn size={17} /> : <UserPlus size={17} />;
+  const submitLabel = authSubmitLabel(mode, authMessages);
+  const submitIcon = authSubmitIcon(mode);
+
+  useEffect(() => {
+    if (!passwordResetToken) {
+      return;
+    }
+
+    setMode("reset");
+    setEmail("");
+    setPassword("");
+    setLegacyClaimToken("");
+    setError(null);
+    setStatus(null);
+  }, [passwordResetToken]);
+
+  function moveToMode(nextMode: AuthMode) {
+    if (mode === "reset") {
+      onPasswordResetTokenConsumed();
+    }
+    setMode(nextMode);
+    setError(null);
+    setStatus(null);
+    setPassword("");
+    setLegacyClaimToken("");
+  }
+
+  function returnToLogin() {
+    moveToMode("login");
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -242,6 +301,26 @@ function AuthScreen({
     try {
       if (mode === "login") {
         const response = await loginSession(email, password, locale);
+        onAuthenticated(response);
+        return;
+      }
+
+      if (mode === "forgot") {
+        await requestPasswordReset(email, locale);
+        setStatus(authMessages.passwordResetRequested);
+        setPassword("");
+        setLegacyClaimToken("");
+        return;
+      }
+
+      if (mode === "reset") {
+        if (!passwordResetToken) {
+          setError(authMessages.passwordResetTokenFailed);
+          return;
+        }
+
+        const response = await resetPassword(passwordResetToken, password);
+        onPasswordResetTokenConsumed();
         onAuthenticated(response);
         return;
       }
@@ -286,70 +365,77 @@ function AuthScreen({
             onChange={onLocaleChange}
           />
 
-          <div
-            className="grid grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-zinc-50 p-1"
-            role="tablist"
-          >
-            <button
-              className={authModeClassName(mode === "login")}
-              type="button"
-              aria-label={`${authMessages.loginTab} tab`}
-              aria-pressed={mode === "login"}
-              onClick={() => {
-                setMode("login");
-                setError(null);
-                setStatus(null);
-                setLegacyClaimToken("");
-              }}
+          {mode === "login" || mode === "signup" ? (
+            <div
+              className="grid grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-zinc-50 p-1"
+              role="tablist"
             >
-              {authMessages.loginTab}
-            </button>
+              <button
+                className={authModeClassName(mode === "login")}
+                type="button"
+                aria-label={`${authMessages.loginTab} tab`}
+                aria-pressed={mode === "login"}
+                onClick={() => moveToMode("login")}
+              >
+                {authMessages.loginTab}
+              </button>
+              <button
+                className={authModeClassName(mode === "signup")}
+                type="button"
+                aria-label={`${authMessages.signupTab} tab`}
+                aria-pressed={mode === "signup"}
+                onClick={() => moveToMode("signup")}
+              >
+                {authMessages.signupTab}
+              </button>
+            </div>
+          ) : (
             <button
-              className={authModeClassName(mode === "signup")}
+              className="inline-flex h-9 w-fit items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
               type="button"
-              aria-label={`${authMessages.signupTab} tab`}
-              aria-pressed={mode === "signup"}
-              onClick={() => {
-                setMode("signup");
-                setError(null);
-                setStatus(null);
-              }}
+              aria-label={authMessages.backToLoginButton}
+              onClick={returnToLogin}
             >
-              {authMessages.signupTab}
+              <ArrowLeft size={15} />
+              {authMessages.backToLoginButton}
             </button>
-          </div>
+          )}
 
           <form className="space-y-3" onSubmit={handleSubmit}>
-            <label className="block text-sm font-medium text-zinc-700">
-              <span>{authMessages.emailLabel}</span>
-              <input
-                className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                type="email"
-                aria-label={authMessages.emailLabel}
-                autoComplete="email"
-                placeholder={authMessages.emailPlaceholder}
-                required
-                value={email}
-                disabled={busy}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </label>
-            <label className="block text-sm font-medium text-zinc-700">
-              <span>{authMessages.passwordLabel}</span>
-              <input
-                className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                type="password"
-                aria-label={authMessages.passwordLabel}
-                autoComplete={
-                  mode === "login" ? "current-password" : "new-password"
-                }
-                placeholder={authMessages.passwordPlaceholder}
-                required
-                value={password}
-                disabled={busy}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
+            {mode !== "reset" ? (
+              <label className="block text-sm font-medium text-zinc-700">
+                <span>{authMessages.emailLabel}</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  type="email"
+                  aria-label={authMessages.emailLabel}
+                  autoComplete="email"
+                  placeholder={authMessages.emailPlaceholder}
+                  required
+                  value={email}
+                  disabled={busy}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+            ) : null}
+            {mode !== "forgot" ? (
+              <label className="block text-sm font-medium text-zinc-700">
+                <span>{authMessages.passwordLabel}</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  type="password"
+                  aria-label={authMessages.passwordLabel}
+                  autoComplete={
+                    mode === "login" ? "current-password" : "new-password"
+                  }
+                  placeholder={authMessages.passwordPlaceholder}
+                  required
+                  value={password}
+                  disabled={busy}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+            ) : null}
             {mode === "signup" ? (
               <label className="block text-sm font-medium text-zinc-700">
                 <span>{authMessages.legacyClaimTokenLabel}</span>
@@ -396,6 +482,17 @@ function AuthScreen({
               {submitIcon}
               {busy ? authMessages.submitBusy : submitLabel}
             </button>
+            {mode === "login" ? (
+              <button
+                className="inline-flex h-9 items-center gap-2 text-sm font-semibold text-teal-700 transition hover:text-teal-900"
+                type="button"
+                aria-label={authMessages.forgotPasswordButton}
+                onClick={() => moveToMode("forgot")}
+              >
+                <KeyRound size={14} />
+                {authMessages.forgotPasswordButton}
+              </button>
+            ) : null}
           </form>
 
           <p className="text-xs text-zinc-500">{authMessages.languageHint}</p>
@@ -419,8 +516,29 @@ function authErrorMessage(
       return authMessages.emailVerificationFailed;
     }
 
+    if (error.code === "invalid password reset token") {
+      return authMessages.passwordResetTokenFailed;
+    }
+
     if (mode === "login" && error.code === "email not verified") {
       return authMessages.loginEmailNotVerified;
+    }
+
+    if (mode === "forgot") {
+      switch (error.code) {
+        case "invalid email":
+          return authMessages.signupInvalidEmail;
+        case "invalid locale":
+          return authMessages.signupInvalidLocale;
+      }
+    }
+
+    if (mode === "reset") {
+      if (error.code === "weak password") {
+        return authMessages.signupWeakPassword;
+      }
+
+      return authMessages.resetPasswordFailed;
     }
 
     if (mode === "signup") {
@@ -439,9 +557,42 @@ function authErrorMessage(
     }
   }
 
-  return mode === "login"
-    ? authMessages.loginFailed
-    : authMessages.signupFailed;
+  switch (mode) {
+    case "login":
+      return authMessages.loginFailed;
+    case "signup":
+      return authMessages.signupFailed;
+    case "forgot":
+      return authMessages.passwordResetRequestFailed;
+    case "reset":
+      return authMessages.resetPasswordFailed;
+  }
+}
+
+function authSubmitLabel(mode: AuthMode, authMessages: AppMessages["auth"]) {
+  switch (mode) {
+    case "login":
+      return authMessages.loginButton;
+    case "signup":
+      return authMessages.signupButton;
+    case "forgot":
+      return authMessages.requestPasswordResetButton;
+    case "reset":
+      return authMessages.resetPasswordButton;
+  }
+}
+
+function authSubmitIcon(mode: AuthMode) {
+  switch (mode) {
+    case "login":
+      return <LogIn size={17} />;
+    case "signup":
+      return <UserPlus size={17} />;
+    case "forgot":
+      return <MailCheck size={17} />;
+    case "reset":
+      return <KeyRound size={17} />;
+  }
 }
 
 function Dashboard({
@@ -762,10 +913,50 @@ function readEmailVerificationToken() {
 }
 
 function removeEmailVerificationToken() {
+  removeSearchParams(["token", "verifyToken"]);
+}
+
+function readPasswordResetToken() {
+  const params = hashParams();
+  return (
+    params.get("resetToken")?.trim() ||
+    params.get("passwordResetToken")?.trim() ||
+    null
+  );
+}
+
+function removePasswordResetToken() {
+  removeSearchParams(["resetToken", "passwordResetToken"]);
+  removeHashParams(["resetToken", "passwordResetToken"]);
+}
+
+function hashParams() {
+  return new URLSearchParams(window.location.hash.replace(/^#/, ""));
+}
+
+function removeHashParams(keys: string[]) {
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+  let changed = false;
+
+  for (const key of keys) {
+    if (params.has(key)) {
+      params.delete(key);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    url.hash = params.toString();
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
+
+function removeSearchParams(keys: string[]) {
   const url = new URL(window.location.href);
   let changed = false;
 
-  for (const key of ["token", "verifyToken"]) {
+  for (const key of keys) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key);
       changed = true;

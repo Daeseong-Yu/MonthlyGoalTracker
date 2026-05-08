@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   BootstrapResponse,
   MonthView,
+  PasswordResetAcceptedResponse,
   SignupResponse,
   UserSession,
 } from "./types";
@@ -94,6 +95,36 @@ export async function verifyEmail(token: string): Promise<AuthResponse> {
     {
       method: "POST",
       body: { token },
+    },
+  );
+  applyCSRFToken(response.csrfToken);
+  return response;
+}
+
+export async function requestPasswordReset(
+  email: string,
+  locale: AppLocale,
+): Promise<PasswordResetAcceptedResponse> {
+  return requestJSON<PasswordResetAcceptedResponse>(
+    "/api/auth/password-reset/request",
+    "password reset request",
+    {
+      method: "POST",
+      body: { email, locale },
+    },
+  );
+}
+
+export async function resetPassword(
+  token: string,
+  password: string,
+): Promise<AuthResponse> {
+  const response = await requestJSON<AuthResponse>(
+    "/api/auth/password-reset/confirm",
+    "password reset confirmation request",
+    {
+      method: "POST",
+      body: { token, password },
     },
   );
   applyCSRFToken(response.csrfToken);

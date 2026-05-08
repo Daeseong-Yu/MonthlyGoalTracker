@@ -23,6 +23,8 @@ func TestSetupRouterRegistersAPIRoutes(t *testing.T) {
 		"POST /api/auth/signup",
 		"POST /api/auth/login",
 		"POST /api/auth/verify-email",
+		"POST /api/auth/password-reset/request",
+		"POST /api/auth/password-reset/confirm",
 		"GET /api/auth/me",
 		"POST /api/auth/logout",
 		"PATCH /api/auth/me/locale",

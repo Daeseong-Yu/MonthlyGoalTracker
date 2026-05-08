@@ -32,10 +32,16 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	)
 	emailConfig := cfg.Email.WithDefaults()
 	if emailConfig.Enabled() {
+		emailSender := service.NewSMTPVerificationEmailSender(emailConfig)
 		authService.EnableEmailVerification(
 			repository.NewEmailVerificationRepository(database),
-			service.NewSMTPVerificationEmailSender(emailConfig),
+			emailSender,
 			time.Duration(authFlowConfig.EmailVerificationTTLHours)*time.Hour,
+		)
+		authService.EnablePasswordReset(
+			repository.NewPasswordResetRepository(database),
+			emailSender,
+			time.Duration(authFlowConfig.PasswordResetTTLHours)*time.Hour,
 		)
 	}
 	goalService := service.NewGoalService(goalRepo)
@@ -72,6 +78,8 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	authRoutes.POST("/signup", signupLimiter.Middleware("signup"), authHandler.SignUp)
 	authRoutes.POST("/login", loginLimiter.Middleware("login"), authHandler.Login)
 	authRoutes.POST("/verify-email", loginLimiter.Middleware("verify-email"), authHandler.VerifyEmail)
+	authRoutes.POST("/password-reset/request", signupLimiter.Middleware("password-reset-request"), authHandler.RequestPasswordReset)
+	authRoutes.POST("/password-reset/confirm", loginLimiter.Middleware("password-reset-confirm"), authHandler.ResetPassword)
 
 	protectedAuthRoutes := authRoutes.Group("")
 	protectedAuthRoutes.Use(sessionMiddleware(authService, sessionConfig.CookieName))

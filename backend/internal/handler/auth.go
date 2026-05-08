@@ -40,6 +40,16 @@ type verifyEmailRequest struct {
 	Token string `json:"token"`
 }
 
+type passwordResetRequest struct {
+	Email  string `json:"email"`
+	Locale string `json:"locale"`
+}
+
+type resetPasswordRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
 type userSessionResponse struct {
 	ID        uint      `json:"id"`
 	Email     string    `json:"email"`
@@ -133,6 +143,42 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	result, err := h.service.Login(c.Request.Context(), req.Email, req.Password)
+	if err != nil {
+		writeAuthError(c, err)
+		return
+	}
+
+	h.setAuthCookies(c, result)
+	c.JSON(http.StatusOK, toAuthResponse(result))
+}
+
+func (h *AuthHandler) RequestPasswordReset(c *gin.Context) {
+	var req passwordResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	result, err := h.service.RequestPasswordReset(c.Request.Context(), req.Email, req.Locale)
+	if err != nil {
+		writeAuthError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusAccepted, signupAcceptedResponse{
+		Status: "password_reset_requested",
+		Locale: service.LocaleOrDefault(result.Locale),
+	})
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req resetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	result, err := h.service.ResetPassword(c.Request.Context(), req.Token, req.Password)
 	if err != nil {
 		writeAuthError(c, err)
 		return
@@ -279,6 +325,8 @@ func writeAuthError(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, gin.H{"error": "legacy claim required"})
 	case errors.Is(err, service.ErrInvalidVerificationToken):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification token"})
+	case errors.Is(err, service.ErrInvalidPasswordResetToken):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid password reset token"})
 	case errors.Is(err, service.ErrInvalidCredentials), errors.Is(err, service.ErrInvalidSession):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 	default:

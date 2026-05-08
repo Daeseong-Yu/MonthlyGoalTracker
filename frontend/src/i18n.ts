@@ -30,12 +30,20 @@ export type AppMessages = {
     legacyClaimTokenPlaceholder: string;
     loginButton: string;
     signupButton: string;
+    forgotPasswordButton: string;
+    backToLoginButton: string;
+    requestPasswordResetButton: string;
+    resetPasswordButton: string;
     submitBusy: string;
     loginFailed: string;
     loginEmailNotVerified: string;
     signupFailed: string;
     signupAccepted: string;
     emailVerificationFailed: string;
+    passwordResetRequested: string;
+    passwordResetRequestFailed: string;
+    resetPasswordFailed: string;
+    passwordResetTokenFailed: string;
     authRateLimited: string;
     signupWeakPassword: string;
     signupInvalidEmail: string;
@@ -153,12 +161,24 @@ export const messages: Record<AppLocale, AppMessages> = {
       legacyClaimTokenPlaceholder: "소유자에게만 제공된 토큰(선택)",
       loginButton: "로그인",
       signupButton: "회원가입",
+      forgotPasswordButton: "비밀번호 재설정",
+      backToLoginButton: "로그인으로 돌아가기",
+      requestPasswordResetButton: "재설정 메일 보내기",
+      resetPasswordButton: "새 비밀번호 저장",
       submitBusy: "처리 중",
       loginFailed: "이메일 또는 비밀번호를 확인해 주세요.",
       loginEmailNotVerified: "이메일 인증 후 로그인해 주세요.",
       signupFailed: "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
       signupAccepted: "가입 요청을 받았습니다. 인증 메일을 확인해 주세요.",
       emailVerificationFailed: "인증 링크가 만료되었거나 올바르지 않습니다.",
+      passwordResetRequested:
+        "비밀번호 재설정 메일을 보냈습니다. 받은 편지함을 확인해 주세요.",
+      passwordResetRequestFailed:
+        "재설정 요청에 실패했습니다. 이메일을 확인해 주세요.",
+      resetPasswordFailed:
+        "비밀번호를 변경하지 못했습니다. 새 비밀번호를 확인해 주세요.",
+      passwordResetTokenFailed:
+        "재설정 링크가 만료되었거나 올바르지 않습니다.",
       authRateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
       signupWeakPassword: "비밀번호는 8자 이상이어야 합니다.",
       signupInvalidEmail: "올바른 이메일 주소를 입력해 주세요.",
@@ -279,12 +299,22 @@ export const messages: Record<AppLocale, AppMessages> = {
       legacyClaimTokenPlaceholder: "Owner token (optional)",
       loginButton: "Log in",
       signupButton: "Sign up",
+      forgotPasswordButton: "Forgot password",
+      backToLoginButton: "Back to login",
+      requestPasswordResetButton: "Send reset email",
+      resetPasswordButton: "Save new password",
       submitBusy: "Working",
       loginFailed: "Check your email or password.",
       loginEmailNotVerified: "Verify your email before logging in.",
       signupFailed: "Sign-up failed. Check your email or password.",
       signupAccepted: "Sign-up request received. Check your email to verify the account.",
       emailVerificationFailed: "This verification link is invalid or expired.",
+      passwordResetRequested: "Password reset email sent. Check your inbox.",
+      passwordResetRequestFailed:
+        "Password reset request failed. Check the email address.",
+      resetPasswordFailed:
+        "Could not change your password. Check the new password.",
+      passwordResetTokenFailed: "The reset link is expired or invalid.",
       authRateLimited: "Too many attempts. Try again shortly.",
       signupWeakPassword: "Password must be at least 8 characters.",
       signupInvalidEmail: "Enter a valid email address.",

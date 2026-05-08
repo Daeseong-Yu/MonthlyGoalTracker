@@ -58,6 +58,9 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 	if cfg.AuthFlow.EmailVerificationTTLHours != defaultEmailVerificationTTLHours {
 		t.Fatalf("expected default email verification TTL %d, got %d", defaultEmailVerificationTTLHours, cfg.AuthFlow.EmailVerificationTTLHours)
 	}
+	if cfg.AuthFlow.PasswordResetTTLHours != defaultPasswordResetTTLHours {
+		t.Fatalf("expected default password reset TTL %d, got %d", defaultPasswordResetTTLHours, cfg.AuthFlow.PasswordResetTTLHours)
+	}
 	if cfg.Email.Enabled() {
 		t.Fatal("expected email config to be disabled by default")
 	}
@@ -87,12 +90,14 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	t.Setenv("APP_LOGIN_RATE_LIMIT_PER_MINUTE", "4")
 	t.Setenv("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", "1234")
 	t.Setenv("APP_EMAIL_VERIFICATION_TTL_HOURS", "48")
+	t.Setenv("APP_PASSWORD_RESET_TTL_HOURS", "2")
 	t.Setenv("APP_EMAIL_FROM", "no-reply@example.com")
 	t.Setenv("APP_SMTP_HOST", "smtp.example.com")
 	t.Setenv("APP_SMTP_PORT", "2525")
 	t.Setenv("APP_SMTP_USERNAME", "smtp-user")
 	t.Setenv("APP_SMTP_PASSWORD", "smtp-password")
 	t.Setenv("APP_EMAIL_VERIFICATION_BASE_URL", "https://app.example.com/verify")
+	t.Setenv("APP_PASSWORD_RESET_BASE_URL", "https://app.example.com/reset-password")
 	t.Setenv("APP_TRUSTED_PROXIES", "127.0.0.1, 10.0.0.0/8")
 
 	cfg := Load()
@@ -151,6 +156,9 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	if cfg.AuthFlow.EmailVerificationTTLHours != 48 {
 		t.Fatalf("expected email verification TTL from environment, got %d", cfg.AuthFlow.EmailVerificationTTLHours)
 	}
+	if cfg.AuthFlow.PasswordResetTTLHours != 2 {
+		t.Fatalf("expected password reset TTL from environment, got %d", cfg.AuthFlow.PasswordResetTTLHours)
+	}
 	if cfg.Email.From != "no-reply@example.com" {
 		t.Fatalf("expected email from from environment, got %q", cfg.Email.From)
 	}
@@ -168,6 +176,9 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	}
 	if cfg.Email.VerificationBaseURL != "https://app.example.com/verify" {
 		t.Fatalf("expected verification base URL from environment, got %q", cfg.Email.VerificationBaseURL)
+	}
+	if cfg.Email.PasswordResetBaseURL != "https://app.example.com/reset-password" {
+		t.Fatalf("expected password reset base URL from environment, got %q", cfg.Email.PasswordResetBaseURL)
 	}
 	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "127.0.0.1" || cfg.TrustedProxies[1] != "10.0.0.0/8" {
 		t.Fatalf("expected trusted proxies from environment, got %v", cfg.TrustedProxies)
@@ -325,6 +336,10 @@ func TestValidateRejectsInvalidAuthRateLimits(t *testing.T) {
 			name:     "negative email verification TTL",
 			authFlow: AuthFlowConfig{EmailVerificationTTLHours: -1},
 		},
+		{
+			name:     "negative password reset TTL",
+			authFlow: AuthFlowConfig{PasswordResetTTLHours: -1},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -343,16 +358,25 @@ func TestValidateRejectsInvalidAuthRateLimits(t *testing.T) {
 func TestValidateAllowsCompleteEmailConfig(t *testing.T) {
 	cfg := testConfig()
 	cfg.Email = EmailConfig{
-		From:                "no-reply@example.com",
-		SMTPHost:            "smtp.example.com",
-		SMTPPort:            587,
-		SMTPUsername:        "smtp-user",
-		SMTPPassword:        "smtp-password",
-		VerificationBaseURL: "https://app.example.com/verify",
+		From:                 "no-reply@example.com",
+		SMTPHost:             "smtp.example.com",
+		SMTPPort:             587,
+		SMTPUsername:         "smtp-user",
+		SMTPPassword:         "smtp-password",
+		VerificationBaseURL:  "https://app.example.com/verify",
+		PasswordResetBaseURL: "https://app.example.com/reset-password",
 	}
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected complete email config to be allowed, got %v", err)
+	}
+}
+
+func TestEmailConfigWithDefaultsUsesVerificationURLForPasswordReset(t *testing.T) {
+	cfg := EmailConfig{VerificationBaseURL: "https://app.example.com/verify"}.WithDefaults()
+
+	if cfg.PasswordResetBaseURL != "https://app.example.com/verify" {
+		t.Fatalf("expected verification URL fallback for password reset, got %q", cfg.PasswordResetBaseURL)
 	}
 }
 
@@ -439,6 +463,24 @@ func TestValidateRejectsInvalidEmailConfig(t *testing.T) {
 				From:                "no-reply@example.com",
 				SMTPHost:            "smtp.example.com",
 				VerificationBaseURL: "ftp://app.example.com/verify",
+			},
+		},
+		{
+			name: "relative password reset URL",
+			email: EmailConfig{
+				From:                 "no-reply@example.com",
+				SMTPHost:             "smtp.example.com",
+				VerificationBaseURL:  "https://app.example.com/verify",
+				PasswordResetBaseURL: "/reset-password",
+			},
+		},
+		{
+			name: "plaintext non-loopback password reset URL",
+			email: EmailConfig{
+				From:                 "no-reply@example.com",
+				SMTPHost:             "smtp.example.com",
+				VerificationBaseURL:  "https://app.example.com/verify",
+				PasswordResetBaseURL: "http://app.example.com/reset-password",
 			},
 		},
 	}

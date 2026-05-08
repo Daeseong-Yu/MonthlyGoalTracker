@@ -66,3 +66,8 @@ export type SignupAcceptedResponse = {
 };
 
 export type SignupResponse = AuthResponse | SignupAcceptedResponse;
+
+export type PasswordResetAcceptedResponse = {
+  status: "password_reset_requested";
+  locale: AppLocale;
+};

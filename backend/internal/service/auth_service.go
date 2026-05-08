@@ -18,16 +18,17 @@ import (
 )
 
 var (
-	ErrInvalidEmail             = errors.New("invalid email")
-	ErrWeakPassword             = errors.New("weak password")
-	ErrEmailAlreadyExists       = errors.New("email already exists")
-	ErrInvalidCredentials       = errors.New("invalid credentials")
-	ErrEmailNotVerified         = errors.New("email not verified")
-	ErrInvalidLocale            = errors.New("invalid locale")
-	ErrInvalidSession           = errors.New("invalid session")
-	ErrInvalidVerificationToken = errors.New("invalid verification token")
-	ErrInvalidLegacyClaim       = errors.New("invalid legacy claim")
-	ErrLegacyClaimRequired      = domain.ErrLegacyClaimRequired
+	ErrInvalidEmail              = errors.New("invalid email")
+	ErrWeakPassword              = errors.New("weak password")
+	ErrEmailAlreadyExists        = errors.New("email already exists")
+	ErrInvalidCredentials        = errors.New("invalid credentials")
+	ErrEmailNotVerified          = errors.New("email not verified")
+	ErrInvalidLocale             = errors.New("invalid locale")
+	ErrInvalidSession            = errors.New("invalid session")
+	ErrInvalidVerificationToken  = errors.New("invalid verification token")
+	ErrInvalidPasswordResetToken = errors.New("invalid password reset token")
+	ErrInvalidLegacyClaim        = errors.New("invalid legacy claim")
+	ErrLegacyClaimRequired       = domain.ErrLegacyClaimRequired
 )
 
 const minPasswordLength = 8
@@ -43,6 +44,7 @@ type AuthSessionRepository interface {
 	Create(ctx context.Context, session *domain.Session) error
 	FindByTokenHash(ctx context.Context, tokenHash string, now time.Time) (*domain.Session, error)
 	DeleteByTokenHash(ctx context.Context, tokenHash string) error
+	DeleteByUserID(ctx context.Context, userID uint) error
 	UpdateLastUsedAt(ctx context.Context, id uint, lastUsedAt time.Time) error
 	UpdateCSRFTokenHash(ctx context.Context, id uint, csrfTokenHash string) error
 }
@@ -52,8 +54,17 @@ type AuthEmailVerificationRepository interface {
 	Consume(ctx context.Context, tokenHash string, now time.Time) (*domain.User, error)
 }
 
+type AuthPasswordResetRepository interface {
+	Create(ctx context.Context, token *domain.PasswordResetToken) error
+	Consume(ctx context.Context, tokenHash, passwordHash string, now time.Time) (*domain.User, error)
+}
+
 type VerificationEmailSender interface {
 	SendVerificationEmail(ctx context.Context, to, locale, token string) error
+}
+
+type PasswordResetEmailSender interface {
+	SendPasswordResetEmail(ctx context.Context, to, locale, token string) error
 }
 
 type AuthResult struct {
@@ -69,16 +80,23 @@ type SignupResult struct {
 	Locale               string
 }
 
+type PasswordResetRequestResult struct {
+	Locale string
+}
+
 type AuthService struct {
-	users                   AuthUserRepository
-	sessions                AuthSessionRepository
-	emailVerificationTokens AuthEmailVerificationRepository
-	verificationEmailSender VerificationEmailSender
-	ttl                     time.Duration
-	emailVerificationTTL    time.Duration
-	now                     func() time.Time
-	hashPassword            func(password string) (string, error)
-	legacyClaimTokenHash    string
+	users                    AuthUserRepository
+	sessions                 AuthSessionRepository
+	emailVerificationTokens  AuthEmailVerificationRepository
+	verificationEmailSender  VerificationEmailSender
+	passwordResetTokens      AuthPasswordResetRepository
+	passwordResetEmailSender PasswordResetEmailSender
+	ttl                      time.Duration
+	emailVerificationTTL     time.Duration
+	passwordResetTTL         time.Duration
+	now                      func() time.Time
+	hashPassword             func(password string) (string, error)
+	legacyClaimTokenHash     string
 }
 
 func NewAuthService(users AuthUserRepository, sessions AuthSessionRepository, ttl time.Duration, legacyClaimToken string) *AuthService {
@@ -104,6 +122,15 @@ func (s *AuthService) EnableEmailVerification(tokens AuthEmailVerificationReposi
 	}
 	s.verificationEmailSender = sender
 	s.emailVerificationTTL = ttl
+}
+
+func (s *AuthService) EnablePasswordReset(tokens AuthPasswordResetRepository, sender PasswordResetEmailSender, ttl time.Duration) {
+	s.passwordResetTokens = tokens
+	if sender == nil {
+		sender = noopPasswordResetEmailSender{}
+	}
+	s.passwordResetEmailSender = sender
+	s.passwordResetTTL = ttl
 }
 
 func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legacyClaimToken string) (*SignupResult, error) {
@@ -233,6 +260,66 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	return s.createSession(ctx, *user)
 }
 
+func (s *AuthService) RequestPasswordReset(ctx context.Context, email, locale string) (*PasswordResetRequestResult, error) {
+	normalizedEmail, err := normalizeEmailAddress(email)
+	if err != nil {
+		return nil, err
+	}
+	normalizedLocale, err := NormalizeLocale(locale)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &PasswordResetRequestResult{Locale: normalizedLocale}
+	if !s.passwordResetEnabled() {
+		return result, nil
+	}
+
+	user, err := s.users.FindByEmail(ctx, normalizedEmail)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return result, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if user.PasswordHash == "" || user.EmailVerifiedAt == nil {
+		return result, nil
+	}
+
+	if err := s.createPasswordResetToken(ctx, *user, normalizedLocale); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *AuthService) ResetPassword(ctx context.Context, token, password string) (*AuthResult, error) {
+	if !s.passwordResetEnabled() || strings.TrimSpace(token) == "" {
+		return nil, ErrInvalidPasswordResetToken
+	}
+	if len(password) < minPasswordLength {
+		return nil, ErrWeakPassword
+	}
+
+	passwordHash, err := s.hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := s.passwordResetTokens.Consume(ctx, hashToken(strings.TrimSpace(token)), passwordHash, s.now())
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrInvalidPasswordResetToken
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.sessions.DeleteByUserID(ctx, user.ID); err != nil {
+		return nil, err
+	}
+
+	return s.createSession(ctx, *user)
+}
+
 func (s *AuthService) VerifyEmail(ctx context.Context, token string) (*AuthResult, error) {
 	if !s.emailVerificationEnabled() || strings.TrimSpace(token) == "" {
 		return nil, ErrInvalidVerificationToken
@@ -322,13 +409,42 @@ func (s *AuthService) createEmailVerificationToken(ctx context.Context, user dom
 	return s.verificationEmailSender.SendVerificationEmail(ctx, user.Email, locale, token)
 }
 
+func (s *AuthService) createPasswordResetToken(ctx context.Context, user domain.User, locale string) error {
+	token, err := generateToken()
+	if err != nil {
+		return err
+	}
+
+	now := s.now()
+	resetToken := domain.PasswordResetToken{
+		UserID:    user.ID,
+		TokenHash: hashToken(token),
+		ExpiresAt: now.Add(s.passwordResetTTL),
+	}
+	if err := s.passwordResetTokens.Create(ctx, &resetToken); err != nil {
+		return err
+	}
+
+	return s.passwordResetEmailSender.SendPasswordResetEmail(ctx, user.Email, locale, token)
+}
+
 func (s *AuthService) emailVerificationEnabled() bool {
 	return s.emailVerificationTokens != nil && s.emailVerificationTTL > 0
+}
+
+func (s *AuthService) passwordResetEnabled() bool {
+	return s.passwordResetTokens != nil && s.passwordResetTTL > 0
 }
 
 type noopVerificationEmailSender struct{}
 
 func (noopVerificationEmailSender) SendVerificationEmail(context.Context, string, string, string) error {
+	return nil
+}
+
+type noopPasswordResetEmailSender struct{}
+
+func (noopPasswordResetEmailSender) SendPasswordResetEmail(context.Context, string, string, string) error {
 	return nil
 }
 

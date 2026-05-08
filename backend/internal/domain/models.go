@@ -36,6 +36,17 @@ type EmailVerificationToken struct {
 	UpdatedAt time.Time
 }
 
+type PasswordResetToken struct {
+	ID        uint      `gorm:"primaryKey"`
+	UserID    uint      `gorm:"not null;index"`
+	User      User      `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	TokenHash string    `gorm:"size:64;not null;uniqueIndex"`
+	ExpiresAt time.Time `gorm:"not null;index"`
+	UsedAt    *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type Goal struct {
 	ID        uint       `gorm:"primaryKey"`
 	UserID    uint       `gorm:"not null;index"`
