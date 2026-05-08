@@ -1,15 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  bootstrapSession,
+  clearAuthCSRFToken,
   createGoal,
   deactivateGoal,
   ensureMonth,
   getMonthView,
+  login,
+  logoutSession,
   saveMemo,
   setGoalCompleted,
+  signUp,
   updateGoalTitle,
+  updateUserLocale,
 } from "./api";
-import type { MonthView } from "./types";
+import type { MonthView, UserSession } from "./types";
 
 const monthView: MonthView = {
   month: "2026-05",
@@ -19,8 +25,16 @@ const monthView: MonthView = {
   chart: [],
 };
 
+const userSession: UserSession = {
+  id: 3,
+  email: "tester@example.com",
+  locale: "ko",
+  createdAt: "2026-05-01T00:00:00Z",
+};
+
 describe("api client", () => {
   afterEach(() => {
+    clearAuthCSRFToken();
     vi.unstubAllGlobals();
   });
 
@@ -30,10 +44,187 @@ describe("api client", () => {
     await expect(getMonthView("2026 05")).resolves.toEqual(monthView);
 
     expect(fetchMock).toHaveBeenCalledWith("/api/months/2026%2005", {
+      credentials: "include",
       headers: {
         Accept: "application/json",
       },
     });
+  });
+
+  it("bootstraps the current session and stores CSRF for unsafe requests", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        authenticated: true,
+        locale: "ko",
+        csrfToken: "csrf-bootstrap",
+        user: userSession,
+      }),
+    );
+
+    await expect(bootstrapSession()).resolves.toEqual({
+      authenticated: true,
+      locale: "ko",
+      csrfToken: "csrf-bootstrap",
+      user: userSession,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/bootstrap", {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders("csrf-bootstrap"),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
+      },
+    );
+  });
+
+  it("logs in and sends the saved CSRF token when changing locale", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        user: userSession,
+        csrfToken: "csrf-login",
+        locale: "ko",
+      }),
+    );
+
+    await expect(login("tester@example.com", "secret123", "ko")).resolves.toEqual(
+      {
+        user: userSession,
+        csrfToken: "csrf-login",
+        locale: "ko",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/auth/login", {
+      method: "POST",
+      credentials: "include",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        email: "tester@example.com",
+        password: "secret123",
+        locale: "ko",
+      }),
+    });
+
+    const updatedUser = { ...userSession, locale: "en" as const };
+    fetchMock.mockResolvedValueOnce(jsonResponse(updatedUser));
+
+    await expect(updateUserLocale("en")).resolves.toEqual(updatedUser);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me/locale", {
+      method: "PATCH",
+      credentials: "include",
+      headers: jsonHeaders("csrf-login"),
+      body: JSON.stringify({ locale: "en" }),
+    });
+  });
+
+  it("signs up with the selected locale", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        user: { ...userSession, locale: "en" },
+        csrfToken: "csrf-signup",
+        locale: "en",
+      }),
+    );
+
+    await expect(signUp("new@example.com", "secret123", "en")).resolves.toEqual({
+      user: { ...userSession, locale: "en" },
+      csrfToken: "csrf-signup",
+      locale: "en",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/signup", {
+      method: "POST",
+      credentials: "include",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        email: "new@example.com",
+        password: "secret123",
+        locale: "en",
+      }),
+    });
+  });
+
+  it("sends a trimmed legacy claim token during signup", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        user: { ...userSession, locale: "ko" },
+        csrfToken: "csrf-signup",
+        locale: "ko",
+      }),
+    );
+
+    await expect(
+      signUp("owner@example.com", "secret123", "ko", " owner-token-123 "),
+    ).resolves.toEqual({
+      user: { ...userSession, locale: "ko" },
+      csrfToken: "csrf-signup",
+      locale: "ko",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/signup", {
+      method: "POST",
+      credentials: "include",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        email: "owner@example.com",
+        password: "secret123",
+        locale: "ko",
+        claimToken: "owner-token-123",
+      }),
+    });
+  });
+
+  it("clears the saved CSRF token after logout", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        authenticated: true,
+        locale: "ko",
+        csrfToken: "csrf-bootstrap",
+        user: userSession,
+      }),
+    );
+
+    await bootstrapSession();
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await logoutSession();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "X-CSRF-Token": "csrf-bootstrap",
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await deactivateGoal(7, "2026-05-03");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/goals/7/deactivate",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ endDate: "2026-05-03" }),
+      },
+    );
   });
 
   it("prepares a month with a POST request", async () => {
@@ -43,6 +234,7 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/months/2026-05/ensure", {
       method: "POST",
+      credentials: "include",
       headers: {
         Accept: "application/json",
       },
@@ -56,6 +248,7 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/months/2026-05/goals", {
       method: "POST",
+      credentials: "include",
       headers: jsonHeaders(),
       body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
     });
@@ -68,6 +261,7 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/goals/7", {
       method: "PATCH",
+      credentials: "include",
       headers: jsonHeaders(),
       body: JSON.stringify({ title: "Updated" }),
     });
@@ -80,6 +274,7 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/goals/7/deactivate", {
       method: "POST",
+      credentials: "include",
       headers: jsonHeaders(),
       body: JSON.stringify({ endDate: "2026-05-03" }),
     });
@@ -92,6 +287,7 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/checks", {
       method: "PUT",
+      credentials: "include",
       headers: jsonHeaders(),
       body: JSON.stringify({
         goalId: 7,
@@ -108,6 +304,7 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/memos/2026%2005%2003", {
       method: "PUT",
+      credentials: "include",
       headers: jsonHeaders(),
       body: JSON.stringify({ memo: "memo" }),
     });
@@ -145,9 +342,10 @@ function errorResponse(status: number) {
   return new Response(null, { status });
 }
 
-function jsonHeaders() {
+function jsonHeaders(csrfToken?: string) {
   return {
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
   };
 }

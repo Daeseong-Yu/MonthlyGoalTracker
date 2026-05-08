@@ -1,6 +1,86 @@
-import type { MonthView } from "./types";
+import type {
+  AppLocale,
+  AuthResponse,
+  BootstrapResponse,
+  MonthView,
+  UserSession,
+} from "./types";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+let csrfToken: string | null = null;
+
+export async function bootstrapSession(): Promise<BootstrapResponse> {
+  const response = await requestJSON<BootstrapResponse>(
+    "/api/bootstrap",
+    "bootstrap request",
+  );
+  applyCSRFToken(response.csrfToken);
+
+  return {
+    ...response,
+    authenticated: response.authenticated ?? response.user !== null,
+    user: response.user ?? null,
+  };
+}
+
+export async function login(
+  email: string,
+  password: string,
+  locale: AppLocale,
+): Promise<AuthResponse> {
+  const response = await requestJSON<AuthResponse>(
+    "/api/auth/login",
+    "login request",
+    {
+      method: "POST",
+      body: { email, password, locale },
+    },
+  );
+  applyCSRFToken(response.csrfToken);
+  return response;
+}
+
+export async function signUp(
+  email: string,
+  password: string,
+  locale: AppLocale,
+  legacyClaimToken?: string,
+): Promise<AuthResponse> {
+  const claimToken = legacyClaimToken?.trim();
+  const response = await requestJSON<AuthResponse>(
+    "/api/auth/signup",
+    "signup request",
+    {
+      method: "POST",
+      body: {
+        email,
+        password,
+        locale,
+        ...(claimToken ? { claimToken } : {}),
+      },
+    },
+  );
+  applyCSRFToken(response.csrfToken);
+  return response;
+}
+
+export async function logoutSession(): Promise<void> {
+  await requestVoid("/api/auth/logout", "logout request", { method: "POST" });
+  clearAuthCSRFToken();
+}
+
+export async function updateUserLocale(
+  locale: AppLocale,
+): Promise<UserSession> {
+  return requestJSON<UserSession>("/api/auth/me/locale", "locale update request", {
+    method: "PATCH",
+    body: { locale },
+  });
+}
+
+export function clearAuthCSRFToken() {
+  csrfToken = null;
+}
 
 export async function getMonthView(month: string): Promise<MonthView> {
   return requestJSON<MonthView>(
@@ -104,23 +184,35 @@ async function request(
 }
 
 function requestInit(options?: RequestOptions): RequestInit {
+  const method = options?.method;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
   const init: RequestInit = {
-    headers: {
-      Accept: "application/json",
-    },
+    credentials: "include",
+    headers,
   };
 
-  if (options?.method) {
-    init.method = options.method;
+  if (method) {
+    init.method = method;
+  }
+
+  if (method && isUnsafeMethod(method) && csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
   }
 
   if (options && "body" in options) {
-    init.headers = {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
+    headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body);
   }
 
   return init;
+}
+
+function applyCSRFToken(token: string | null | undefined) {
+  csrfToken = token ?? null;
+}
+
+function isUnsafeMethod(method: string) {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
 }

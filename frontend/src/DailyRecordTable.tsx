@@ -12,7 +12,13 @@ import {
   goalSlotTitle,
 } from "./goalSlots";
 import { isGoalActiveOnDate } from "./monthLogic";
-import type { ChartPointWithLabel, DayEntry, Goal, GoalCheck } from "./types";
+import type {
+  AppLocale,
+  ChartPointWithLabel,
+  DayEntry,
+  Goal,
+  GoalCheck,
+} from "./types";
 
 type DailyRecordTableProps = {
   canSaveChanges: boolean;
@@ -21,11 +27,31 @@ type DailyRecordTableProps = {
   dailyRecordGoalSlots: Goal[][];
   days: DayEntry[];
   isMutatingMonth: boolean;
+  labels?: DailyRecordLabels;
+  locale?: AppLocale;
   savingChecks: string[];
   savingMemos: string[];
   onMemoBlur: (date: string, memo: string) => void;
   onMemoChange: (date: string, memo: string) => void;
   onToggleCheck: (goalId: number, date: string) => void;
+};
+
+type DailyRecordLabels = {
+  heading: string;
+  dateHeader: string;
+  memoHeader: string;
+  completedHeader: string;
+  memoAria: (date: string) => string;
+  completeAria: (date: string, title: string) => string;
+};
+
+const defaultLabels: DailyRecordLabels = {
+  heading: "날짜별 기록",
+  dateHeader: "날짜",
+  memoHeader: "메모",
+  completedHeader: "완료",
+  memoAria: (date) => `${date} 메모`,
+  completeAria: (date, title) => `${date} ${title} 완료`,
 };
 
 export default function DailyRecordTable({
@@ -35,6 +61,8 @@ export default function DailyRecordTable({
   dailyRecordGoalSlots,
   days,
   isMutatingMonth,
+  labels = defaultLabels,
+  locale = "ko",
   savingChecks,
   savingMemos,
   onMemoBlur,
@@ -44,7 +72,9 @@ export default function DailyRecordTable({
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-soft">
       <div className="border-b border-zinc-200 px-4 py-3">
-        <h2 className="text-base font-semibold text-zinc-950">날짜별 기록</h2>
+        <h2 className="text-base font-semibold text-zinc-950">
+          {labels.heading}
+        </h2>
       </div>
 
       <div className="overflow-x-auto">
@@ -52,10 +82,10 @@ export default function DailyRecordTable({
           <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
             <tr>
               <th className="sticky left-0 z-10 w-20 bg-zinc-50 px-3 py-2 font-semibold">
-                날짜
+                {labels.dateHeader}
               </th>
               <th className="w-56 px-2 py-2 font-semibold normal-case">
-                메모
+                {labels.memoHeader}
               </th>
               {dailyRecordGoalSlots.map((slotGoals, slotIndex) => (
                 <th
@@ -73,7 +103,7 @@ export default function DailyRecordTable({
                 </th>
               ))}
               <th className="w-16 py-2 pl-2 pr-4 text-right font-semibold normal-case">
-                완료
+                {labels.completedHeader}
               </th>
             </tr>
           </thead>
@@ -86,7 +116,7 @@ export default function DailyRecordTable({
                   <th className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-zinc-800">
                     <span className="block">{shortDate(day.date)}</span>
                     <span className={weekdayClassName(day.date)}>
-                      {weekday(day.date)}
+                      {weekday(day.date, locale)}
                     </span>
                   </th>
                   <td className="px-2 py-2">
@@ -94,7 +124,7 @@ export default function DailyRecordTable({
                       className={memoInputClassName(
                         savingMemos.includes(day.date),
                       )}
-                      aria-label={`${shortDate(day.date)} 메모`}
+                      aria-label={labels.memoAria(shortDate(day.date))}
                       value={day.memo}
                       disabled={
                         !canSaveChanges ||
@@ -150,7 +180,10 @@ export default function DailyRecordTable({
                               : "check-button inactive"
                           }
                           type="button"
-                          aria-label={`${shortDate(day.date)} ${goal.title} 완료`}
+                          aria-label={labels.completeAria(
+                            shortDate(day.date),
+                            goal.title,
+                          )}
                           aria-pressed={checked}
                           disabled={
                             !active || !canSaveChanges || saving || isMutatingMonth

@@ -97,13 +97,26 @@ Expected build artifacts:
    DATABASE_URL=postgres://monthly_goal_tracker:<strong-password>@127.0.0.1:5433/monthly_goal_tracker?sslmode=disable
    APP_BASIC_AUTH_USERNAME=app-user
    APP_BASIC_AUTH_PASSWORD_HASH=<bcrypt-password-hash>
+   APP_SESSION_COOKIE_NAME=mgt_session
+   APP_CSRF_COOKIE_NAME=mgt_csrf
+   APP_SESSION_TTL_HOURS=720
+   APP_COOKIE_SECURE=true
+   APP_COOKIE_SAMESITE=lax
+   APP_SIGNUP_RATE_LIMIT_PER_MINUTE=5
+   APP_LOGIN_RATE_LIMIT_PER_MINUTE=10
+   APP_LEGACY_CLAIM_TOKEN=replace-with-owner-claim-token-32-chars
    ```
 
    Leave both `APP_BASIC_AUTH_*` values blank to disable app-level Basic Auth.
    If enabled, use a bcrypt password hash with cost 10 or higher, not a
-   plaintext password. During the prototype phase, keep the backend Basic Auth
-   account aligned with the Caddy Basic Auth account so browser API requests
-   use the same credentials.
+   plaintext password. Basic Auth is an optional outer gate for `/api/*`
+   routes, except `/api/health`. During first owner migration, keep it enabled
+   until the owner has signed up and claimed the existing data.
+
+   `APP_LEGACY_CLAIM_TOKEN` is a one-time owner claim token for moving legacy
+   unowned goals into the first owner account. Use at least 16 characters, keep
+   it only in the server environment, and remove or rotate it after the claim is
+   complete.
 
    Install the systemd unit from `monthly-goal-api.service.example`, then run:
 

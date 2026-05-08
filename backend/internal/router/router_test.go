@@ -14,11 +14,17 @@ import (
 func TestSetupRouterRegistersAPIRoutes(t *testing.T) {
 	setGinTestMode(t)
 
-	engine := SetupRouter(&gorm.DB{}, config.BasicAuthConfig{})
+	engine := SetupRouter(&gorm.DB{}, config.Config{})
 	routes := routeSet(engine.Routes())
 
 	expectedRoutes := []string{
 		"GET /api/health",
+		"GET /api/bootstrap",
+		"POST /api/auth/signup",
+		"POST /api/auth/login",
+		"GET /api/auth/me",
+		"POST /api/auth/logout",
+		"PATCH /api/auth/me/locale",
 		"POST /api/months/:month/ensure",
 		"GET /api/months/:month",
 		"POST /api/months/:month/goals",
@@ -35,10 +41,10 @@ func TestSetupRouterRegistersAPIRoutes(t *testing.T) {
 	}
 }
 
-func TestSetupRouterKeepsHealthPublicWhenBasicAuthEnabled(t *testing.T) {
+func TestSetupRouterKeepsHealthPublic(t *testing.T) {
 	setGinTestMode(t)
 
-	engine := SetupRouter(&gorm.DB{}, basicAuthConfigForTest(t))
+	engine := SetupRouter(&gorm.DB{}, config.Config{})
 	recorder := performRequest(t, engine, http.MethodGet, "/api/health")
 
 	if recorder.Code != http.StatusOK {
@@ -46,18 +52,43 @@ func TestSetupRouterKeepsHealthPublicWhenBasicAuthEnabled(t *testing.T) {
 	}
 }
 
-func TestSetupRouterProtectsAPIRoutesWhenBasicAuthEnabled(t *testing.T) {
+func TestSetupRouterProtectsAPIRoutesWithoutSession(t *testing.T) {
 	setGinTestMode(t)
 
-	engine := SetupRouter(&gorm.DB{}, basicAuthConfigForTest(t))
+	engine := SetupRouter(&gorm.DB{}, config.Config{})
 	recorder := performRequest(t, engine, http.MethodGet, "/api/months/2026-05")
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
 	}
 
-	if recorder.Header().Get("WWW-Authenticate") != basicAuthChallenge {
-		t.Fatalf("expected basic auth challenge header, got %q", recorder.Header().Get("WWW-Authenticate"))
+	if recorder.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("expected no basic auth challenge header, got %q", recorder.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestSetupRouterAppliesBasicAuthWhenConfigured(t *testing.T) {
+	setGinTestMode(t)
+
+	cfg := config.Config{Auth: basicAuthConfigForTest(t)}
+	engine := SetupRouter(&gorm.DB{}, cfg)
+
+	recorder := performRequest(t, engine, http.MethodGet, "/api/bootstrap")
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+	if recorder.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("expected basic auth challenge header")
+	}
+
+	recorder = performRequest(t, engine, http.MethodGet, "/api/bootstrap", withBasicAuth("app-user", "secret"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	recorder = performRequest(t, engine, http.MethodGet, "/api/health")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected health status %d, got %d", http.StatusOK, recorder.Code)
 	}
 }
 

@@ -42,6 +42,7 @@ import {
   resolvePending,
   setInputValue,
   stubFetch,
+  submitForm,
   tableHeaderCells,
   tableHeaders,
   waitFor,
@@ -83,6 +84,56 @@ describe("App", () => {
     expect(getInput("05.01 메모").className).toContain("w-56");
     expect(getInput("05.01 메모").className).toContain("max-w-full");
     expect(document.body.textContent).toContain("chart points: 2");
+  });
+
+  it("shows the English login screen from regional bootstrap and loads the dashboard after login", async () => {
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/login") {
+          return jsonResponse({
+            user: {
+              id: 4,
+              email: "person@example.com",
+              locale: "en",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            csrfToken: "csrf-login",
+            locale: "en",
+          });
+        }
+
+        return createMonthViewApiHandler()(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "en",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("Monthly Goal Tracker");
+
+    expect(document.body.textContent).toContain(
+      "Save personal goals under your own account.",
+    );
+
+    await setInputValue("Email", "person@example.com");
+    await setInputValue("Password", "secret123");
+    await submitForm();
+
+    await waitForText("API data");
+
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/login")).toBe(
+      true,
+    );
+    expect(document.body.textContent).toContain(
+      "Signed in as person@example.com",
+    );
+    expect(document.body.textContent).toContain("Goals");
   });
 
   it("retries the current month after falling back to sample data", async () => {
@@ -427,7 +478,7 @@ describe("App", () => {
     renderApp(<App />);
     await waitForText("API 데이터");
 
-    expect(precedes(getHeading("일별 완료 개수"), getHeading("목표"))).toBe(
+    expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
       true,
     );
     expect(tableHeaders()).toEqual([

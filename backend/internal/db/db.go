@@ -52,6 +52,11 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 	if err := database.WithContext(ctx).AutoMigrate(&domain.User{}); err != nil {
 		return err
 	}
+	if err := database.WithContext(ctx).
+		Exec(`UPDATE users SET locale = 'ko' WHERE locale IS NULL OR locale = ''`).
+		Error; err != nil {
+		return err
+	}
 
 	defaultUserID, err := ensureUser(ctx, database, principal.Default().Username)
 	if err != nil {
@@ -98,6 +103,7 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 
 	if err := database.WithContext(ctx).AutoMigrate(
 		&domain.User{},
+		&domain.Session{},
 		&domain.Goal{},
 		&domain.DailyMemo{},
 		&domain.GoalCheck{},
@@ -150,6 +156,7 @@ func ensureUser(ctx context.Context, database *gorm.DB, username string) (uint, 
 	}
 
 	if err := database.WithContext(ctx).
+		Select("Username").
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "username"}},
 			DoNothing: true,

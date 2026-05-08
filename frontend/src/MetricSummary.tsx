@@ -5,21 +5,39 @@ type MetricSummaryProps = {
   activeMetricLabel: string;
   averageRate: number;
   totalCompleted: number;
+  labels?: {
+    totalCompleted: string;
+    averageRate: string;
+    goalValue: (value: number) => string;
+    completedValue: (value: number) => string;
+  };
+};
+
+const defaultLabels = {
+  totalCompleted: "이번 달 완료",
+  averageRate: "평균 달성률",
+  completedValue: (value: number) => `${value}개`,
+  goalValue: (value: number) => `${value}개`,
 };
 
 export default function MetricSummary({
   activeGoalCount,
   activeMetricLabel,
   averageRate,
+  labels = defaultLabels,
   totalCompleted,
 }: MetricSummaryProps) {
   return (
     <section className="grid gap-3 sm:grid-cols-3">
-      <Metric label="이번 달 완료" value={`${totalCompleted}개`} tone="teal" />
-      <Metric label="평균 달성률" value={`${averageRate}%`} tone="amber" />
+      <Metric
+        label={labels.totalCompleted}
+        value={labels.completedValue(totalCompleted)}
+        tone="teal"
+      />
+      <Metric label={labels.averageRate} value={`${averageRate}%`} tone="amber" />
       <Metric
         label={activeMetricLabel}
-        value={`${activeGoalCount}개`}
+        value={labels.goalValue(activeGoalCount)}
         tone="rose"
       />
     </section>

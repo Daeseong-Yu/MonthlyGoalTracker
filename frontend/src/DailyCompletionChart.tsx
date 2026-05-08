@@ -12,10 +12,20 @@ import type { ChartPointWithLabel } from "./types";
 
 type DailyCompletionChartProps = {
   data: ChartPointWithLabel[];
+  labels?: {
+    completed: string;
+    completedValue: (value: string | number) => string;
+  };
+};
+
+const defaultLabels = {
+  completed: "완료",
+  completedValue: (value: string | number) => `${value}개`,
 };
 
 export default function DailyCompletionChart({
   data,
+  labels = defaultLabels,
 }: DailyCompletionChartProps) {
   return (
     <div className="h-72 min-h-72">
@@ -39,8 +49,10 @@ export default function DailyCompletionChart({
               boxShadow: "0 12px 28px rgba(39, 39, 42, 0.12)",
             }}
             formatter={(value, name) => [
-              name === "completedCount" ? `${value}개` : value,
-              name === "completedCount" ? "완료" : name,
+              name === "completedCount"
+                ? labels.completedValue(formatTooltipValue(value))
+                : value,
+              name === "completedCount" ? labels.completed : name,
             ]}
             labelFormatter={(_, payload) => {
               const point = payload?.[0]?.payload as
@@ -63,4 +75,16 @@ export default function DailyCompletionChart({
       </ResponsiveContainer>
     </div>
   );
+}
+
+function formatTooltipValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.join(" - ");
+  }
+
+  if (typeof value === "number" || typeof value === "string") {
+    return value;
+  }
+
+  return String(value ?? "");
 }

@@ -15,6 +15,7 @@ import {
   validateGoalTitleDraft,
   validateNewGoalDraft,
 } from "./goalFormValidation";
+import { messages as localizedMessages, type AppMessages } from "./i18n";
 import { buildMockMonthView } from "./mockMonth";
 import { buildMonthSummary } from "./monthSummary";
 import {
@@ -32,7 +33,15 @@ import {
 } from "./monthLogic";
 import type { Goal } from "./types";
 
-export function useMonthController() {
+type UseMonthControllerOptions = {
+  messages?: Pick<AppMessages, "controller" | "summary" | "validation">;
+};
+
+export function useMonthController(options: UseMonthControllerOptions = {}) {
+  const localeMessages = options.messages ?? localizedMessages.ko;
+  const controllerMessages = localeMessages.controller;
+  const summaryMessages = localeMessages.summary;
+  const validationMessages = localeMessages.validation;
   const [monthView, setMonthView] = useState(() =>
     buildMockMonthView(currentMonth()),
   );
@@ -71,8 +80,13 @@ export function useMonthController() {
     totalCompleted,
     visibleGoals,
   } = useMemo(
-    () => buildMonthSummary(monthView, new Date(`${currentDayKey}T12:00:00`)),
-    [currentDayKey, monthView],
+    () =>
+      buildMonthSummary(
+        monthView,
+        new Date(`${currentDayKey}T12:00:00`),
+        summaryMessages,
+      ),
+    [currentDayKey, monthView, summaryMessages],
   );
   const isLoading = loadStatus === "loading";
   const canSaveChanges = loadStatus === "api";
@@ -114,7 +128,7 @@ export function useMonthController() {
 
   async function prepareCurrentMonth() {
     if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 목표를 이월할 수 있습니다.");
+      setSaveFailure(controllerMessages.prepareUnavailable);
       return;
     }
 
@@ -134,11 +148,11 @@ export function useMonthController() {
       const preparedView = await ensureMonth(submittedMonth);
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setMonthView(preparedView);
-        setSaveMessage("목표를 이월했습니다.");
+        setSaveMessage(controllerMessages.prepareSuccess);
       }
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure("목표 이월에 실패했습니다.");
+        setSaveFailure(controllerMessages.prepareFailure);
       }
     } finally {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -155,7 +169,7 @@ export function useMonthController() {
     }
 
     if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 체크를 저장할 수 있습니다.");
+      setSaveFailure(controllerMessages.checkUnavailable);
       return;
     }
 
@@ -183,7 +197,7 @@ export function useMonthController() {
         setMonthView((currentView) =>
           applyCheckState(currentView, goalId, date, !completed),
         );
-        setSaveFailure("체크 저장에 실패했습니다.");
+        setSaveFailure(controllerMessages.checkFailure);
       }
     } finally {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -200,7 +214,7 @@ export function useMonthController() {
 
   async function saveMemoForDate(date: string, memo: string) {
     if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 메모를 저장할 수 있습니다.");
+      setSaveFailure(controllerMessages.memoUnavailable);
       return;
     }
 
@@ -217,7 +231,7 @@ export function useMonthController() {
       await saveMemo(date, memo);
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure("메모 저장에 실패했습니다.");
+        setSaveFailure(controllerMessages.memoFailure);
       }
     } finally {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -238,6 +252,7 @@ export function useMonthController() {
       month,
       startDate: newGoalStartDate,
       title: newGoalTitle,
+      messages: validationMessages,
     });
     if (!validation.ok) {
       setSaveFailure(validation.message);
@@ -257,7 +272,7 @@ export function useMonthController() {
       );
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure("목표 추가에 실패했습니다.");
+        setSaveFailure(controllerMessages.createFailure);
         setSavingGoal(false);
       }
       return;
@@ -273,7 +288,7 @@ export function useMonthController() {
     await refreshMonthView(
       submittedMonth,
       submittedLoadRequestID,
-      "목표를 추가했지만 화면 갱신에 실패했습니다.",
+      controllerMessages.createRefreshFailure,
     );
     if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
       setSavingGoal(false);
@@ -282,7 +297,7 @@ export function useMonthController() {
 
   function startEditingGoal(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 목표를 수정할 수 있습니다.");
+      setSaveFailure(controllerMessages.editUnavailable);
       return;
     }
 
@@ -309,7 +324,8 @@ export function useMonthController() {
       canSaveChanges,
       isMutatingMonth,
       title: editingGoalTitle,
-      unavailableMessage: "API 데이터에서만 목표를 수정할 수 있습니다.",
+      unavailableMessage: controllerMessages.editUnavailable,
+      messages: validationMessages,
     });
     if (!validation.ok) {
       setSaveFailure(validation.message);
@@ -323,7 +339,7 @@ export function useMonthController() {
       await updateGoalTitle(goalID, validation.trimmedTitle);
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure("목표 수정에 실패했습니다.");
+        setSaveFailure(controllerMessages.editFailure);
         setSavingGoalTitle(false);
       }
       return;
@@ -341,7 +357,7 @@ export function useMonthController() {
     await refreshMonthView(
       submittedMonth,
       submittedLoadRequestID,
-      "목표를 수정했지만 화면 갱신에 실패했습니다.",
+      controllerMessages.editRefreshFailure,
     );
     if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
       setSavingGoalTitle(false);
@@ -350,7 +366,7 @@ export function useMonthController() {
 
   async function deactivateGoalFromMonth(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 목표를 종료할 수 있습니다.");
+      setSaveFailure(controllerMessages.deactivateUnavailable);
       return;
     }
 
@@ -358,7 +374,7 @@ export function useMonthController() {
     const submittedLoadRequestID = loadRequestIDRef.current;
     const endDate = deactivationDateForGoal(goal, submittedMonth);
     if (goal.endDate !== null && goal.endDate <= goalListReferenceDate) {
-      setSaveFailure("이미 종료된 목표입니다.");
+      setSaveFailure(controllerMessages.alreadyEnded);
       return;
     }
 
@@ -373,7 +389,7 @@ export function useMonthController() {
         await deactivateGoal(goal.id, endDate);
       } catch {
         if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-          setSaveFailure("목표 종료에 실패했습니다.");
+          setSaveFailure(controllerMessages.deactivateFailure);
         }
         return;
       }
@@ -392,13 +408,13 @@ export function useMonthController() {
       const refreshed = await refreshMonthView(
         submittedMonth,
         submittedLoadRequestID,
-        "목표를 종료했지만 화면 갱신에 실패했습니다.",
+        controllerMessages.deactivateRefreshFailure,
       );
       if (
         refreshed &&
         isCurrentSaveContext(submittedMonth, submittedLoadRequestID)
       ) {
-        setSaveMessage("목표를 종료했습니다.");
+        setSaveMessage(controllerMessages.deactivateSuccess);
       }
     } finally {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
