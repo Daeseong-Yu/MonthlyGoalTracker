@@ -19,6 +19,7 @@ import {
   jsonResponse,
   monthFromRequest,
   okResponse,
+  pendingJsonResponse,
   pendingResponse,
   requestPath,
   shortDate,
@@ -84,18 +85,54 @@ describe("App", () => {
     expect(document.body.textContent).toContain("chart points: 2");
   });
 
-  it("falls back to sample data and disables API-only actions when loading fails", async () => {
-    stubFetch(() => errorResponse(500));
+  it("retries the current month after falling back to sample data", async () => {
+    let failedInitialLoad = false;
+    let resolveRetryLoad: (() => void) | null = null;
+    const fetchMock = stubFetch((input) => {
+      if (!failedInitialLoad) {
+        failedInitialLoad = true;
+        return errorResponse(500);
+      }
+
+      return pendingJsonResponse(
+        buildMonthView(monthFromRequest(input)),
+        (resolve) => {
+          resolveRetryLoad = resolve;
+        },
+      );
+    });
 
     renderApp(<App />);
 
     await waitForText("샘플 데이터");
+    const failedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
     expect(document.body.textContent).toContain(
       "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
     );
     expect(getButton("목표 이월").disabled).toBe(true);
     expect(getButton("목표 추가").disabled).toBe(true);
+
+    await clickButton("다시 시도");
+
+    await waitFor(() => fetchMock.mock.calls.length >= 2);
+
+    expect(document.body.textContent).toContain("불러오는 중");
+    expect(document.body.textContent).not.toContain(
+      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+    );
+    expect(queryButton("다시 시도")).toBeNull();
+
+    await resolvePending(resolveRetryLoad);
+
+    await waitForText("API 데이터");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(monthFromRequest(fetchMock.mock.calls[1][0])).toBe(failedMonth);
+    expect(document.body.textContent).toContain("API walk");
+    expect(document.body.textContent).not.toContain(
+      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+    );
   });
 
   it("reserves five daily goal columns when no goals exist", async () => {
@@ -253,6 +290,74 @@ describe("App", () => {
     await waitFor(() => !getInput("05.01 메모").disabled);
   });
 
+  it("shows pending affordances while goal mutations are saving", async () => {
+    let resolveGoalCreate: (() => void) | null = null;
+    let resolveGoalTitleSave: (() => void) | null = null;
+    let resolveGoalDeactivate: (() => void) | null = null;
+    const monthViewApiHandler = createMonthViewApiHandler();
+
+    stubFetch((input) => {
+      const path = requestPath(input);
+
+      if (path.endsWith("/goals")) {
+        return pendingResponse((resolve) => {
+          resolveGoalCreate = resolve;
+        });
+      }
+
+      if (path === "/api/goals/1") {
+        return pendingResponse((resolve) => {
+          resolveGoalTitleSave = resolve;
+        });
+      }
+
+      if (path.includes("/api/goals/1/deactivate")) {
+        return pendingResponse((resolve) => {
+          resolveGoalDeactivate = resolve;
+        });
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+    await waitForText("API 데이터");
+
+    await clickButton("목표 추가");
+    await setInputValue("새 목표 제목", "API plan");
+    await clickButton("목표 저장");
+
+    await waitFor(() => getButton("목표 저장 중").disabled);
+    expect(getButton("목표 저장 중").title).toBe("목표 저장 중");
+    expect(getButton("목표 저장 중").querySelector(".animate-spin"))
+      .toBeTruthy();
+
+    await resolvePending(resolveGoalCreate);
+    await waitFor(() => queryButton("목표 저장 중") === null);
+
+    await clickButton("API walk 수정");
+    await setInputValue("API walk 제목 수정", "API walk revised");
+    await clickButton("API walk 저장");
+
+    await waitFor(() => getButton("API walk 저장 중").disabled);
+    expect(getButton("API walk 저장 중").title).toBe("목표 저장 중");
+    expect(getButton("API walk 저장 중").querySelector(".animate-spin"))
+      .toBeTruthy();
+
+    await resolvePending(resolveGoalTitleSave);
+    await waitFor(() => queryButton("API walk 저장 중") === null);
+
+    await clickButton("API walk 종료");
+
+    await waitFor(() => getButton("API walk 종료 중").disabled);
+    expect(getButton("API walk 종료 중").title).toBe("목표 종료 중");
+    expect(getButton("API walk 종료 중").querySelector(".animate-spin"))
+      .toBeTruthy();
+
+    await resolvePending(resolveGoalDeactivate);
+    await waitFor(() => queryButton("API walk 종료 중") === null);
+  });
+
   it("shows feedback after ending a goal", async () => {
     let endedDate: string | null = null;
     const fetchMock = stubFetch((input, init) => {
@@ -322,7 +427,7 @@ describe("App", () => {
     renderApp(<App />);
     await waitForText("API 데이터");
 
-    expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
+    expect(precedes(getHeading("일별 완료 개수"), getHeading("목표"))).toBe(
       true,
     );
     expect(tableHeaders()).toEqual([

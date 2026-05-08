@@ -3,6 +3,7 @@ import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -29,17 +30,32 @@ export default function App() {
             </h1>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
               <span>{formatMonth(monthController.month)} 기록</span>
-              <span className={statusClassName(monthController.loadStatus)}>
+              <span
+                aria-live="polite"
+                className={statusClassName(monthController.loadStatus)}
+                role="status"
+              >
                 {statusLabel(monthController.loadStatus)}
               </span>
             </p>
             {monthController.loadError ? (
-              <p
-                className="mt-2 text-xs font-medium text-amber-700"
-                role="status"
-              >
-                API 응답을 받지 못해 샘플 데이터를 표시합니다.
-              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-xs font-medium text-amber-700" role="status">
+                  API 응답을 받지 못해 샘플 데이터를 표시합니다.
+                </p>
+                <button
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 text-xs font-semibold text-amber-800 shadow-sm transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  aria-label="다시 시도"
+                  disabled={monthController.isLoading}
+                  onClick={() =>
+                    void monthController.loadMonth(monthController.month)
+                  }
+                >
+                  <RefreshCw size={14} />
+                  다시 시도
+                </button>
+              </div>
             ) : null}
             {monthController.saveError ? (
               <p className="mt-2 text-xs font-medium text-rose-700" role="alert">
@@ -139,6 +155,11 @@ export default function App() {
           />
 
           <aside className="space-y-6">
+            <ChartPanel
+              chartData={monthController.chartData}
+              goalCount={monthController.goals.length}
+              month={monthController.month}
+            />
             <GoalPanel
               canSaveChanges={monthController.canSaveChanges}
               deactivatingGoalIDs={monthController.deactivatingGoalIDs}
@@ -150,6 +171,8 @@ export default function App() {
               month={monthController.month}
               newGoalStartDate={monthController.newGoalStartDate}
               newGoalTitle={monthController.newGoalTitle}
+              savingGoal={monthController.savingGoal}
+              savingGoalTitle={monthController.savingGoalTitle}
               visibleGoals={monthController.visibleGoals}
               onCancelEditingGoal={monthController.cancelEditingGoal}
               onDeactivateGoal={(goal) =>
@@ -166,11 +189,6 @@ export default function App() {
                 void monthController.submitNewGoal(event)
               }
               onToggleGoalForm={monthController.toggleGoalForm}
-            />
-            <ChartPanel
-              chartData={monthController.chartData}
-              goalCount={monthController.goals.length}
-              month={monthController.month}
             />
           </aside>
         </section>

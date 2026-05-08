@@ -89,4 +89,34 @@ describe("buildMonthSummary", () => {
     expect(summary.goalListReferenceDate).toBe("2026-04-01");
     expect(summary.visibleGoals.map((goal) => goal.title)).toEqual(["Read"]);
   });
+
+  it("keeps ended goals out of cards while retaining daily table slots", () => {
+    const summary = buildMonthSummary(
+      {
+        ...makeMonthView("2026-04"),
+        goals: [
+          {
+            endDate: "2026-04-01",
+            id: 1,
+            startDate: "2026-04-01",
+            title: "Ended",
+          },
+          {
+            endDate: null,
+            id: 2,
+            startDate: "2026-04-01",
+            title: "Active",
+          },
+        ],
+      },
+      makeReferenceDate("2026-05-02"),
+    );
+
+    expect(summary.visibleGoals.map((goal) => goal.title)).toEqual(["Active"]);
+    expect(
+      summary.dailyRecordGoalSlots.flatMap((slotGoals) =>
+        slotGoals.map((goal) => goal.title),
+      ),
+    ).toEqual(["Ended", "Active"]);
+  });
 });
