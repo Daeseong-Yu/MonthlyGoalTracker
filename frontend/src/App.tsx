@@ -139,6 +139,11 @@ export default function App() {
           />
 
           <aside className="space-y-6">
+            <ChartPanel
+              chartData={monthController.chartData}
+              goalCount={monthController.goals.length}
+              month={monthController.month}
+            />
             <GoalPanel
               canSaveChanges={monthController.canSaveChanges}
               deactivatingGoalIDs={monthController.deactivatingGoalIDs}
@@ -166,11 +171,6 @@ export default function App() {
                 void monthController.submitNewGoal(event)
               }
               onToggleGoalForm={monthController.toggleGoalForm}
-            />
-            <ChartPanel
-              chartData={monthController.chartData}
-              goalCount={monthController.goals.length}
-              month={monthController.month}
             />
           </aside>
         </section>

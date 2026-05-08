@@ -322,7 +322,7 @@ describe("App", () => {
     renderApp(<App />);
     await waitForText("API 데이터");
 
-    expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
+    expect(precedes(getHeading("일별 완료 개수"), getHeading("목표"))).toBe(
       true,
     );
     expect(tableHeaders()).toEqual([

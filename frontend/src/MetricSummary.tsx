@@ -42,9 +42,9 @@ function Metric({
   }[tone];
 
   return (
-    <div className={`rounded-md border px-3 py-2.5 ${toneClass}`}>
-      <p className="text-xs font-medium opacity-80">{label}</p>
-      <p className="mt-1 text-2xl font-semibold leading-7 tracking-normal">
+    <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
+      <p className="text-[0.7rem] font-medium leading-4 opacity-80">{label}</p>
+      <p className="mt-0.5 text-xl font-semibold leading-6 tracking-normal">
         {value}
       </p>
     </div>
