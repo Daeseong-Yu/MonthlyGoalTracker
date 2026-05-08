@@ -162,6 +162,8 @@ export function useMonthController() {
     if (savingChecks.includes(key)) {
       return;
     }
+    const submittedMonth = date.slice(0, 7);
+    const submittedLoadRequestID = loadRequestIDRef.current;
 
     const completed = !checks.some(
       (check) => check.goalId === goalId && check.date === date,
@@ -176,14 +178,18 @@ export function useMonthController() {
     try {
       await setGoalCompleted(goalId, date, completed);
     } catch {
-      setMonthView((currentView) =>
-        applyCheckState(currentView, goalId, date, !completed),
-      );
-      setSaveFailure("체크 저장에 실패했습니다.");
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setMonthView((currentView) =>
+          applyCheckState(currentView, goalId, date, !completed),
+        );
+        setSaveFailure("체크 저장에 실패했습니다.");
+      }
     } finally {
-      setSavingChecks((currentKeys) =>
-        currentKeys.filter((currentKey) => currentKey !== key),
-      );
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setSavingChecks((currentKeys) =>
+          currentKeys.filter((currentKey) => currentKey !== key),
+        );
+      }
     }
   }
 
@@ -200,6 +206,8 @@ export function useMonthController() {
     if (savingMemos.includes(date)) {
       return;
     }
+    const submittedMonth = date.slice(0, 7);
+    const submittedLoadRequestID = loadRequestIDRef.current;
 
     clearSaveFeedback();
     setSavingMemos((currentDates) => [...currentDates, date]);
@@ -207,11 +215,15 @@ export function useMonthController() {
     try {
       await saveMemo(date, memo);
     } catch {
-      setSaveFailure("메모 저장에 실패했습니다.");
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setSaveFailure("메모 저장에 실패했습니다.");
+      }
     } finally {
-      setSavingMemos((currentDates) =>
-        currentDates.filter((currentDate) => currentDate !== date),
-      );
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setSavingMemos((currentDates) =>
+          currentDates.filter((currentDate) => currentDate !== date),
+        );
+      }
     }
   }
 
@@ -427,6 +439,16 @@ export function useMonthController() {
   function clearSaveFeedback() {
     setSaveError(null);
     setSaveMessage(null);
+  }
+
+  function isCurrentSaveContext(
+    submittedMonth: string,
+    submittedLoadRequestID: number,
+  ) {
+    return (
+      activeMonthRef.current === submittedMonth &&
+      loadRequestIDRef.current === submittedLoadRequestID
+    );
   }
 
   function setSaveFailure(message: string) {
