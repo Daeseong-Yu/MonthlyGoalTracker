@@ -15,10 +15,12 @@ import {
   bootstrapSession,
   clearAuthCSRFToken,
   isAPIError,
+  isAuthResponse,
   login as loginSession,
   logoutSession,
   signUp as signUpSession,
   updateUserLocale,
+  verifyEmail,
 } from "./api";
 import { formatMonth, statusClassName, statusLabel } from "./appDisplay";
 import ChartPanel from "./ChartPanel";
@@ -39,13 +41,15 @@ export default function App() {
   const [user, setUser] = useState<UserSession | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
+  const [emailVerificationFailed, setEmailVerificationFailed] = useState(false);
   const messages = useMemo(() => messagesForLocale(locale), [locale]);
 
   useEffect(() => {
     let cancelled = false;
 
-    bootstrapSession()
-      .then((response) => {
+    async function bootstrap() {
+      try {
+        const response = await bootstrapSession();
         if (cancelled) {
           return;
         }
@@ -56,23 +60,63 @@ export default function App() {
         );
         setLocale(nextLocale);
         storeLocale(nextLocale);
+        const verificationToken = nextUser ? null : readEmailVerificationToken();
+
+        if (nextUser && readEmailVerificationToken()) {
+          removeEmailVerificationToken();
+        }
+
+        if (verificationToken) {
+          try {
+            const authResponse = await verifyEmail(verificationToken);
+            if (cancelled) {
+              return;
+            }
+
+            removeEmailVerificationToken();
+            const verifiedLocale = normalizeLocale(
+              authResponse.user.locale ?? authResponse.locale,
+            );
+            setLocale(verifiedLocale);
+            storeLocale(verifiedLocale);
+            setUser(authResponse.user);
+            setEmailVerificationFailed(false);
+            setBootstrapFailed(false);
+            return;
+          } catch {
+            if (cancelled) {
+              return;
+            }
+
+            clearAuthCSRFToken();
+            removeEmailVerificationToken();
+            setUser(null);
+            setEmailVerificationFailed(true);
+            setBootstrapFailed(false);
+            return;
+          }
+        }
+
         setUser(nextUser);
+        setEmailVerificationFailed(false);
         setBootstrapFailed(false);
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) {
           return;
         }
 
         clearAuthCSRFToken();
         setUser(null);
+        setEmailVerificationFailed(false);
         setBootstrapFailed(true);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setBootstrapped(true);
         }
-      });
+      }
+    }
+
+    void bootstrap();
 
     return () => {
       cancelled = true;
@@ -106,12 +150,14 @@ export default function App() {
     setLocale(nextLocale);
     storeLocale(nextLocale);
     setUser(response.user);
+    setEmailVerificationFailed(false);
     setBootstrapFailed(false);
   }
 
   function handleLoggedOut() {
     clearAuthCSRFToken();
     setUser(null);
+    setEmailVerificationFailed(false);
   }
 
   if (!bootstrapped) {
@@ -123,6 +169,9 @@ export default function App() {
       <AuthScreen
         bootstrapError={
           bootstrapFailed ? messages.app.bootstrapError : null
+        }
+        verificationError={
+          emailVerificationFailed ? messages.auth.emailVerificationFailed : null
         }
         locale={locale}
         messages={messages}
@@ -158,12 +207,14 @@ function BootstrapScreen({ messages }: { messages: AppMessages }) {
 
 function AuthScreen({
   bootstrapError,
+  verificationError,
   locale,
   messages,
   onAuthenticated,
   onLocaleChange,
 }: {
   bootstrapError: string | null;
+  verificationError: string | null;
   locale: AppLocale;
   messages: AppMessages;
   onAuthenticated: (response: AuthResponse) => void;
@@ -175,6 +226,7 @@ function AuthScreen({
   const [legacyClaimToken, setLegacyClaimToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const authMessages = messages.auth;
   const submitLabel =
     mode === "login" ? authMessages.loginButton : authMessages.signupButton;
@@ -185,13 +237,29 @@ function AuthScreen({
     event.preventDefault();
     setBusy(true);
     setError(null);
+    setStatus(null);
 
     try {
-      const response =
-        mode === "login"
-          ? await loginSession(email, password, locale)
-          : await signUpSession(email, password, locale, legacyClaimToken);
-      onAuthenticated(response);
+      if (mode === "login") {
+        const response = await loginSession(email, password, locale);
+        onAuthenticated(response);
+        return;
+      }
+
+      const response = await signUpSession(
+        email,
+        password,
+        locale,
+        legacyClaimToken,
+      );
+      if (isAuthResponse(response)) {
+        onAuthenticated(response);
+        return;
+      }
+
+      setStatus(authMessages.signupAccepted);
+      setPassword("");
+      setLegacyClaimToken("");
     } catch (error) {
       setError(authErrorMessage(error, mode, authMessages));
     } finally {
@@ -230,6 +298,7 @@ function AuthScreen({
               onClick={() => {
                 setMode("login");
                 setError(null);
+                setStatus(null);
                 setLegacyClaimToken("");
               }}
             >
@@ -243,6 +312,7 @@ function AuthScreen({
               onClick={() => {
                 setMode("signup");
                 setError(null);
+                setStatus(null);
               }}
             >
               {authMessages.signupTab}
@@ -301,6 +371,16 @@ function AuthScreen({
                 {bootstrapError}
               </p>
             ) : null}
+            {verificationError ? (
+              <p className="text-xs font-medium text-rose-700" role="alert">
+                {verificationError}
+              </p>
+            ) : null}
+            {status ? (
+              <p className="text-xs font-medium text-teal-700" role="status">
+                {status}
+              </p>
+            ) : null}
             {error ? (
               <p className="text-xs font-medium text-rose-700" role="alert">
                 {error}
@@ -333,6 +413,14 @@ function authErrorMessage(
   if (isAPIError(error)) {
     if (error.status === 429 || error.code === "too many requests") {
       return authMessages.authRateLimited;
+    }
+
+    if (error.code === "invalid verification token") {
+      return authMessages.emailVerificationFailed;
+    }
+
+    if (mode === "login" && error.code === "email not verified") {
+      return authMessages.loginEmailNotVerified;
     }
 
     if (mode === "signup") {
@@ -661,5 +749,30 @@ function storeLocale(locale: AppLocale) {
     window.localStorage.setItem(localeStorageKey, locale);
   } catch {
     // Local storage is optional; the server session remains authoritative.
+  }
+}
+
+function readEmailVerificationToken() {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("token")?.trim() ||
+    params.get("verifyToken")?.trim() ||
+    null
+  );
+}
+
+function removeEmailVerificationToken() {
+  const url = new URL(window.location.href);
+  let changed = false;
+
+  for (const key of ["token", "verifyToken"]) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
 }

@@ -55,6 +55,15 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 	if cfg.AuthFlow.RateLimitMaxBuckets != defaultAuthRateLimitMaxBuckets {
 		t.Fatalf("expected default auth rate limit max buckets %d, got %d", defaultAuthRateLimitMaxBuckets, cfg.AuthFlow.RateLimitMaxBuckets)
 	}
+	if cfg.AuthFlow.EmailVerificationTTLHours != defaultEmailVerificationTTLHours {
+		t.Fatalf("expected default email verification TTL %d, got %d", defaultEmailVerificationTTLHours, cfg.AuthFlow.EmailVerificationTTLHours)
+	}
+	if cfg.Email.Enabled() {
+		t.Fatal("expected email config to be disabled by default")
+	}
+	if cfg.Email.SMTPPort != defaultSMTPPort {
+		t.Fatalf("expected default SMTP port %d, got %d", defaultSMTPPort, cfg.Email.SMTPPort)
+	}
 	if len(cfg.TrustedProxies) != 0 {
 		t.Fatalf("expected no trusted proxies by default, got %v", cfg.TrustedProxies)
 	}
@@ -77,6 +86,13 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	t.Setenv("APP_SIGNUP_RATE_LIMIT_PER_MINUTE", "3")
 	t.Setenv("APP_LOGIN_RATE_LIMIT_PER_MINUTE", "4")
 	t.Setenv("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", "1234")
+	t.Setenv("APP_EMAIL_VERIFICATION_TTL_HOURS", "48")
+	t.Setenv("APP_EMAIL_FROM", "no-reply@example.com")
+	t.Setenv("APP_SMTP_HOST", "smtp.example.com")
+	t.Setenv("APP_SMTP_PORT", "2525")
+	t.Setenv("APP_SMTP_USERNAME", "smtp-user")
+	t.Setenv("APP_SMTP_PASSWORD", "smtp-password")
+	t.Setenv("APP_EMAIL_VERIFICATION_BASE_URL", "https://app.example.com/verify")
 	t.Setenv("APP_TRUSTED_PROXIES", "127.0.0.1, 10.0.0.0/8")
 
 	cfg := Load()
@@ -131,6 +147,27 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	}
 	if cfg.AuthFlow.RateLimitMaxBuckets != 1234 {
 		t.Fatalf("expected auth rate limit max buckets from environment, got %d", cfg.AuthFlow.RateLimitMaxBuckets)
+	}
+	if cfg.AuthFlow.EmailVerificationTTLHours != 48 {
+		t.Fatalf("expected email verification TTL from environment, got %d", cfg.AuthFlow.EmailVerificationTTLHours)
+	}
+	if cfg.Email.From != "no-reply@example.com" {
+		t.Fatalf("expected email from from environment, got %q", cfg.Email.From)
+	}
+	if cfg.Email.SMTPHost != "smtp.example.com" {
+		t.Fatalf("expected SMTP host from environment, got %q", cfg.Email.SMTPHost)
+	}
+	if cfg.Email.SMTPPort != 2525 {
+		t.Fatalf("expected SMTP port from environment, got %d", cfg.Email.SMTPPort)
+	}
+	if cfg.Email.SMTPUsername != "smtp-user" {
+		t.Fatalf("expected SMTP username from environment, got %q", cfg.Email.SMTPUsername)
+	}
+	if cfg.Email.SMTPPassword != "smtp-password" {
+		t.Fatal("expected SMTP password from environment")
+	}
+	if cfg.Email.VerificationBaseURL != "https://app.example.com/verify" {
+		t.Fatalf("expected verification base URL from environment, got %q", cfg.Email.VerificationBaseURL)
 	}
 	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "127.0.0.1" || cfg.TrustedProxies[1] != "10.0.0.0/8" {
 		t.Fatalf("expected trusted proxies from environment, got %v", cfg.TrustedProxies)
@@ -284,6 +321,10 @@ func TestValidateRejectsInvalidAuthRateLimits(t *testing.T) {
 			name:     "negative max buckets",
 			authFlow: AuthFlowConfig{RateLimitMaxBuckets: -1},
 		},
+		{
+			name:     "negative email verification TTL",
+			authFlow: AuthFlowConfig{EmailVerificationTTLHours: -1},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -294,6 +335,122 @@ func TestValidateRejectsInvalidAuthRateLimits(t *testing.T) {
 			err := cfg.Validate()
 			if !errors.Is(err, ErrInvalidAuthFlow) {
 				t.Fatalf("expected ErrInvalidAuthFlow, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateAllowsCompleteEmailConfig(t *testing.T) {
+	cfg := testConfig()
+	cfg.Email = EmailConfig{
+		From:                "no-reply@example.com",
+		SMTPHost:            "smtp.example.com",
+		SMTPPort:            587,
+		SMTPUsername:        "smtp-user",
+		SMTPPassword:        "smtp-password",
+		VerificationBaseURL: "https://app.example.com/verify",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected complete email config to be allowed, got %v", err)
+	}
+}
+
+func TestValidateAllowsLoopbackHTTPEmailVerificationURLs(t *testing.T) {
+	testCases := []string{
+		"http://localhost:5173/verify",
+		"http://127.0.0.1:5173/verify",
+		"http://[::1]:5173/verify",
+	}
+
+	for _, verificationURL := range testCases {
+		t.Run(verificationURL, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Email = EmailConfig{
+				From:                "no-reply@example.com",
+				SMTPHost:            "smtp.example.com",
+				VerificationBaseURL: verificationURL,
+			}
+
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("expected loopback HTTP verification URL to be allowed, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsInvalidEmailConfig(t *testing.T) {
+	testCases := []struct {
+		name  string
+		email EmailConfig
+	}{
+		{
+			name: "missing SMTP host",
+			email: EmailConfig{
+				From:                "no-reply@example.com",
+				VerificationBaseURL: "https://app.example.com/verify",
+			},
+		},
+		{
+			name: "invalid sender",
+			email: EmailConfig{
+				From:                "not-an-email",
+				SMTPHost:            "smtp.example.com",
+				VerificationBaseURL: "https://app.example.com/verify",
+			},
+		},
+		{
+			name: "negative SMTP port",
+			email: EmailConfig{
+				From:                "no-reply@example.com",
+				SMTPHost:            "smtp.example.com",
+				SMTPPort:            -1,
+				VerificationBaseURL: "https://app.example.com/verify",
+			},
+		},
+		{
+			name: "partial SMTP credentials",
+			email: EmailConfig{
+				From:                "no-reply@example.com",
+				SMTPHost:            "smtp.example.com",
+				SMTPUsername:        "smtp-user",
+				VerificationBaseURL: "https://app.example.com/verify",
+			},
+		},
+		{
+			name: "relative verification URL",
+			email: EmailConfig{
+				From:                "no-reply@example.com",
+				SMTPHost:            "smtp.example.com",
+				VerificationBaseURL: "/verify",
+			},
+		},
+		{
+			name: "plaintext non-loopback verification URL",
+			email: EmailConfig{
+				From:                "no-reply@example.com",
+				SMTPHost:            "smtp.example.com",
+				VerificationBaseURL: "http://app.example.com/verify",
+			},
+		},
+		{
+			name: "unsupported verification URL scheme",
+			email: EmailConfig{
+				From:                "no-reply@example.com",
+				SMTPHost:            "smtp.example.com",
+				VerificationBaseURL: "ftp://app.example.com/verify",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Email = testCase.email
+
+			err := cfg.Validate()
+			if !errors.Is(err, ErrInvalidEmailConfig) {
+				t.Fatalf("expected ErrInvalidEmailConfig, got %v", err)
 			}
 		})
 	}

@@ -18,20 +18,22 @@ import (
 )
 
 var (
-	ErrInvalidEmail        = errors.New("invalid email")
-	ErrWeakPassword        = errors.New("weak password")
-	ErrEmailAlreadyExists  = errors.New("email already exists")
-	ErrInvalidCredentials  = errors.New("invalid credentials")
-	ErrInvalidLocale       = errors.New("invalid locale")
-	ErrInvalidSession      = errors.New("invalid session")
-	ErrInvalidLegacyClaim  = errors.New("invalid legacy claim")
-	ErrLegacyClaimRequired = domain.ErrLegacyClaimRequired
+	ErrInvalidEmail             = errors.New("invalid email")
+	ErrWeakPassword             = errors.New("weak password")
+	ErrEmailAlreadyExists       = errors.New("email already exists")
+	ErrInvalidCredentials       = errors.New("invalid credentials")
+	ErrEmailNotVerified         = errors.New("email not verified")
+	ErrInvalidLocale            = errors.New("invalid locale")
+	ErrInvalidSession           = errors.New("invalid session")
+	ErrInvalidVerificationToken = errors.New("invalid verification token")
+	ErrInvalidLegacyClaim       = errors.New("invalid legacy claim")
+	ErrLegacyClaimRequired      = domain.ErrLegacyClaimRequired
 )
 
 const minPasswordLength = 8
 
 type AuthUserRepository interface {
-	CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool) (*domain.User, error)
+	CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool, emailVerifiedAt *time.Time) (*domain.User, error)
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByID(ctx context.Context, id uint) (*domain.User, error)
 	UpdateLocale(ctx context.Context, id uint, locale string) (*domain.User, error)
@@ -45,6 +47,15 @@ type AuthSessionRepository interface {
 	UpdateCSRFTokenHash(ctx context.Context, id uint, csrfTokenHash string) error
 }
 
+type AuthEmailVerificationRepository interface {
+	Create(ctx context.Context, token *domain.EmailVerificationToken) error
+	Consume(ctx context.Context, tokenHash string, now time.Time) (*domain.User, error)
+}
+
+type VerificationEmailSender interface {
+	SendVerificationEmail(ctx context.Context, to, locale, token string) error
+}
+
 type AuthResult struct {
 	User      domain.User
 	Session   domain.Session
@@ -52,13 +63,22 @@ type AuthResult struct {
 	CSRFToken string
 }
 
+type SignupResult struct {
+	Auth                 *AuthResult
+	VerificationRequired bool
+	Locale               string
+}
+
 type AuthService struct {
-	users                AuthUserRepository
-	sessions             AuthSessionRepository
-	ttl                  time.Duration
-	now                  func() time.Time
-	hashPassword         func(password string) (string, error)
-	legacyClaimTokenHash string
+	users                   AuthUserRepository
+	sessions                AuthSessionRepository
+	emailVerificationTokens AuthEmailVerificationRepository
+	verificationEmailSender VerificationEmailSender
+	ttl                     time.Duration
+	emailVerificationTTL    time.Duration
+	now                     func() time.Time
+	hashPassword            func(password string) (string, error)
+	legacyClaimTokenHash    string
 }
 
 func NewAuthService(users AuthUserRepository, sessions AuthSessionRepository, ttl time.Duration, legacyClaimToken string) *AuthService {
@@ -77,7 +97,16 @@ func NewAuthService(users AuthUserRepository, sessions AuthSessionRepository, tt
 	return authService
 }
 
-func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legacyClaimToken string) (*AuthResult, error) {
+func (s *AuthService) EnableEmailVerification(tokens AuthEmailVerificationRepository, sender VerificationEmailSender, ttl time.Duration) {
+	s.emailVerificationTokens = tokens
+	if sender == nil {
+		sender = noopVerificationEmailSender{}
+	}
+	s.verificationEmailSender = sender
+	s.emailVerificationTTL = ttl
+}
+
+func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legacyClaimToken string) (*SignupResult, error) {
 	normalizedEmail, err := normalizeEmailAddress(email)
 	if err != nil {
 		return nil, err
@@ -101,18 +130,55 @@ func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legac
 
 	existingUser, err := s.users.FindByEmail(ctx, normalizedEmail)
 	if err == nil && existingUser.ID != 0 {
+		if s.emailVerificationEnabled() {
+			if existingUser.EmailVerifiedAt == nil {
+				if err := s.createEmailVerificationToken(ctx, *existingUser, normalizedLocale); err != nil {
+					return nil, err
+				}
+			}
+
+			return &SignupResult{
+				VerificationRequired: true,
+				Locale:               normalizedLocale,
+			}, nil
+		}
 		return nil, ErrEmailAlreadyExists
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
-	user, err := s.users.CreateWithPassword(ctx, normalizedEmail, passwordHash, normalizedLocale, claimLegacy)
+	var emailVerifiedAt *time.Time
+	if !s.emailVerificationEnabled() {
+		verifiedAt := s.now()
+		emailVerifiedAt = &verifiedAt
+	}
+
+	user, err := s.users.CreateWithPassword(ctx, normalizedEmail, passwordHash, normalizedLocale, claimLegacy, emailVerifiedAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.createSession(ctx, *user)
+	if s.emailVerificationEnabled() {
+		if err := s.createEmailVerificationToken(ctx, *user, normalizedLocale); err != nil {
+			return nil, err
+		}
+
+		return &SignupResult{
+			VerificationRequired: true,
+			Locale:               normalizedLocale,
+		}, nil
+	}
+
+	authResult, err := s.createSession(ctx, *user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SignupResult{
+		Auth:   authResult,
+		Locale: normalizedLocale,
+	}, nil
 }
 
 func bcryptHashPassword(password string) (string, error) {
@@ -159,6 +225,26 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, ErrInvalidCredentials
+	}
+	if s.emailVerificationEnabled() && user.EmailVerifiedAt == nil {
+		return nil, ErrEmailNotVerified
+	}
+
+	return s.createSession(ctx, *user)
+}
+
+func (s *AuthService) VerifyEmail(ctx context.Context, token string) (*AuthResult, error) {
+	if !s.emailVerificationEnabled() || strings.TrimSpace(token) == "" {
+		return nil, ErrInvalidVerificationToken
+	}
+
+	now := s.now()
+	user, err := s.emailVerificationTokens.Consume(ctx, hashToken(strings.TrimSpace(token)), now)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrInvalidVerificationToken
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	return s.createSession(ctx, *user)
@@ -215,6 +301,35 @@ func (s *AuthService) RefreshCSRFToken(ctx context.Context, session *domain.Sess
 	session.CSRFTokenHash = tokenHash
 
 	return token, nil
+}
+
+func (s *AuthService) createEmailVerificationToken(ctx context.Context, user domain.User, locale string) error {
+	token, err := generateToken()
+	if err != nil {
+		return err
+	}
+
+	now := s.now()
+	verificationToken := domain.EmailVerificationToken{
+		UserID:    user.ID,
+		TokenHash: hashToken(token),
+		ExpiresAt: now.Add(s.emailVerificationTTL),
+	}
+	if err := s.emailVerificationTokens.Create(ctx, &verificationToken); err != nil {
+		return err
+	}
+
+	return s.verificationEmailSender.SendVerificationEmail(ctx, user.Email, locale, token)
+}
+
+func (s *AuthService) emailVerificationEnabled() bool {
+	return s.emailVerificationTokens != nil && s.emailVerificationTTL > 0
+}
+
+type noopVerificationEmailSender struct{}
+
+func (noopVerificationEmailSender) SendVerificationEmail(context.Context, string, string, string) error {
+	return nil
 }
 
 func ValidCSRFToken(session *domain.Session, token string) bool {

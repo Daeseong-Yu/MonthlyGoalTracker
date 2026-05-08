@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
@@ -49,7 +50,7 @@ func (r *UserRepository) EnsureByUsername(ctx context.Context, username string) 
 	return &user, nil
 }
 
-func (r *UserRepository) CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool) (*domain.User, error) {
+func (r *UserRepository) CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool, emailVerifiedAt *time.Time) (*domain.User, error) {
 	normalizedEmail := normalizeEmail(email)
 	var user domain.User
 
@@ -64,10 +65,11 @@ func (r *UserRepository) CreateWithPassword(ctx context.Context, email, password
 			}
 
 			updates := map[string]any{
-				"username":      normalizedEmail,
-				"email":         normalizedEmail,
-				"password_hash": passwordHash,
-				"locale":        locale,
+				"username":          normalizedEmail,
+				"email":             normalizedEmail,
+				"password_hash":     passwordHash,
+				"locale":            locale,
+				"email_verified_at": emailVerifiedAt,
 			}
 			if err := tx.WithContext(ctx).Model(&domain.User{}).
 				Where("id = ?", legacyUser.ID).
@@ -79,10 +81,11 @@ func (r *UserRepository) CreateWithPassword(ctx context.Context, email, password
 		}
 
 		user = domain.User{
-			Username:     normalizedEmail,
-			Email:        normalizedEmail,
-			PasswordHash: passwordHash,
-			Locale:       locale,
+			Username:        normalizedEmail,
+			Email:           normalizedEmail,
+			PasswordHash:    passwordHash,
+			Locale:          locale,
+			EmailVerifiedAt: emailVerifiedAt,
 		}
 
 		return tx.WithContext(ctx).Create(&user).Error

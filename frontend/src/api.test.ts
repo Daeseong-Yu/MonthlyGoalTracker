@@ -14,6 +14,7 @@ import {
   signUp,
   updateGoalTitle,
   updateUserLocale,
+  verifyEmail,
 } from "./api";
 import type { MonthView, UserSession } from "./types";
 
@@ -156,6 +157,82 @@ describe("api client", () => {
         locale: "en",
       }),
     });
+  });
+
+  it("keeps signup accepted responses out of the CSRF session", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        status: "verification_required",
+        locale: "ko",
+      }),
+    );
+
+    await expect(signUp("new@example.com", "secret123", "ko")).resolves.toEqual({
+      status: "verification_required",
+      locale: "ko",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/auth/signup", {
+      method: "POST",
+      credentials: "include",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        email: "new@example.com",
+        password: "secret123",
+        locale: "ko",
+      }),
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
+      },
+    );
+  });
+
+  it("verifies email and stores CSRF for later unsafe requests", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        user: userSession,
+        csrfToken: "csrf-verified",
+        locale: "ko",
+      }),
+    );
+
+    await expect(verifyEmail("email-token")).resolves.toEqual({
+      user: userSession,
+      csrfToken: "csrf-verified",
+      locale: "ko",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/auth/verify-email", {
+      method: "POST",
+      credentials: "include",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ token: "email-token" }),
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders("csrf-verified"),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
+      },
+    );
   });
 
   it("sends a trimmed legacy claim token during signup", async () => {

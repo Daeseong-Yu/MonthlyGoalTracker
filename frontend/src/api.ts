@@ -3,6 +3,7 @@ import type {
   AuthResponse,
   BootstrapResponse,
   MonthView,
+  SignupResponse,
   UserSession,
 } from "./types";
 
@@ -23,6 +24,10 @@ export class APIError extends Error {
 
 export function isAPIError(error: unknown): error is APIError {
   return error instanceof APIError;
+}
+
+export function isAuthResponse(response: SignupResponse): response is AuthResponse {
+  return "csrfToken" in response && "user" in response;
 }
 
 export async function bootstrapSession(): Promise<BootstrapResponse> {
@@ -61,9 +66,9 @@ export async function signUp(
   password: string,
   locale: AppLocale,
   legacyClaimToken?: string,
-): Promise<AuthResponse> {
+): Promise<SignupResponse> {
   const claimToken = legacyClaimToken?.trim();
-  const response = await requestJSON<AuthResponse>(
+  const response = await requestJSON<SignupResponse>(
     "/api/auth/signup",
     "signup request",
     {
@@ -74,6 +79,21 @@ export async function signUp(
         locale,
         ...(claimToken ? { claimToken } : {}),
       },
+    },
+  );
+  if (isAuthResponse(response)) {
+    applyCSRFToken(response.csrfToken);
+  }
+  return response;
+}
+
+export async function verifyEmail(token: string): Promise<AuthResponse> {
+  const response = await requestJSON<AuthResponse>(
+    "/api/auth/verify-email",
+    "email verification request",
+    {
+      method: "POST",
+      body: { token },
     },
   );
   applyCSRFToken(response.csrfToken);

@@ -36,6 +36,10 @@ type updateLocaleRequest struct {
 	Locale string `json:"locale"`
 }
 
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
 type userSessionResponse struct {
 	ID        uint      `json:"id"`
 	Email     string    `json:"email"`
@@ -47,6 +51,11 @@ type authResponse struct {
 	User      userSessionResponse `json:"user"`
 	CSRFToken string              `json:"csrfToken"`
 	Locale    string              `json:"locale"`
+}
+
+type signupAcceptedResponse struct {
+	Status string `json:"status"`
+	Locale string `json:"locale"`
 }
 
 type bootstrapResponse struct {
@@ -104,8 +113,16 @@ func (h *AuthHandler) SignUp(c *gin.Context) {
 		return
 	}
 
-	h.setAuthCookies(c, result)
-	c.JSON(http.StatusCreated, toAuthResponse(result))
+	if result.Auth == nil {
+		c.JSON(http.StatusAccepted, signupAcceptedResponse{
+			Status: "verification_required",
+			Locale: service.LocaleOrDefault(result.Locale),
+		})
+		return
+	}
+
+	h.setAuthCookies(c, result.Auth)
+	c.JSON(http.StatusCreated, toAuthResponse(result.Auth))
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -116,6 +133,23 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	result, err := h.service.Login(c.Request.Context(), req.Email, req.Password)
+	if err != nil {
+		writeAuthError(c, err)
+		return
+	}
+
+	h.setAuthCookies(c, result)
+	c.JSON(http.StatusOK, toAuthResponse(result))
+}
+
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	var req verifyEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	result, err := h.service.VerifyEmail(c.Request.Context(), req.Token)
 	if err != nil {
 		writeAuthError(c, err)
 		return
@@ -239,8 +273,12 @@ func writeAuthError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "signup failed"})
 	case errors.Is(err, service.ErrInvalidLegacyClaim):
 		c.JSON(http.StatusForbidden, gin.H{"error": "invalid legacy claim"})
+	case errors.Is(err, service.ErrEmailNotVerified):
+		c.JSON(http.StatusForbidden, gin.H{"error": "email not verified"})
 	case errors.Is(err, service.ErrLegacyClaimRequired):
 		c.JSON(http.StatusConflict, gin.H{"error": "legacy claim required"})
+	case errors.Is(err, service.ErrInvalidVerificationToken):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification token"})
 	case errors.Is(err, service.ErrInvalidCredentials), errors.Is(err, service.ErrInvalidSession):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 	default:

@@ -93,16 +93,17 @@ func TestUserRepositoryCreateWithPasswordClaimsLegacyDefaultUser(t *testing.T) {
 		WithArgs("single-user", 1).
 		WillReturnRows(sqlmock.NewRows(userColumns()).
 			AddRow(9, "single-user", "", "", "ko", nil, fixedNow(), fixedNow()))
-	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "users" SET "email"=$1,"locale"=$2,"password_hash"=$3,"username"=$4,"updated_at"=$5 WHERE id = $6`)).
-		WithArgs("owner@example.com", "en", "hash", "owner@example.com", fixedNow(), uint(9)).
+	verifiedAt := fixedNow()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "users" SET "email"=$1,"email_verified_at"=$2,"locale"=$3,"password_hash"=$4,"username"=$5,"updated_at"=$6 WHERE id = $7`)).
+		WithArgs("owner@example.com", verifiedAt, "en", "hash", "owner@example.com", fixedNow(), uint(9)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users" WHERE "users"."id" = $1 ORDER BY "users"."id" LIMIT $2`)).
 		WithArgs(uint(9), 1).
 		WillReturnRows(sqlmock.NewRows(userColumns()).
-			AddRow(9, "owner@example.com", "owner@example.com", "hash", "en", nil, fixedNow(), fixedNow()))
+			AddRow(9, "owner@example.com", "owner@example.com", "hash", "en", verifiedAt, fixedNow(), fixedNow()))
 	mock.ExpectCommit()
 
-	user, err := repo.CreateWithPassword(context.Background(), " Owner@Example.com ", "hash", "en", true)
+	user, err := repo.CreateWithPassword(context.Background(), " Owner@Example.com ", "hash", "en", true, &verifiedAt)
 	if err != nil {
 		t.Fatalf("expected create with password to succeed, got %v", err)
 	}
@@ -120,6 +121,9 @@ func TestUserRepositoryCreateWithPasswordClaimsLegacyDefaultUser(t *testing.T) {
 	}
 	if user.Locale != "en" {
 		t.Fatalf("expected locale en, got %q", user.Locale)
+	}
+	if user.EmailVerifiedAt == nil || !user.EmailVerifiedAt.Equal(verifiedAt) {
+		t.Fatalf("expected email verified at %s, got %v", verifiedAt, user.EmailVerifiedAt)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -140,7 +144,7 @@ func TestUserRepositoryCreateWithPasswordCreatesNewUserWithoutLegacyClaim(t *tes
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(21))
 	mock.ExpectCommit()
 
-	user, err := repo.CreateWithPassword(context.Background(), " New@Example.com ", "hash", "ko", false)
+	user, err := repo.CreateWithPassword(context.Background(), " New@Example.com ", "hash", "ko", false, nil)
 	if err != nil {
 		t.Fatalf("expected create with password to succeed, got %v", err)
 	}
@@ -176,7 +180,7 @@ func TestUserRepositoryCreateWithPasswordRequiresClaimWhenLegacyUserIsUnclaimed(
 			AddRow(9, "single-user", "", "", "ko", nil, fixedNow(), fixedNow()))
 	mock.ExpectRollback()
 
-	user, err := repo.CreateWithPassword(context.Background(), " New@Example.com ", "hash", "ko", false)
+	user, err := repo.CreateWithPassword(context.Background(), " New@Example.com ", "hash", "ko", false, nil)
 	if user != nil {
 		t.Fatal("expected nil user when legacy claim is required")
 	}

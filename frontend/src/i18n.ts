@@ -32,7 +32,10 @@ export type AppMessages = {
     signupButton: string;
     submitBusy: string;
     loginFailed: string;
+    loginEmailNotVerified: string;
     signupFailed: string;
+    signupAccepted: string;
+    emailVerificationFailed: string;
     authRateLimited: string;
     signupWeakPassword: string;
     signupInvalidEmail: string;
@@ -152,7 +155,10 @@ export const messages: Record<AppLocale, AppMessages> = {
       signupButton: "회원가입",
       submitBusy: "처리 중",
       loginFailed: "이메일 또는 비밀번호를 확인해 주세요.",
+      loginEmailNotVerified: "이메일 인증 후 로그인해 주세요.",
       signupFailed: "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
+      signupAccepted: "가입 요청을 받았습니다. 인증 메일을 확인해 주세요.",
+      emailVerificationFailed: "인증 링크가 만료되었거나 올바르지 않습니다.",
       authRateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
       signupWeakPassword: "비밀번호는 8자 이상이어야 합니다.",
       signupInvalidEmail: "올바른 이메일 주소를 입력해 주세요.",
@@ -275,7 +281,10 @@ export const messages: Record<AppLocale, AppMessages> = {
       signupButton: "Sign up",
       submitBusy: "Working",
       loginFailed: "Check your email or password.",
+      loginEmailNotVerified: "Verify your email before logging in.",
       signupFailed: "Sign-up failed. Check your email or password.",
+      signupAccepted: "Sign-up request received. Check your email to verify the account.",
+      emailVerificationFailed: "This verification link is invalid or expired.",
       authRateLimited: "Too many attempts. Try again shortly.",
       signupWeakPassword: "Password must be at least 8 characters.",
       signupInvalidEmail: "Enter a valid email address.",

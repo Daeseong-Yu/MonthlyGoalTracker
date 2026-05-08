@@ -59,3 +59,10 @@ export type AuthResponse = {
   csrfToken: string;
   locale: AppLocale;
 };
+
+export type SignupAcceptedResponse = {
+  status: "verification_required";
+  locale: AppLocale;
+};
+
+export type SignupResponse = AuthResponse | SignupAcceptedResponse;

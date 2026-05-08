@@ -30,6 +30,14 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 		time.Duration(sessionConfig.TTLHours)*time.Hour,
 		authFlowConfig.LegacyClaimToken,
 	)
+	emailConfig := cfg.Email.WithDefaults()
+	if emailConfig.Enabled() {
+		authService.EnableEmailVerification(
+			repository.NewEmailVerificationRepository(database),
+			service.NewSMTPVerificationEmailSender(emailConfig),
+			time.Duration(authFlowConfig.EmailVerificationTTLHours)*time.Hour,
+		)
+	}
 	goalService := service.NewGoalService(goalRepo)
 	memoService := service.NewMemoService(memoRepo)
 	checkService := service.NewCheckService(goalRepo, checkRepo)
@@ -63,6 +71,7 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	authRoutes := apiRoot.Group("/auth")
 	authRoutes.POST("/signup", signupLimiter.Middleware("signup"), authHandler.SignUp)
 	authRoutes.POST("/login", loginLimiter.Middleware("login"), authHandler.Login)
+	authRoutes.POST("/verify-email", loginLimiter.Middleware("verify-email"), authHandler.VerifyEmail)
 
 	protectedAuthRoutes := authRoutes.Group("")
 	protectedAuthRoutes.Use(sessionMiddleware(authService, sessionConfig.CookieName))

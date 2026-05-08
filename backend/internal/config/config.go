@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -13,11 +15,12 @@ import (
 )
 
 var (
-	ErrUnsafeHost        = errors.New("unsafe host")
-	ErrInvalidAuthConfig = errors.New("invalid auth config")
-	ErrInvalidSession    = errors.New("invalid session config")
-	ErrInvalidAuthFlow   = errors.New("invalid auth flow config")
-	ErrInvalidProxy      = errors.New("invalid proxy config")
+	ErrUnsafeHost         = errors.New("unsafe host")
+	ErrInvalidAuthConfig  = errors.New("invalid auth config")
+	ErrInvalidSession     = errors.New("invalid session config")
+	ErrInvalidAuthFlow    = errors.New("invalid auth flow config")
+	ErrInvalidEmailConfig = errors.New("invalid email config")
+	ErrInvalidProxy       = errors.New("invalid proxy config")
 )
 
 const (
@@ -26,6 +29,8 @@ const (
 	defaultSignupRateLimitPerMinute   = 5
 	defaultLoginRateLimitPerMinute    = 10
 	defaultAuthRateLimitMaxBuckets    = 10000
+	defaultEmailVerificationTTLHours  = 24
+	defaultSMTPPort                   = 587
 	minimumLegacyClaimTokenCharacters = 16
 )
 
@@ -36,6 +41,7 @@ type Config struct {
 	Auth           BasicAuthConfig
 	Session        SessionConfig
 	AuthFlow       AuthFlowConfig
+	Email          EmailConfig
 	TrustedProxies []string
 }
 
@@ -74,10 +80,11 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 }
 
 type AuthFlowConfig struct {
-	LegacyClaimToken         string
-	SignupRateLimitPerMinute int
-	LoginRateLimitPerMinute  int
-	RateLimitMaxBuckets      int
+	LegacyClaimToken          string
+	SignupRateLimitPerMinute  int
+	LoginRateLimitPerMinute   int
+	RateLimitMaxBuckets       int
+	EmailVerificationTTLHours int
 }
 
 func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
@@ -90,9 +97,39 @@ func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
 	if c.RateLimitMaxBuckets == 0 {
 		c.RateLimitMaxBuckets = defaultAuthRateLimitMaxBuckets
 	}
+	if c.EmailVerificationTTLHours == 0 {
+		c.EmailVerificationTTLHours = defaultEmailVerificationTTLHours
+	}
 	c.LegacyClaimToken = strings.TrimSpace(c.LegacyClaimToken)
 
 	return c
+}
+
+type EmailConfig struct {
+	From                string
+	SMTPHost            string
+	SMTPPort            int
+	SMTPUsername        string
+	SMTPPassword        string
+	VerificationBaseURL string
+}
+
+func (c EmailConfig) WithDefaults() EmailConfig {
+	c.From = strings.TrimSpace(c.From)
+	c.SMTPHost = strings.TrimSpace(c.SMTPHost)
+	c.SMTPUsername = strings.TrimSpace(c.SMTPUsername)
+	c.SMTPPassword = strings.TrimSpace(c.SMTPPassword)
+	c.VerificationBaseURL = strings.TrimSpace(c.VerificationBaseURL)
+	if c.SMTPPort == 0 {
+		c.SMTPPort = defaultSMTPPort
+	}
+
+	return c
+}
+
+func (c EmailConfig) Enabled() bool {
+	cfg := c.WithDefaults()
+	return cfg.From != "" || cfg.SMTPHost != "" || cfg.VerificationBaseURL != ""
 }
 
 func Load() Config {
@@ -112,10 +149,19 @@ func Load() Config {
 			SameSite:       getEnv("APP_COOKIE_SAMESITE", "lax"),
 		},
 		AuthFlow: AuthFlowConfig{
-			LegacyClaimToken:         getEnv("APP_LEGACY_CLAIM_TOKEN", ""),
-			SignupRateLimitPerMinute: getEnvInt("APP_SIGNUP_RATE_LIMIT_PER_MINUTE", defaultSignupRateLimitPerMinute),
-			LoginRateLimitPerMinute:  getEnvInt("APP_LOGIN_RATE_LIMIT_PER_MINUTE", defaultLoginRateLimitPerMinute),
-			RateLimitMaxBuckets:      getEnvInt("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", defaultAuthRateLimitMaxBuckets),
+			LegacyClaimToken:          getEnv("APP_LEGACY_CLAIM_TOKEN", ""),
+			SignupRateLimitPerMinute:  getEnvInt("APP_SIGNUP_RATE_LIMIT_PER_MINUTE", defaultSignupRateLimitPerMinute),
+			LoginRateLimitPerMinute:   getEnvInt("APP_LOGIN_RATE_LIMIT_PER_MINUTE", defaultLoginRateLimitPerMinute),
+			RateLimitMaxBuckets:       getEnvInt("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", defaultAuthRateLimitMaxBuckets),
+			EmailVerificationTTLHours: getEnvInt("APP_EMAIL_VERIFICATION_TTL_HOURS", defaultEmailVerificationTTLHours),
+		},
+		Email: EmailConfig{
+			From:                getEnv("APP_EMAIL_FROM", ""),
+			SMTPHost:            getEnv("APP_SMTP_HOST", ""),
+			SMTPPort:            getEnvInt("APP_SMTP_PORT", defaultSMTPPort),
+			SMTPUsername:        getEnv("APP_SMTP_USERNAME", ""),
+			SMTPPassword:        getEnv("APP_SMTP_PASSWORD", ""),
+			VerificationBaseURL: getEnv("APP_EMAIL_VERIFICATION_BASE_URL", ""),
 		},
 		TrustedProxies: getEnvList("APP_TRUSTED_PROXIES"),
 	}
@@ -133,6 +179,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.AuthFlow.Validate(); err != nil {
+		return err
+	}
+	if err := c.Email.Validate(); err != nil {
 		return err
 	}
 	if err := validateTrustedProxies(c.TrustedProxies); err != nil {
@@ -203,8 +252,42 @@ func (c AuthFlowConfig) Validate() error {
 	if cfg.RateLimitMaxBuckets <= 0 {
 		return fmt.Errorf("%w: APP_AUTH_RATE_LIMIT_MAX_BUCKETS must be positive", ErrInvalidAuthFlow)
 	}
+	if cfg.EmailVerificationTTLHours <= 0 {
+		return fmt.Errorf("%w: APP_EMAIL_VERIFICATION_TTL_HOURS must be positive", ErrInvalidAuthFlow)
+	}
 	if cfg.LegacyClaimToken != "" && len(cfg.LegacyClaimToken) < minimumLegacyClaimTokenCharacters {
 		return fmt.Errorf("%w: APP_LEGACY_CLAIM_TOKEN must be at least %d characters", ErrInvalidAuthFlow, minimumLegacyClaimTokenCharacters)
+	}
+
+	return nil
+}
+
+func (c EmailConfig) Validate() error {
+	cfg := c.WithDefaults()
+	configured := cfg.Enabled() || cfg.SMTPUsername != "" || cfg.SMTPPassword != ""
+	if !configured {
+		return nil
+	}
+
+	if cfg.From == "" || cfg.SMTPHost == "" || cfg.VerificationBaseURL == "" {
+		return fmt.Errorf("%w: APP_EMAIL_FROM, APP_SMTP_HOST, and APP_EMAIL_VERIFICATION_BASE_URL must be set together", ErrInvalidEmailConfig)
+	}
+	if _, err := mail.ParseAddress(cfg.From); err != nil {
+		return fmt.Errorf("%w: APP_EMAIL_FROM must be a valid email address", ErrInvalidEmailConfig)
+	}
+	if cfg.SMTPPort <= 0 {
+		return fmt.Errorf("%w: APP_SMTP_PORT must be positive", ErrInvalidEmailConfig)
+	}
+	if (cfg.SMTPUsername == "") != (cfg.SMTPPassword == "") {
+		return fmt.Errorf("%w: APP_SMTP_USERNAME and APP_SMTP_PASSWORD must be set together", ErrInvalidEmailConfig)
+	}
+
+	verificationURL, err := url.Parse(cfg.VerificationBaseURL)
+	if err != nil || verificationURL.Scheme == "" || verificationURL.Host == "" {
+		return fmt.Errorf("%w: APP_EMAIL_VERIFICATION_BASE_URL must be an absolute URL", ErrInvalidEmailConfig)
+	}
+	if !safeVerificationBaseURL(verificationURL) {
+		return fmt.Errorf("%w: APP_EMAIL_VERIFICATION_BASE_URL must use https outside localhost", ErrInvalidEmailConfig)
 	}
 
 	return nil
@@ -281,6 +364,17 @@ func isLoopbackHost(host string) bool {
 	}
 
 	return addr.IsLoopback()
+}
+
+func safeVerificationBaseURL(verificationURL *url.URL) bool {
+	switch strings.ToLower(verificationURL.Scheme) {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackHost(normalizeHost(verificationURL.Hostname()))
+	default:
+		return false
+	}
 }
 
 func validateTrustedProxies(values []string) error {

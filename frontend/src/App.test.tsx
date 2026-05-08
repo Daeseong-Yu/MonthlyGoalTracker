@@ -224,6 +224,124 @@ describe("App", () => {
     },
   );
 
+  it("shows signup verification feedback without opening a session", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/signup") {
+          return jsonResponse({
+            status: "verification_required",
+            locale: "ko",
+          });
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("월간 목표 트래커");
+    await clickButton("회원가입 tab");
+    await setInputValue("이메일", "person@example.com");
+    await setInputValue("비밀번호", "secret123");
+    await submitForm();
+
+    await waitForText("가입 요청을 받았습니다. 인증 메일을 확인해 주세요.");
+
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/signup")).toBe(
+      true,
+    );
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
+  it("verifies an email token from the URL before loading the dashboard", async () => {
+    window.history.pushState({}, "", "/?token=email-token");
+
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/verify-email") {
+          return jsonResponse({
+            user: {
+              id: 4,
+              email: "person@example.com",
+              locale: "ko",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            csrfToken: "csrf-verified",
+            locale: "ko",
+          });
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+
+    expect(hasFetchedJsonBody<{ token: string }>(
+      fetchMock,
+      (path) => path === "/api/auth/verify-email",
+      (body) => body.token === "email-token",
+    )).toBe(true);
+    expect(window.location.search).not.toContain("token=");
+    expect(document.body.textContent).toContain(
+      "person@example.com로 로그인됨",
+    );
+  });
+
+  it("shows feedback when an email verification token is invalid", async () => {
+    window.history.pushState({}, "", "/?token=expired-token");
+
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/verify-email") {
+          return jsonErrorResponse(400, "invalid verification token");
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("인증 링크가 만료되었거나 올바르지 않습니다.");
+
+    expect(hasFetchedPath(
+      fetchMock,
+      (path) => path === "/api/auth/verify-email",
+    )).toBe(true);
+    expect(window.location.search).not.toContain("token=");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
   it("retries the current month after falling back to sample data", async () => {
     let failedInitialLoad = false;
     let resolveRetryLoad: (() => void) | null = null;
