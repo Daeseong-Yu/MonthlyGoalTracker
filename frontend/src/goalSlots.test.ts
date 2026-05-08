@@ -52,11 +52,13 @@ describe("goal slots", () => {
     ).toBe(false);
   });
 
-  it("uses exclusive end dates for goal card visibility", () => {
-    const endedToday = goal(1, "Ended", "2026-05-01", "2026-05-03");
-    const futureEnd = goal(2, "Visible", "2026-05-01", "2026-05-04");
+  it("includes end dates for goal card visibility", () => {
+    const endingToday = goal(1, "Ending", "2026-05-01", "2026-05-03");
+    const endedBefore = goal(2, "Ended", "2026-05-01", "2026-05-02");
+    const futureEnd = goal(3, "Visible", "2026-05-01", "2026-05-04");
 
-    expect(isGoalVisibleInDisplay(endedToday, "2026-05-03")).toBe(false);
+    expect(isGoalVisibleInDisplay(endingToday, "2026-05-03")).toBe(true);
+    expect(isGoalVisibleInDisplay(endedBefore, "2026-05-03")).toBe(false);
     expect(isGoalVisibleInDisplay(futureEnd, "2026-05-03")).toBe(true);
     expect(isGoalVisibleInDisplay(futureEnd, "2026-04-30")).toBe(false);
   });
