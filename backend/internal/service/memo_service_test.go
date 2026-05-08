@@ -29,7 +29,7 @@ func TestSaveMemoTrimsMemoBeforeSaving(t *testing.T) {
 	if dailyMemo.Memo != "Ship note" {
 		t.Fatalf("expected returned memo %q, got %q", "Ship note", dailyMemo.Memo)
 	}
-	assertDateEqual(t, repo.lastUpsertDate, time.Date(2026, time.April, 10, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.lastUpsertDate, date(2026, time.April, 10))
 }
 
 func TestSaveMemoAllowsEmptyMemoAfterTrim(t *testing.T) {
@@ -63,8 +63,8 @@ func TestSaveMemoPreservesFixedZoneLocalCalendarDay(t *testing.T) {
 	if dailyMemo == nil {
 		t.Fatal("expected memo")
 	}
-	assertDateEqual(t, repo.lastUpsertDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, dailyMemo.Date, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.lastUpsertDate, date(2026, time.April, 1))
+	assertDateEqual(t, dailyMemo.Date, date(2026, time.April, 1))
 }
 
 func TestSaveMemoPropagatesRepositoryError(t *testing.T) {
@@ -97,8 +97,8 @@ func TestGetMemoPreservesFixedZoneLocalCalendarDay(t *testing.T) {
 	if dailyMemo == nil {
 		t.Fatal("expected memo")
 	}
-	assertDateEqual(t, repo.lastFindDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, dailyMemo.Date, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.lastFindDate, date(2026, time.April, 1))
+	assertDateEqual(t, dailyMemo.Date, date(2026, time.April, 1))
 }
 
 func TestGetMemoPropagatesRepositoryError(t *testing.T) {
@@ -151,8 +151,8 @@ func TestListMemosForMonthUsesMonthRange(t *testing.T) {
 	if len(dailyMemos) != 1 || dailyMemos[0].ID != expectedMemos[0].ID {
 		t.Fatalf("expected memos %v, got %v", expectedMemos, dailyMemos)
 	}
-	assertDateEqual(t, repo.lastListStartDate, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, repo.lastListEndDate, time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, repo.lastListStartDate, date(2026, time.February, 1))
+	assertDateEqual(t, repo.lastListEndDate, date(2026, time.February, 28))
 }
 
 func TestListMemosForMonthPropagatesRepositoryError(t *testing.T) {

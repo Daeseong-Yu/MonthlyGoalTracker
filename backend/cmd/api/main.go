@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"time"
 
@@ -17,9 +18,17 @@ const (
 )
 
 func main() {
+	migrateOnly := flag.Bool("migrate-only", false, "run database migrations and exit")
+	flag.Parse()
+
+	opts := runOptions{mode: runModeServe}
+	if *migrateOnly {
+		opts.mode = runModeMigrateOnly
+	}
+
 	cfg := config.Load()
 
-	if err := run(cfg); err != nil {
+	if err := run(cfg, opts); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -35,7 +44,18 @@ type appDeps struct {
 	serve   func(*gorm.DB, string) error
 }
 
-func run(cfg config.Config) error {
+type runMode int
+
+const (
+	runModeServe runMode = iota
+	runModeMigrateOnly
+)
+
+type runOptions struct {
+	mode runMode
+}
+
+func run(cfg config.Config, opts runOptions) error {
 	return runWithDeps(cfg, appDeps{
 		connect: db.Connect,
 		migrate: db.Migrate,
@@ -43,12 +63,12 @@ func run(cfg config.Config) error {
 			return database.DB()
 		},
 		serve: func(database *gorm.DB, addr string) error {
-			return router.SetupRouter(database).Run(addr)
+			return router.SetupRouter(database, cfg.Auth).Run(addr)
 		},
-	})
+	}, opts)
 }
 
-func runWithDeps(cfg config.Config, deps appDeps) error {
+func runWithDeps(cfg config.Config, deps appDeps, opts runOptions) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -76,6 +96,10 @@ func runWithDeps(cfg config.Config, deps appDeps) error {
 
 	if err := deps.migrate(migrateCtx, database); err != nil {
 		return err
+	}
+
+	if opts.mode == runModeMigrateOnly {
+		return nil
 	}
 
 	return deps.serve(database, cfg.Addr())

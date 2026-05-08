@@ -19,14 +19,23 @@ func NewGoalCheckRepository(database *gorm.DB) *GoalCheckRepository {
 
 func (r *GoalCheckRepository) SetCompleted(ctx context.Context, goalID uint, date time.Time, completed bool) error {
 	date = normalizeDate(date)
+	scopedDB, userID, err := scopedByUser(ctx, r.db)
+	if err != nil {
+		return err
+	}
 
 	if !completed {
-		return r.db.WithContext(ctx).
+		return scopedDB.
 			Where("goal_id = ? AND date = ?", goalID, date).
 			Delete(&domain.GoalCheck{}).Error
 	}
 
+	if err := ensureGoalOwnedByCurrentUser(scopedDB, goalID); err != nil {
+		return err
+	}
+
 	goalCheck := domain.GoalCheck{
+		UserID: userID,
 		GoalID: goalID,
 		Date:   date,
 	}
@@ -41,9 +50,13 @@ func (r *GoalCheckRepository) SetCompleted(ctx context.Context, goalID uint, dat
 
 func (r *GoalCheckRepository) Exists(ctx context.Context, goalID uint, date time.Time) (bool, error) {
 	date = normalizeDate(date)
+	scopedDB, _, err := scopedByUser(ctx, r.db)
+	if err != nil {
+		return false, err
+	}
 
 	var count int64
-	if err := r.db.WithContext(ctx).
+	if err := scopedDB.
 		Model(&domain.GoalCheck{}).
 		Where("goal_id = ? AND date = ?", goalID, date).
 		Count(&count).Error; err != nil {
@@ -56,9 +69,13 @@ func (r *GoalCheckRepository) Exists(ctx context.Context, goalID uint, date time
 func (r *GoalCheckRepository) ListByDateRange(ctx context.Context, startDate, endDate time.Time) ([]domain.GoalCheck, error) {
 	startDate = normalizeDate(startDate)
 	endDate = normalizeDate(endDate)
+	scopedDB, _, err := scopedByUser(ctx, r.db)
+	if err != nil {
+		return nil, err
+	}
 
 	var goalChecks []domain.GoalCheck
-	if err := r.db.WithContext(ctx).
+	if err := scopedDB.
 		Where("date BETWEEN ? AND ?", startDate, endDate).
 		Order("date ASC, goal_id ASC").
 		Find(&goalChecks).Error; err != nil {
@@ -66,4 +83,19 @@ func (r *GoalCheckRepository) ListByDateRange(ctx context.Context, startDate, en
 	}
 
 	return goalChecks, nil
+}
+
+func ensureGoalOwnedByCurrentUser(scopedDB *gorm.DB, goalID uint) error {
+	var count int64
+	if err := scopedDB.
+		Model(&domain.Goal{}).
+		Where("id = ?", goalID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
 }

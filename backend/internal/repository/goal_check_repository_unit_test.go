@@ -1,13 +1,11 @@
 package repository
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -19,12 +17,36 @@ func TestGoalCheckRepositorySetCompletedTrueUpsertsCheck(t *testing.T) {
 	checkDate := time.Date(2099, time.April, 1, 18, 30, 0, 0, time.FixedZone("KST", 9*60*60))
 	normalizedDate := date(2099, time.April, 1)
 
-	mock.ExpectQuery(`INSERT INTO "goal_checks" \("goal_id","date","created_at"\) VALUES \(\$1,\$2,\$3\) ON CONFLICT \("goal_id","date"\) DO NOTHING RETURNING "id"`).
-		WithArgs(goalID, normalizedDate, fixedNow()).
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "goals" WHERE user_id = \$1 AND id = \$2`).
+		WithArgs(testUserID, goalID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`INSERT INTO "goal_checks" \("user_id","goal_id","date","created_at"\) VALUES \(\$1,\$2,\$3,\$4\) ON CONFLICT \("goal_id","date"\) DO NOTHING RETURNING "id"`).
+		WithArgs(testUserID, goalID, normalizedDate, fixedNow()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(11))
 
-	if err := repo.SetCompleted(context.Background(), goalID, checkDate, true); err != nil {
+	if err := repo.SetCompleted(scopedUserContext(), goalID, checkDate, true); err != nil {
 		t.Fatalf("expected set completed true to succeed, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGoalCheckRepositorySetCompletedTrueRejectsGoalOutsideCurrentUser(t *testing.T) {
+	repo, mock, closeDB := newMockGoalCheckRepository(t)
+	defer closeDB()
+
+	const goalID uint = 42
+	checkDate := date(2099, time.April, 1)
+
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "goals" WHERE user_id = \$1 AND id = \$2`).
+		WithArgs(testUserID, goalID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	err := repo.SetCompleted(scopedUserContext(), goalID, checkDate, true)
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected ErrRecordNotFound, got %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -40,11 +62,11 @@ func TestGoalCheckRepositorySetCompletedFalseDeletesCheck(t *testing.T) {
 	checkDate := time.Date(2099, time.April, 1, 18, 30, 0, 0, time.FixedZone("KST", 9*60*60))
 	normalizedDate := date(2099, time.April, 1)
 
-	mock.ExpectExec(`DELETE FROM "goal_checks" WHERE goal_id = \$1 AND date = \$2`).
-		WithArgs(goalID, normalizedDate).
+	mock.ExpectExec(`DELETE FROM "goal_checks" WHERE user_id = \$1 AND \(goal_id = \$2 AND date = \$3\)`).
+		WithArgs(testUserID, goalID, normalizedDate).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := repo.SetCompleted(context.Background(), goalID, checkDate, false); err != nil {
+	if err := repo.SetCompleted(scopedUserContext(), goalID, checkDate, false); err != nil {
 		t.Fatalf("expected set completed false to succeed, got %v", err)
 	}
 
@@ -60,11 +82,11 @@ func TestGoalCheckRepositoryExistsReturnsTrue(t *testing.T) {
 	const goalID uint = 42
 	checkDate := date(2099, time.April, 1)
 
-	mock.ExpectQuery(`SELECT count\(\*\) FROM "goal_checks" WHERE goal_id = \$1 AND date = \$2`).
-		WithArgs(goalID, checkDate).
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "goal_checks" WHERE user_id = \$1 AND \(goal_id = \$2 AND date = \$3\)`).
+		WithArgs(testUserID, goalID, checkDate).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	exists, err := repo.Exists(context.Background(), goalID, checkDate)
+	exists, err := repo.Exists(scopedUserContext(), goalID, checkDate)
 	if err != nil {
 		t.Fatalf("expected exists lookup to succeed, got %v", err)
 	}
@@ -85,11 +107,11 @@ func TestGoalCheckRepositoryExistsPropagatesError(t *testing.T) {
 	checkDate := date(2099, time.April, 1)
 	expectedErr := errors.New("count failed")
 
-	mock.ExpectQuery(`SELECT count\(\*\) FROM "goal_checks" WHERE goal_id = \$1 AND date = \$2`).
-		WithArgs(goalID, checkDate).
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "goal_checks" WHERE user_id = \$1 AND \(goal_id = \$2 AND date = \$3\)`).
+		WithArgs(testUserID, goalID, checkDate).
 		WillReturnError(expectedErr)
 
-	exists, err := repo.Exists(context.Background(), goalID, checkDate)
+	exists, err := repo.Exists(scopedUserContext(), goalID, checkDate)
 	if exists {
 		t.Fatal("expected check to not exist on error")
 	}
@@ -111,13 +133,13 @@ func TestGoalCheckRepositoryListByDateRangeUsesInclusiveRange(t *testing.T) {
 	normalizedStartDate := date(2099, time.April, 1)
 	normalizedEndDate := date(2099, time.April, 30)
 
-	mock.ExpectQuery(`SELECT \* FROM "goal_checks" WHERE date BETWEEN \$1 AND \$2 ORDER BY date ASC, goal_id ASC`).
-		WithArgs(normalizedStartDate, normalizedEndDate).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "goal_id", "date", "created_at"}).
-			AddRow(1, 10, normalizedStartDate, fixedNow()).
-			AddRow(2, 11, normalizedEndDate, fixedNow()))
+	mock.ExpectQuery(`SELECT \* FROM "goal_checks" WHERE user_id = \$1 AND \(date BETWEEN \$2 AND \$3\) ORDER BY date ASC, goal_id ASC`).
+		WithArgs(testUserID, normalizedStartDate, normalizedEndDate).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "goal_id", "date", "created_at"}).
+			AddRow(1, testUserID, 10, normalizedStartDate, fixedNow()).
+			AddRow(2, testUserID, 11, normalizedEndDate, fixedNow()))
 
-	goalChecks, err := repo.ListByDateRange(context.Background(), startDate, endDate)
+	goalChecks, err := repo.ListByDateRange(scopedUserContext(), startDate, endDate)
 	if err != nil {
 		t.Fatalf("expected list by date range to succeed, got %v", err)
 	}
@@ -133,24 +155,6 @@ func TestGoalCheckRepositoryListByDateRangeUsesInclusiveRange(t *testing.T) {
 func newMockGoalCheckRepository(t *testing.T) (*GoalCheckRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 
-	sqlDB, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to create sql mock: %v", err)
-	}
-
-	database, err := gorm.Open(postgres.New(postgres.Config{
-		Conn:                 sqlDB,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		DisableAutomaticPing:   true,
-		SkipDefaultTransaction: true,
-		NowFunc:                fixedNow,
-	})
-	if err != nil {
-		t.Fatalf("failed to create gorm database: %v", err)
-	}
-
-	return NewGoalCheckRepository(database), mock, func() {
-		_ = sqlDB.Close()
-	}
+	database, mock, closeDB := newMockDatabase(t)
+	return NewGoalCheckRepository(database), mock, closeDB
 }

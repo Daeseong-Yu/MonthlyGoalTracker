@@ -22,12 +22,47 @@ staging="/tmp/monthly-goal-tracker-${RELEASE_ID}-backend"
 release_root="/opt/monthly-goal-tracker/backend/releases"
 release_dir="${release_root}/${RELEASE_ID}"
 current_binary="/opt/monthly-goal-tracker/backend/monthly-goal-api"
+api_env_file="/etc/monthly-goal-tracker/api.env"
 previous_binary=""
 
 cleanup() {
   rm -rf "${staging}"
 }
 trap cleanup EXIT
+
+load_api_env() {
+  if [ ! -r "${api_env_file}" ]; then
+    echo "API environment file is not readable: ${api_env_file}" >&2
+    exit 1
+  fi
+
+  unset APP_HOST APP_PORT DATABASE_URL APP_BASIC_AUTH_USERNAME APP_BASIC_AUTH_PASSWORD_HASH
+  unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE
+  unset PGSSLMODE PGSSLCERT PGSSLKEY PGSSLROOTCERT PGSSLPASSWORD PGAPPNAME
+  unset PGCONNECT_TIMEOUT PGSSLSNI PGTARGETSESSIONATTRS
+
+  while IFS= read -r line || [ -n "${line}" ]; do
+    case "${line}" in
+      ""|\#*)
+        continue
+        ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    case "${key}" in
+      APP_HOST|APP_PORT|DATABASE_URL|APP_BASIC_AUTH_USERNAME|APP_BASIC_AUTH_PASSWORD_HASH)
+        export "${key}=${value}"
+        ;;
+    esac
+  done < "${api_env_file}"
+
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "DATABASE_URL is required in ${api_env_file}" >&2
+    exit 1
+  fi
+}
 
 rm -rf "${staging}"
 mkdir -p "${staging}"
@@ -37,6 +72,9 @@ install -d -m 0755 "${release_root}"
 rm -rf "${release_dir}"
 mkdir -p "${release_dir}"
 install -m 0755 "${staging}/monthly-goal-api" "${release_dir}/monthly-goal-api"
+
+load_api_env
+"${release_dir}/monthly-goal-api" --migrate-only
 
 if [ -L "${current_binary}" ]; then
   previous_binary="$(readlink -f "${current_binary}")"

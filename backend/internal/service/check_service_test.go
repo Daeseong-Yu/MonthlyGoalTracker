@@ -10,19 +10,9 @@ import (
 )
 
 func TestSetGoalCompletedSavesForActiveGoal(t *testing.T) {
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 10, 9, 0, 0, 0, time.UTC),
-			}, nil
-		},
-	}
-	checkRepo := &stubGoalCheckRepository{}
-	service := NewCheckService(goalRepo, checkRepo)
+	service, goalRepo, checkRepo := newCheckServiceFixture(t, activeAprilGoal())
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 12, 18, 0, 0, 0, time.UTC), true)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(12, 18), true)
 	if err != nil {
 		t.Fatalf("expected set completed to succeed, got %v", err)
 	}
@@ -38,23 +28,13 @@ func TestSetGoalCompletedSavesForActiveGoal(t *testing.T) {
 	if !checkRepo.lastSetCompleted {
 		t.Fatal("expected completed=true")
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 12, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 12))
 }
 
 func TestSetGoalCompletedRejectsBeforeStartDate(t *testing.T) {
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 10, 9, 0, 0, 0, time.UTC),
-			}, nil
-		},
-	}
-	checkRepo := &stubGoalCheckRepository{}
-	service := NewCheckService(goalRepo, checkRepo)
+	service, _, checkRepo := newCheckServiceFixture(t, activeAprilGoal())
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 9, 23, 0, 0, 0, time.UTC), true)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(9, 23), true)
 	if !errors.Is(err, ErrGoalNotActiveOnDate) {
 		t.Fatalf("expected ErrGoalNotActiveOnDate, got %v", err)
 	}
@@ -64,21 +44,9 @@ func TestSetGoalCompletedRejectsBeforeStartDate(t *testing.T) {
 }
 
 func TestSetGoalCompletedRejectsAfterEndDate(t *testing.T) {
-	endDate := time.Date(2026, time.April, 15, 22, 0, 0, 0, time.UTC)
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 10, 9, 0, 0, 0, time.UTC),
-				EndDate:   &endDate,
-			}, nil
-		},
-	}
-	checkRepo := &stubGoalCheckRepository{}
-	service := NewCheckService(goalRepo, checkRepo)
+	service, _, checkRepo := newCheckServiceFixture(t, activeAprilGoalWithEnd(aprilDateTime(15, 22)))
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 16, 8, 0, 0, 0, time.UTC), true)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(16, 8), true)
 	if !errors.Is(err, ErrGoalNotActiveOnDate) {
 		t.Fatalf("expected ErrGoalNotActiveOnDate, got %v", err)
 	}
@@ -88,44 +56,22 @@ func TestSetGoalCompletedRejectsAfterEndDate(t *testing.T) {
 }
 
 func TestSetGoalCompletedAllowsEndDateDay(t *testing.T) {
-	endDate := time.Date(2026, time.April, 15, 22, 0, 0, 0, time.UTC)
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 10, 9, 0, 0, 0, time.UTC),
-				EndDate:   &endDate,
-			}, nil
-		},
-	}
-	checkRepo := &stubGoalCheckRepository{}
-	service := NewCheckService(goalRepo, checkRepo)
+	service, _, checkRepo := newCheckServiceFixture(t, activeAprilGoalWithEnd(aprilDateTime(15, 22)))
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 15, 8, 0, 0, 0, time.UTC), true)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(15, 8), true)
 	if err != nil {
 		t.Fatalf("expected end date day to be allowed, got %v", err)
 	}
 	if checkRepo.setCalls != 1 {
 		t.Fatalf("expected set completed once, got %d", checkRepo.setCalls)
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 15, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 15))
 }
 
 func TestSetGoalCompletedFalseUsesSetCompletedDeletePath(t *testing.T) {
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 10, 9, 0, 0, 0, time.UTC),
-			}, nil
-		},
-	}
-	checkRepo := &stubGoalCheckRepository{}
-	service := NewCheckService(goalRepo, checkRepo)
+	service, goalRepo, checkRepo := newCheckServiceFixture(t, activeAprilGoal())
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 12, 18, 0, 0, 0, time.UTC), false)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(12, 18), false)
 	if err != nil {
 		t.Fatalf("expected set completed false to succeed, got %v", err)
 	}
@@ -138,28 +84,22 @@ func TestSetGoalCompletedFalseUsesSetCompletedDeletePath(t *testing.T) {
 	if checkRepo.lastSetCompleted {
 		t.Fatal("expected completed=false")
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 12, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 12))
 }
 
 func TestSetGoalCompletedNormalizesFixedZoneInputDate(t *testing.T) {
 	kst := time.FixedZone("KST", 9*60*60)
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 1, 0, 30, 0, 0, kst),
-			}, nil
-		},
-	}
-	checkRepo := &stubGoalCheckRepository{}
-	service := NewCheckService(goalRepo, checkRepo)
+	service, _, checkRepo := newCheckServiceFixture(t, &domain.Goal{
+		ID:        42,
+		Title:     "goal",
+		StartDate: time.Date(2026, time.April, 1, 0, 30, 0, 0, kst),
+	})
 
 	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 1, 0, 30, 0, 0, kst), true)
 	if err != nil {
 		t.Fatalf("expected fixed-zone date to succeed, got %v", err)
 	}
-	assertDateEqual(t, checkRepo.lastSetDate, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastSetDate, date(2026, time.April, 1))
 }
 
 func TestSetGoalCompletedPropagatesGoalLookupError(t *testing.T) {
@@ -172,7 +112,7 @@ func TestSetGoalCompletedPropagatesGoalLookupError(t *testing.T) {
 	checkRepo := &stubGoalCheckRepository{}
 	service := NewCheckService(goalRepo, checkRepo)
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 12, 18, 0, 0, 0, time.UTC), true)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(12, 18), true)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected goal lookup error, got %v", err)
 	}
@@ -183,23 +123,14 @@ func TestSetGoalCompletedPropagatesGoalLookupError(t *testing.T) {
 
 func TestSetGoalCompletedPropagatesCheckRepositoryError(t *testing.T) {
 	expectedErr := errors.New("save failed")
-	goalRepo := &stubCheckGoalRepository{
-		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
-			return &domain.Goal{
-				ID:        42,
-				Title:     "goal",
-				StartDate: time.Date(2026, time.April, 10, 9, 0, 0, 0, time.UTC),
-			}, nil
-		},
-	}
 	checkRepo := &stubGoalCheckRepository{
 		setCompletedFunc: func(context.Context, uint, time.Time, bool) error {
 			return expectedErr
 		},
 	}
-	service := NewCheckService(goalRepo, checkRepo)
+	service := newCheckServiceWithRepos(activeAprilGoal(), checkRepo)
 
-	err := service.SetGoalCompleted(context.Background(), 42, time.Date(2026, time.April, 12, 18, 0, 0, 0, time.UTC), true)
+	err := service.SetGoalCompleted(context.Background(), 42, aprilDateTime(12, 18), true)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected check repository error, got %v", err)
 	}
@@ -237,8 +168,8 @@ func TestListChecksForMonthPassesCorrectRange(t *testing.T) {
 	if len(checks) != 1 || checks[0].ID != expectedChecks[0].ID {
 		t.Fatalf("expected checks %v, got %v", expectedChecks, checks)
 	}
-	assertDateEqual(t, checkRepo.lastListStartDate, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
-	assertDateEqual(t, checkRepo.lastListEndDate, time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC))
+	assertDateEqual(t, checkRepo.lastListStartDate, date(2026, time.February, 1))
+	assertDateEqual(t, checkRepo.lastListEndDate, date(2026, time.February, 28))
 }
 
 func TestListChecksForMonthPropagatesRepositoryError(t *testing.T) {
@@ -256,6 +187,43 @@ func TestListChecksForMonthPropagatesRepositoryError(t *testing.T) {
 	}
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected repository error, got %v", err)
+	}
+}
+
+func aprilDateTime(day int, hour int) time.Time {
+	return time.Date(2026, time.April, day, hour, 0, 0, 0, time.UTC)
+}
+
+func activeAprilGoal() *domain.Goal {
+	return &domain.Goal{
+		ID:        42,
+		Title:     "goal",
+		StartDate: aprilDateTime(10, 9),
+	}
+}
+
+func activeAprilGoalWithEnd(endDate time.Time) *domain.Goal {
+	goal := activeAprilGoal()
+	goal.EndDate = &endDate
+	return goal
+}
+
+func newCheckServiceFixture(t *testing.T, goal *domain.Goal) (*CheckService, *stubCheckGoalRepository, *stubGoalCheckRepository) {
+	t.Helper()
+	checkRepo := &stubGoalCheckRepository{}
+	goalRepo := goalRepoReturning(goal)
+	return NewCheckService(goalRepo, checkRepo), goalRepo, checkRepo
+}
+
+func newCheckServiceWithRepos(goal *domain.Goal, checkRepo *stubGoalCheckRepository) *CheckService {
+	return NewCheckService(goalRepoReturning(goal), checkRepo)
+}
+
+func goalRepoReturning(goal *domain.Goal) *stubCheckGoalRepository {
+	return &stubCheckGoalRepository{
+		findByIDFunc: func(context.Context, uint) (*domain.Goal, error) {
+			return goal, nil
+		},
 	}
 }
 

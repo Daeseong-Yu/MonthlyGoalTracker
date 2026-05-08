@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -81,45 +80,12 @@ func TestConnectUsesContextForPing(t *testing.T) {
 }
 
 func TestConnectIntegration(t *testing.T) {
-	if os.Getenv("RUN_DB_INTEGRATION") != "1" {
-		t.Skip("set RUN_DB_INTEGRATION=1 to run database integration test")
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Fatal("DATABASE_URL is required for database integration test")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel, databaseURL := requireDatabaseIntegration(t, "database integration test")
 	defer cancel()
 
-	var (
-		database *gorm.DB
-		err      error
-	)
-
-	for {
-		database, err = Connect(ctx, databaseURL)
-		if err == nil {
-			break
-		}
-
-		if ctx.Err() != nil {
-			t.Fatalf("expected database connection, got %v", err)
-		}
-
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	sqlDB, err := database.DB()
-	if err != nil {
-		t.Fatalf("expected sql database handle, got %v", err)
-	}
-
+	database := openIntegrationDatabase(t, ctx, databaseURL)
 	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Fatalf("failed to close database connection: %v", err)
-		}
+		closeIntegrationDatabase(t, database)
 	})
 
 	if err := Migrate(ctx, database); err != nil {
@@ -134,29 +100,64 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 
 	baseDate := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC).
 		AddDate(0, 0, int(time.Now().Unix()%10000))
+	username := "integration-user-" + baseDate.Format("20060102")
+	otherUsername := username + "-other"
 
-	cleanupIntegrationRows(t, database, baseDate)
+	cleanupIntegrationRows(t, database, baseDate, username, otherUsername)
 	t.Cleanup(func() {
-		cleanupIntegrationRows(t, database, baseDate)
+		cleanupIntegrationRows(t, database, baseDate, username, otherUsername)
 	})
 
+	user := domain.User{
+		Username: username,
+	}
+	if err := database.Create(&user).Error; err != nil {
+		t.Fatalf("expected first user insert to succeed, got %v", err)
+	}
+
+	duplicateUser := domain.User{
+		Username: username,
+	}
+	if err := database.Create(&duplicateUser).Error; err == nil {
+		t.Fatal("expected duplicate username to fail")
+	}
+
+	otherUser := domain.User{
+		Username: otherUsername,
+	}
+	if err := database.Create(&otherUser).Error; err != nil {
+		t.Fatalf("expected other user insert to succeed, got %v", err)
+	}
+
 	memo := domain.DailyMemo{
-		Date: baseDate,
-		Memo: "integration memo",
+		UserID: user.ID,
+		Date:   baseDate,
+		Memo:   "integration memo",
 	}
 	if err := database.Create(&memo).Error; err != nil {
 		t.Fatalf("expected first memo insert to succeed, got %v", err)
 	}
 
 	duplicateMemo := domain.DailyMemo{
-		Date: baseDate,
-		Memo: "integration duplicate memo",
+		UserID: user.ID,
+		Date:   baseDate,
+		Memo:   "integration duplicate memo",
 	}
 	if err := database.Create(&duplicateMemo).Error; err == nil {
 		t.Fatal("expected duplicate memo date to fail")
 	}
 
+	otherUserMemo := domain.DailyMemo{
+		UserID: otherUser.ID,
+		Date:   baseDate,
+		Memo:   "integration other user memo",
+	}
+	if err := database.Create(&otherUserMemo).Error; err != nil {
+		t.Fatalf("expected same memo date for other user to succeed, got %v", err)
+	}
+
 	goal := domain.Goal{
+		UserID:    user.ID,
 		Title:     "integration constraint goal",
 		StartDate: baseDate,
 		EndDate:   nil,
@@ -167,6 +168,7 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 
 	invalidEndDate := baseDate
 	invalidGoal := domain.Goal{
+		UserID:    user.ID,
 		Title:     "integration invalid date range goal",
 		StartDate: baseDate.AddDate(0, 0, 1),
 		EndDate:   &invalidEndDate,
@@ -176,6 +178,7 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 	}
 
 	check := domain.GoalCheck{
+		UserID: user.ID,
 		GoalID: goal.ID,
 		Date:   baseDate,
 	}
@@ -184,6 +187,7 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 	}
 
 	duplicateCheck := domain.GoalCheck{
+		UserID: user.ID,
 		GoalID: goal.ID,
 		Date:   baseDate,
 	}
@@ -192,20 +196,31 @@ func assertMigratedConstraints(t *testing.T, database *gorm.DB) {
 	}
 
 	orphanCheck := domain.GoalCheck{
+		UserID: user.ID,
 		GoalID: goal.ID + 1000000,
 		Date:   baseDate.AddDate(0, 0, 1),
 	}
 	if err := database.Create(&orphanCheck).Error; err == nil {
 		t.Fatal("expected orphan goal check to fail")
 	}
+
+	crossUserCheck := domain.GoalCheck{
+		UserID: otherUser.ID,
+		GoalID: goal.ID,
+		Date:   baseDate.AddDate(0, 0, 2),
+	}
+	if err := database.Create(&crossUserCheck).Error; err == nil {
+		t.Fatal("expected cross-user goal check to fail")
+	}
 }
 
-func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time) {
+func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time, usernames ...string) {
 	t.Helper()
 
 	dates := []time.Time{
 		baseDate,
 		baseDate.AddDate(0, 0, 1),
+		baseDate.AddDate(0, 0, 2),
 	}
 
 	if err := database.Where("date IN ?", dates).Delete(&domain.GoalCheck{}).Error; err != nil {
@@ -221,5 +236,9 @@ func cleanupIntegrationRows(t *testing.T, database *gorm.DB, baseDate time.Time)
 		"integration invalid date range goal",
 	}).Delete(&domain.Goal{}).Error; err != nil {
 		t.Fatalf("failed to clean goals: %v", err)
+	}
+
+	if err := database.Where("username IN ?", usernames).Delete(&domain.User{}).Error; err != nil {
+		t.Fatalf("failed to clean users: %v", err)
 	}
 }
