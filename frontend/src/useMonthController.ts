@@ -123,6 +123,7 @@ export function useMonthController() {
     }
 
     const submittedMonth = month;
+    const submittedLoadRequestID = loadRequestIDRef.current;
     preparingMonthRef.current = true;
     setPreparingMonth(true);
     clearSaveFeedback();
@@ -131,19 +132,19 @@ export function useMonthController() {
 
     try {
       const preparedView = await ensureMonth(submittedMonth);
-      setMonthView((currentView) =>
-        currentView.month === submittedMonth ? preparedView : currentView,
-      );
-      if (activeMonthRef.current === submittedMonth) {
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setMonthView(preparedView);
         setSaveMessage("목표를 이월했습니다.");
       }
     } catch {
-      if (activeMonthRef.current === submittedMonth) {
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setSaveFailure("목표 이월에 실패했습니다.");
       }
     } finally {
-      preparingMonthRef.current = false;
-      setPreparingMonth(false);
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        preparingMonthRef.current = false;
+        setPreparingMonth(false);
+      }
     }
   }
 
@@ -244,6 +245,7 @@ export function useMonthController() {
     }
 
     const submittedMonth = month;
+    const submittedLoadRequestID = loadRequestIDRef.current;
     clearSaveFeedback();
     setSavingGoal(true);
 
@@ -254,20 +256,28 @@ export function useMonthController() {
         newGoalStartDate,
       );
     } catch {
-      setSaveFailure("목표 추가에 실패했습니다.");
-      setSavingGoal(false);
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setSaveFailure("목표 추가에 실패했습니다.");
+        setSavingGoal(false);
+      }
+      return;
+    }
+
+    if (!isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
       return;
     }
 
     setNewGoalTitle("");
     setNewGoalStartDate(monthStartDate(submittedMonth));
     setGoalFormOpen(false);
-
     await refreshMonthView(
       submittedMonth,
+      submittedLoadRequestID,
       "목표를 추가했지만 화면 갱신에 실패했습니다.",
     );
-    setSavingGoal(false);
+    if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+      setSavingGoal(false);
+    }
   }
 
   function startEditingGoal(goal: Goal) {
@@ -294,6 +304,7 @@ export function useMonthController() {
     event.preventDefault();
 
     const submittedMonth = month;
+    const submittedLoadRequestID = loadRequestIDRef.current;
     const validation = validateGoalTitleDraft({
       canSaveChanges,
       isMutatingMonth,
@@ -311,23 +322,30 @@ export function useMonthController() {
     try {
       await updateGoalTitle(goalID, validation.trimmedTitle);
     } catch {
-      setSaveFailure("목표 수정에 실패했습니다.");
-      setSavingGoalTitle(false);
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setSaveFailure("목표 수정에 실패했습니다.");
+        setSavingGoalTitle(false);
+      }
+      return;
+    }
+
+    if (!isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
       return;
     }
 
     setMonthView((currentView) =>
-      currentView.month === submittedMonth
-        ? applyGoalTitleState(currentView, goalID, validation.trimmedTitle)
-        : currentView,
+      applyGoalTitleState(currentView, goalID, validation.trimmedTitle),
     );
     cancelEditingGoal();
 
     await refreshMonthView(
       submittedMonth,
+      submittedLoadRequestID,
       "목표를 수정했지만 화면 갱신에 실패했습니다.",
     );
-    setSavingGoalTitle(false);
+    if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+      setSavingGoalTitle(false);
+    }
   }
 
   async function deactivateGoalFromMonth(goal: Goal) {
@@ -337,6 +355,7 @@ export function useMonthController() {
     }
 
     const submittedMonth = month;
+    const submittedLoadRequestID = loadRequestIDRef.current;
     const endDate = deactivationDateForGoal(goal, submittedMonth);
     if (goal.endDate !== null && goal.endDate <= goalListReferenceDate) {
       setSaveFailure("이미 종료된 목표입니다.");
@@ -353,16 +372,18 @@ export function useMonthController() {
       try {
         await deactivateGoal(goal.id, endDate);
       } catch {
-        if (activeMonthRef.current === submittedMonth) {
+        if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
           setSaveFailure("목표 종료에 실패했습니다.");
         }
         return;
       }
 
+      if (!isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        return;
+      }
+
       setMonthView((currentView) =>
-        currentView.month === submittedMonth
-          ? applyGoalEndDateState(currentView, goal.id, endDate)
-          : currentView,
+        applyGoalEndDateState(currentView, goal.id, endDate),
       );
       const replacementStartDate = nextDate(endDate);
       if (replacementStartDate <= monthEndDate(submittedMonth)) {
@@ -370,13 +391,19 @@ export function useMonthController() {
       }
       const refreshed = await refreshMonthView(
         submittedMonth,
+        submittedLoadRequestID,
         "목표를 종료했지만 화면 갱신에 실패했습니다.",
       );
-      if (refreshed && activeMonthRef.current === submittedMonth) {
+      if (
+        refreshed &&
+        isCurrentSaveContext(submittedMonth, submittedLoadRequestID)
+      ) {
         setSaveMessage("목표를 종료했습니다.");
       }
     } finally {
-      unmarkGoalDeactivating(goal.id);
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        unmarkGoalDeactivating(goal.id);
+      }
     }
   }
 
@@ -406,6 +433,7 @@ export function useMonthController() {
     clearSaveFeedback();
     setSavingChecks([]);
     setSavingMemos([]);
+    setSavingGoal(false);
     setGoalFormOpen(false);
     setNewGoalTitle("");
     setNewGoalStartDate(monthStartDate(nextMonth));
@@ -420,16 +448,19 @@ export function useMonthController() {
 
   async function refreshMonthView(
     submittedMonth: string,
+    submittedLoadRequestID: number,
     failureMessage: string,
   ) {
     try {
       const refreshedView = await getMonthView(submittedMonth);
-      setMonthView((currentView) =>
-        currentView.month === submittedMonth ? refreshedView : currentView,
-      );
+      if (!isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        return false;
+      }
+
+      setMonthView(refreshedView);
       return true;
     } catch {
-      if (activeMonthRef.current === submittedMonth) {
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setSaveFailure(failureMessage);
       }
       return false;

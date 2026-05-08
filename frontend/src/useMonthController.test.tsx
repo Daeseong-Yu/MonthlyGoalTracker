@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { type FormEvent } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -17,6 +18,7 @@ import {
   renderApp,
   resolvePending,
   stubFetch,
+  setInputValue,
   waitFor,
   waitForText,
 } from "./App.testHelpers";
@@ -279,6 +281,195 @@ describe("useMonthController", () => {
     await resolvePending(memoSaveResolves[1] ?? null);
     await waitForText("first memo idle");
   });
+
+  it("ignores stale month mutation failures after returning to the same month", async () => {
+    const mutationResolves: Array<() => void> = [];
+    const fetchMock = stubFetch((input) => {
+      const path = requestPath(input);
+      if (
+        path.includes("/ensure") ||
+        path.endsWith("/goals") ||
+        path === "/api/goals/1" ||
+        path === "/api/goals/1/deactivate"
+      ) {
+        return pendingErrorResponse(500, (resolve) => {
+          mutationResolves.push(resolve);
+        });
+      }
+
+      const month = monthFromRequest(input);
+      return jsonResponse(buildLabeledMonthView(month));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+
+    const initialMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
+    await waitForText(`API ${initialMonth}`);
+
+    await clickButton("목표 이월");
+    await waitFor(() => mutationResolves.length >= 1);
+
+    const previousMonth = offsetMonth(initialMonth, -1);
+    await clickButton("이전 월 로드");
+    await waitForText(`API ${previousMonth}`);
+
+    await clickButton("다음 월 로드");
+    await waitForText(`API ${initialMonth}`);
+
+    await resolvePending(mutationResolves[0] ?? null);
+
+    expect(document.body.textContent).toContain(`API ${initialMonth}`);
+    expect(document.body.textContent).toContain("no save error");
+    expect(document.body.textContent).not.toContain("목표 이월에 실패했습니다.");
+
+    await setInputValue("새 목표 제목", "New API goal");
+    await clickButton("새 목표 제출");
+    await waitFor(() => mutationResolves.length >= 2);
+
+    await clickButton("이전 월 로드");
+    await waitForText(`API ${previousMonth}`);
+
+    await clickButton("다음 월 로드");
+    await waitForText(`API ${initialMonth}`);
+
+    await resolvePending(mutationResolves[1] ?? null);
+
+    expect(document.body.textContent).toContain(`API ${initialMonth}`);
+    expect(document.body.textContent).toContain("no save error");
+    expect(document.body.textContent).not.toContain("목표 추가에 실패했습니다.");
+
+    await clickButton("목표 제목 수정 시작");
+    await setInputValue("목표 수정 제목", "Updated API goal");
+    await clickButton("목표 제목 수정 제출");
+    await waitFor(() => mutationResolves.length >= 3);
+
+    await clickButton("이전 월 로드");
+    await waitForText(`API ${previousMonth}`);
+
+    await clickButton("다음 월 로드");
+    await waitForText(`API ${initialMonth}`);
+
+    await resolvePending(mutationResolves[2] ?? null);
+
+    expect(document.body.textContent).toContain(`API ${initialMonth}`);
+    expect(document.body.textContent).toContain("no save error");
+    expect(document.body.textContent).not.toContain("목표 수정에 실패했습니다.");
+
+    await clickButton("첫 목표 종료");
+    await waitFor(() => mutationResolves.length >= 4);
+
+    await clickButton("이전 월 로드");
+    await waitForText(`API ${previousMonth}`);
+
+    await clickButton("다음 월 로드");
+    await waitForText(`API ${initialMonth}`);
+
+    await resolvePending(mutationResolves[3] ?? null);
+
+    expect(document.body.textContent).toContain(`API ${initialMonth}`);
+    expect(document.body.textContent).toContain("no save error");
+    expect(document.body.textContent).not.toContain("목표 종료에 실패했습니다.");
+  });
+
+  it("ignores stale month refresh responses after returning to the same month", async () => {
+    const pendingRefreshes = new Map<string, () => void>();
+    const fetchMock = stubFetch((input) => {
+      const path = requestPath(input);
+      if (path.endsWith("/goals")) {
+        return pendingResponse((resolve) => {
+          pendingRefreshes.set("create", resolve);
+        });
+      }
+
+      const month = monthFromRequest(input);
+      if (pendingRefreshes.has("create") && !pendingRefreshes.has("refresh")) {
+        return pendingJsonResponse(
+          buildStaleRefreshMonthView(month),
+          (resolve) => {
+            pendingRefreshes.set("refresh", resolve);
+          },
+        );
+      }
+
+      return jsonResponse(buildLabeledMonthView(month));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+
+    const initialMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
+    await waitForText(`API ${initialMonth}`);
+
+    await setInputValue("새 목표 제목", "New API goal");
+    await clickButton("새 목표 제출");
+    await waitFor(() => pendingRefreshes.has("create"));
+    await resolvePending(pendingRefreshes.get("create") ?? null);
+    await waitFor(() => pendingRefreshes.has("refresh"));
+
+    const previousMonth = offsetMonth(initialMonth, -1);
+    await clickButton("이전 월 로드");
+    await waitForText(`API ${previousMonth}`);
+
+    await clickButton("다음 월 로드");
+    await waitForText(`API ${initialMonth}`);
+
+    await resolvePending(pendingRefreshes.get("refresh") ?? null);
+
+    expect(document.body.textContent).toContain(`API ${initialMonth}`);
+    expect(document.body.textContent).toContain("no save error");
+    expect(document.body.textContent).not.toContain(
+      `STALE REFRESH ${initialMonth}`,
+    );
+  });
+
+  it("keeps newer month mutation state when stale failures resolve", async () => {
+    const createResolves: Array<() => void> = [];
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input).endsWith("/goals")) {
+        return pendingErrorResponse(500, (resolve) => {
+          createResolves.push(resolve);
+        });
+      }
+
+      const month = monthFromRequest(input);
+      return jsonResponse(buildLabeledMonthView(month));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+
+    const initialMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
+    await waitForText(`API ${initialMonth}`);
+
+    await setInputValue("새 목표 제목", "First pending goal");
+    await clickButton("새 목표 제출");
+    await waitFor(() => createResolves.length >= 1);
+    await waitForText("month mutation saving");
+
+    const previousMonth = offsetMonth(initialMonth, -1);
+    await clickButton("이전 월 로드");
+    await waitForText(`API ${previousMonth}`);
+
+    await clickButton("다음 월 로드");
+    await waitForText(`API ${initialMonth}`);
+    await waitForText("month mutation idle");
+
+    await setInputValue("새 목표 제목", "Second pending goal");
+    await clickButton("새 목표 제출");
+    await waitFor(() => createResolves.length >= 2);
+    await waitForText("month mutation saving");
+
+    await resolvePending(createResolves[0] ?? null);
+
+    expect(document.body.textContent).toContain(`API ${initialMonth}`);
+    expect(document.body.textContent).toContain("month mutation saving");
+    expect(document.body.textContent).toContain("no save error");
+    expect(document.body.textContent).not.toContain("목표 추가에 실패했습니다.");
+
+    await resolvePending(createResolves[1] ?? null);
+    await waitForText("month mutation idle");
+  });
 });
 
 function MonthControllerHarness() {
@@ -313,6 +504,27 @@ function MonthControllerHarness() {
       </p>
       <p>{firstCheckSaving ? "first check saving" : "first check idle"}</p>
       <p>{firstMemoSaving ? "first memo saving" : "first memo idle"}</p>
+      <p>
+        {controller.isMutatingMonth
+          ? "month mutation saving"
+          : "month mutation idle"}
+      </p>
+      <input
+        aria-label="새 목표 제목"
+        value={controller.newGoalTitle}
+        onChange={(event) => {
+          controller.setNewGoalTitle(event.target.value);
+        }}
+      />
+      {controller.editingGoalID !== null ? (
+        <input
+          aria-label="목표 수정 제목"
+          value={controller.editingGoalTitle}
+          onChange={(event) => {
+            controller.setEditingGoalTitle(event.target.value);
+          }}
+        />
+      ) : null}
       <button
         aria-label="이전 월 로드"
         type="button"
@@ -355,6 +567,60 @@ function MonthControllerHarness() {
       >
         save first memo
       </button>
+      <button
+        aria-label="목표 이월"
+        type="button"
+        onClick={() => {
+          void controller.prepareCurrentMonth();
+        }}
+      >
+        prepare month
+      </button>
+      <button
+        aria-label="새 목표 제출"
+        type="button"
+        onClick={() => {
+          void controller.submitNewGoal(testFormEvent());
+        }}
+      >
+        create goal
+      </button>
+      <button
+        aria-label="목표 제목 수정 시작"
+        type="button"
+        disabled={!firstGoal}
+        onClick={() => {
+          if (firstGoal) {
+            controller.startEditingGoal(firstGoal);
+          }
+        }}
+      >
+        start update goal
+      </button>
+      <button
+        aria-label="목표 제목 수정 제출"
+        type="button"
+        disabled={!firstGoal}
+        onClick={() => {
+          if (firstGoal) {
+            void controller.submitGoalTitle(testFormEvent(), firstGoal.id);
+          }
+        }}
+      >
+        update goal
+      </button>
+      <button
+        aria-label="첫 목표 종료"
+        type="button"
+        disabled={!firstGoal}
+        onClick={() => {
+          if (firstGoal) {
+            void controller.deactivateGoalFromMonth(firstGoal);
+          }
+        }}
+      >
+        deactivate first goal
+      </button>
     </section>
   );
 }
@@ -368,4 +634,23 @@ function buildLabeledMonthView(month: string) {
       index === 0 ? { ...goal, title: `API ${month}` } : goal,
     ),
   };
+}
+
+function buildStaleRefreshMonthView(month: string) {
+  const view = buildMonthView(month);
+
+  return {
+    ...view,
+    goals: view.goals.map((goal, index) =>
+      index === 0 ? { ...goal, title: `STALE REFRESH ${month}` } : goal,
+    ),
+  };
+}
+
+function testFormEvent() {
+  return {
+    preventDefault() {
+      return undefined;
+    },
+  } as FormEvent<HTMLFormElement>;
 }
