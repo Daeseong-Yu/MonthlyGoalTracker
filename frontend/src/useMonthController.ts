@@ -10,25 +10,21 @@ import {
   updateGoalTitle,
 } from "./api";
 import type { LoadStatus } from "./appDisplay";
+import { checkKey, nextDate } from "./goalSlots";
 import {
-  activeGoalLimitReachedForNewGoal,
-  buildDailyRecordGoalSlots,
-  checkKey,
-  isGoalVisibleInDisplay,
-  maxActiveGoalsPerDay,
-  nextDate,
-} from "./goalSlots";
+  validateGoalTitleDraft,
+  validateNewGoalDraft,
+} from "./goalFormValidation";
 import { buildMockMonthView } from "./mockMonth";
+import { buildMonthSummary } from "./monthSummary";
 import {
   applyCheckState,
   applyGoalEndDateState,
   applyGoalTitleState,
-  buildChartData,
+  applyMemoState,
   currentDate,
   currentMonth,
   deactivationDateForGoal,
-  getReferencePoint,
-  isCurrentMonth,
   isGoalActiveOnDate,
   monthEndDate,
   monthStartDate,
@@ -62,28 +58,21 @@ export function useMonthController() {
   const deactivatingGoalIDSetRef = useRef(new Set<number>());
   const preparingMonthRef = useRef(false);
   activeMonthRef.current = month;
+  const currentDayKey = currentDate();
 
-  const chartData = useMemo(
-    () => buildChartData(days, goals, checks),
-    [checks, days, goals],
+  const {
+    activeMetricGoalCount,
+    activeMetricLabel,
+    averageRate,
+    chartData,
+    dailyRecordGoalSlots,
+    goalListReferenceDate,
+    totalCompleted,
+    visibleGoals,
+  } = useMemo(
+    () => buildMonthSummary(monthView, new Date(`${currentDayKey}T12:00:00`)),
+    [currentDayKey, monthView],
   );
-
-  const totalCompleted = chartData.reduce(
-    (sum, point) => sum + point.completedCount,
-    0,
-  );
-  const averageRate =
-    chartData.length === 0
-      ? 0
-      : Math.round(
-          (chartData.reduce((sum, point) => sum + point.completionRate, 0) /
-            chartData.length) *
-            100,
-        );
-  const referencePoint = getReferencePoint(month, chartData);
-  const activeMetricLabel = isCurrentMonth(month)
-    ? "오늘 활성 목표"
-    : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
   const isLoading = loadStatus === "loading";
   const canSaveChanges = loadStatus === "api";
   const isMutatingMonth =
@@ -91,17 +80,6 @@ export function useMonthController() {
     savingGoalTitle ||
     preparingMonth ||
     deactivatingGoalIDs.length > 0;
-  const goalListReferenceDate = isCurrentMonth(month)
-    ? currentDate()
-    : monthStartDate(month);
-  const visibleGoals = goals.filter((goal) =>
-    isGoalVisibleInDisplay(goal, goalListReferenceDate),
-  );
-  const dailyRecordGoalSlots = useMemo(
-    () => buildDailyRecordGoalSlots(goals),
-    [goals],
-  );
-
   useEffect(() => {
     void loadMonth(currentMonth());
   }, []);
@@ -198,12 +176,7 @@ export function useMonthController() {
   }
 
   function updateMemo(date: string, memo: string) {
-    setMonthView((currentView) => ({
-      ...currentView,
-      days: currentView.days.map((day) =>
-        day.date === date ? { ...day, memo } : day,
-      ),
-    }));
+    setMonthView((currentView) => applyMemoState(currentView, date, memo));
   }
 
   async function saveMemoForDate(date: string, memo: string) {
@@ -233,34 +206,16 @@ export function useMonthController() {
   async function submitNewGoal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 목표를 추가할 수 있습니다.");
-      return;
-    }
-
-    if (isMutatingMonth) {
-      setSaveFailure("다른 저장 작업이 끝난 뒤 다시 시도해 주세요.");
-      return;
-    }
-
-    const trimmedTitle = newGoalTitle.trim();
-    if (trimmedTitle === "") {
-      setSaveFailure("목표 제목을 입력해 주세요.");
-      return;
-    }
-
-    if (
-      newGoalStartDate < monthStartDate(month) ||
-      newGoalStartDate > monthEndDate(month)
-    ) {
-      setSaveFailure("시작일은 선택한 월 안에서 골라 주세요.");
-      return;
-    }
-
-    if (activeGoalLimitReachedForNewGoal(goals, newGoalStartDate, month)) {
-      setSaveFailure(
-        `할일은 날짜별로 최대 ${maxActiveGoalsPerDay}개까지 등록할 수 있습니다.`,
-      );
+    const validation = validateNewGoalDraft({
+      canSaveChanges,
+      goals,
+      isMutatingMonth,
+      month,
+      startDate: newGoalStartDate,
+      title: newGoalTitle,
+    });
+    if (!validation.ok) {
+      setSaveFailure(validation.message);
       return;
     }
 
@@ -269,7 +224,11 @@ export function useMonthController() {
     setSavingGoal(true);
 
     try {
-      await createGoal(submittedMonth, trimmedTitle, newGoalStartDate);
+      await createGoal(
+        submittedMonth,
+        validation.trimmedTitle,
+        newGoalStartDate,
+      );
     } catch {
       setSaveFailure("목표 추가에 실패했습니다.");
       setSavingGoal(false);
@@ -310,20 +269,15 @@ export function useMonthController() {
   ) {
     event.preventDefault();
 
-    if (!canSaveChanges) {
-      setSaveFailure("API 데이터에서만 목표를 수정할 수 있습니다.");
-      return;
-    }
-
-    if (isMutatingMonth) {
-      setSaveFailure("다른 저장 작업이 끝난 뒤 다시 시도해 주세요.");
-      return;
-    }
-
-    const trimmedTitle = editingGoalTitle.trim();
     const submittedMonth = month;
-    if (trimmedTitle === "") {
-      setSaveFailure("목표 제목을 입력해 주세요.");
+    const validation = validateGoalTitleDraft({
+      canSaveChanges,
+      isMutatingMonth,
+      title: editingGoalTitle,
+      unavailableMessage: "API 데이터에서만 목표를 수정할 수 있습니다.",
+    });
+    if (!validation.ok) {
+      setSaveFailure(validation.message);
       return;
     }
 
@@ -331,7 +285,7 @@ export function useMonthController() {
     setSavingGoalTitle(true);
 
     try {
-      await updateGoalTitle(goalID, trimmedTitle);
+      await updateGoalTitle(goalID, validation.trimmedTitle);
     } catch {
       setSaveFailure("목표 수정에 실패했습니다.");
       setSavingGoalTitle(false);
@@ -340,7 +294,7 @@ export function useMonthController() {
 
     setMonthView((currentView) =>
       currentView.month === submittedMonth
-        ? applyGoalTitleState(currentView, goalID, trimmedTitle)
+        ? applyGoalTitleState(currentView, goalID, validation.trimmedTitle)
         : currentView,
     );
     cancelEditingGoal();
@@ -469,7 +423,7 @@ export function useMonthController() {
   }
 
   return {
-    activeMetricGoalCount: referencePoint?.activeGoalCount ?? 0,
+    activeMetricGoalCount,
     activeMetricLabel,
     averageRate,
     canSaveChanges,

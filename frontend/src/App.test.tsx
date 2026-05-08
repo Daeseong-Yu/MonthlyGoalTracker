@@ -206,7 +206,7 @@ describe("App", () => {
   });
 
   it("clears stale success feedback when validation fails", async () => {
-    stubFetch(createMonthViewApiHandler());
+    const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
     await waitForText("API 데이터");
@@ -219,6 +219,9 @@ describe("App", () => {
 
     await waitForText("목표 제목을 입력해 주세요.");
     expect(document.body.textContent).not.toContain("목표를 이월했습니다.");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.endsWith("/goals"))).toBe(
+      true,
+    );
   });
 
   it("disables memo editing while a memo save is pending", async () => {
@@ -363,6 +366,23 @@ describe("App", () => {
       true,
     );
     expect(getInput("새 목표 제목").value).toBe("API overflow");
+  });
+
+  it("blocks blank goal title edits before calling the API", async () => {
+    const fetchMock = stubFetch(createMonthViewApiHandler());
+
+    renderApp(<App />);
+    await waitForText("API 데이터");
+
+    await clickButton("API walk 수정");
+    await setInputValue("API walk 제목 수정", "   ");
+    await clickButton("API walk 저장");
+
+    await waitForText("목표 제목을 입력해 주세요.");
+    expect(hasNoFetchedPath(fetchMock, (path) => path === "/api/goals/1")).toBe(
+      true,
+    );
+    expect(getInput("API walk 제목 수정").value).toBe("   ");
   });
 
   it("handles the core goal and daily record workflow", async () => {

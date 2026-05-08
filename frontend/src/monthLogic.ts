@@ -38,6 +38,21 @@ export function applyCheckState(
   };
 }
 
+export function applyMemoState(
+  view: MonthView,
+  date: string,
+  memo: string,
+): MonthView {
+  if (view.month !== date.slice(0, 7)) {
+    return view;
+  }
+
+  return {
+    ...view,
+    days: view.days.map((day) => (day.date === date ? { ...day, memo } : day)),
+  };
+}
+
 export function applyGoalTitleState(
   view: MonthView,
   goalId: number,

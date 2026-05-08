@@ -4,6 +4,7 @@ import {
   applyCheckState,
   applyGoalEndDateState,
   applyGoalTitleState,
+  applyMemoState,
   buildChartData,
   currentDate,
   currentMonth,
@@ -97,6 +98,23 @@ describe("month logic", () => {
     const view = monthView();
 
     expect(applyCheckState(view, 1, "2026-06-01", true)).toBe(view);
+  });
+
+  it("updates memo state for the selected month", () => {
+    const updated = applyMemoState(monthView(), "2026-05-02", "Daily note");
+
+    expect(updated.days.map((day) => day.memo)).toEqual([
+      "",
+      "Daily note",
+      "",
+      "",
+    ]);
+  });
+
+  it("ignores memo updates outside the selected month", () => {
+    const view = monthView();
+
+    expect(applyMemoState(view, "2026-06-01", "Daily note")).toBe(view);
   });
 
   it("updates goal title and end date without changing other goals", () => {
