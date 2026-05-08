@@ -17,6 +17,7 @@ var (
 	ErrInvalidAuthConfig = errors.New("invalid auth config")
 	ErrInvalidSession    = errors.New("invalid session config")
 	ErrInvalidAuthFlow   = errors.New("invalid auth flow config")
+	ErrInvalidProxy      = errors.New("invalid proxy config")
 )
 
 const (
@@ -24,16 +25,18 @@ const (
 	defaultSessionTTLHours            = 24 * 30
 	defaultSignupRateLimitPerMinute   = 5
 	defaultLoginRateLimitPerMinute    = 10
+	defaultAuthRateLimitMaxBuckets    = 10000
 	minimumLegacyClaimTokenCharacters = 16
 )
 
 type Config struct {
-	Host        string
-	Port        string
-	DatabaseURL string
-	Auth        BasicAuthConfig
-	Session     SessionConfig
-	AuthFlow    AuthFlowConfig
+	Host           string
+	Port           string
+	DatabaseURL    string
+	Auth           BasicAuthConfig
+	Session        SessionConfig
+	AuthFlow       AuthFlowConfig
+	TrustedProxies []string
 }
 
 type BasicAuthConfig struct {
@@ -74,6 +77,7 @@ type AuthFlowConfig struct {
 	LegacyClaimToken         string
 	SignupRateLimitPerMinute int
 	LoginRateLimitPerMinute  int
+	RateLimitMaxBuckets      int
 }
 
 func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
@@ -82,6 +86,9 @@ func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
 	}
 	if c.LoginRateLimitPerMinute == 0 {
 		c.LoginRateLimitPerMinute = defaultLoginRateLimitPerMinute
+	}
+	if c.RateLimitMaxBuckets == 0 {
+		c.RateLimitMaxBuckets = defaultAuthRateLimitMaxBuckets
 	}
 	c.LegacyClaimToken = strings.TrimSpace(c.LegacyClaimToken)
 
@@ -108,7 +115,9 @@ func Load() Config {
 			LegacyClaimToken:         getEnv("APP_LEGACY_CLAIM_TOKEN", ""),
 			SignupRateLimitPerMinute: getEnvInt("APP_SIGNUP_RATE_LIMIT_PER_MINUTE", defaultSignupRateLimitPerMinute),
 			LoginRateLimitPerMinute:  getEnvInt("APP_LOGIN_RATE_LIMIT_PER_MINUTE", defaultLoginRateLimitPerMinute),
+			RateLimitMaxBuckets:      getEnvInt("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", defaultAuthRateLimitMaxBuckets),
 		},
+		TrustedProxies: getEnvList("APP_TRUSTED_PROXIES"),
 	}
 }
 
@@ -124,6 +133,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.AuthFlow.Validate(); err != nil {
+		return err
+	}
+	if err := validateTrustedProxies(c.TrustedProxies); err != nil {
 		return err
 	}
 
@@ -188,6 +200,9 @@ func (c AuthFlowConfig) Validate() error {
 	if cfg.LoginRateLimitPerMinute <= 0 {
 		return fmt.Errorf("%w: APP_LOGIN_RATE_LIMIT_PER_MINUTE must be positive", ErrInvalidAuthFlow)
 	}
+	if cfg.RateLimitMaxBuckets <= 0 {
+		return fmt.Errorf("%w: APP_AUTH_RATE_LIMIT_MAX_BUCKETS must be positive", ErrInvalidAuthFlow)
+	}
 	if cfg.LegacyClaimToken != "" && len(cfg.LegacyClaimToken) < minimumLegacyClaimTokenCharacters {
 		return fmt.Errorf("%w: APP_LEGACY_CLAIM_TOKEN must be at least %d characters", ErrInvalidAuthFlow, minimumLegacyClaimTokenCharacters)
 	}
@@ -202,6 +217,24 @@ func getEnv(key, fallback string) string {
 	}
 
 	return value
+}
+
+func getEnvList(key string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			values = append(values, item)
+		}
+	}
+
+	return values
 }
 
 func getEnvInt(key string, fallback int) int {
@@ -248,4 +281,19 @@ func isLoopbackHost(host string) bool {
 	}
 
 	return addr.IsLoopback()
+}
+
+func validateTrustedProxies(values []string) error {
+	for _, value := range values {
+		if _, err := netip.ParseAddr(value); err == nil {
+			continue
+		}
+		if _, err := netip.ParsePrefix(value); err == nil {
+			continue
+		}
+
+		return fmt.Errorf("%w: APP_TRUSTED_PROXIES contains invalid proxy %q", ErrInvalidProxy, value)
+	}
+
+	return nil
 }

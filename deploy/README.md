@@ -104,6 +104,8 @@ Expected build artifacts:
    APP_COOKIE_SAMESITE=lax
    APP_SIGNUP_RATE_LIMIT_PER_MINUTE=5
    APP_LOGIN_RATE_LIMIT_PER_MINUTE=10
+   APP_AUTH_RATE_LIMIT_MAX_BUCKETS=10000
+   APP_TRUSTED_PROXIES=127.0.0.1
    APP_LEGACY_CLAIM_TOKEN=replace-with-owner-claim-token-32-chars
    ```
 
@@ -117,6 +119,12 @@ Expected build artifacts:
    unowned goals into the first owner account. Use at least 16 characters, keep
    it only in the server environment, and remove or rotate it after the claim is
    complete.
+
+   `APP_TRUSTED_PROXIES` must contain only reverse proxies you operate. For the
+   same-host Caddy setup above, use `127.0.0.1` so login throttling sees the
+   original `X-Forwarded-For` client IP. Leave it blank to ignore forwarded
+   client IP headers. `APP_AUTH_RATE_LIMIT_MAX_BUCKETS` caps the in-memory
+   login and signup throttling key count.
 
    Install the systemd unit from `monthly-goal-api.service.example`, then run:
 

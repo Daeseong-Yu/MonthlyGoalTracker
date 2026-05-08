@@ -52,6 +52,12 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 	if cfg.AuthFlow.LoginRateLimitPerMinute != defaultLoginRateLimitPerMinute {
 		t.Fatalf("expected default login rate limit %d, got %d", defaultLoginRateLimitPerMinute, cfg.AuthFlow.LoginRateLimitPerMinute)
 	}
+	if cfg.AuthFlow.RateLimitMaxBuckets != defaultAuthRateLimitMaxBuckets {
+		t.Fatalf("expected default auth rate limit max buckets %d, got %d", defaultAuthRateLimitMaxBuckets, cfg.AuthFlow.RateLimitMaxBuckets)
+	}
+	if len(cfg.TrustedProxies) != 0 {
+		t.Fatalf("expected no trusted proxies by default, got %v", cfg.TrustedProxies)
+	}
 }
 
 func TestLoadUsesEnvironmentValues(t *testing.T) {
@@ -70,6 +76,8 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	t.Setenv("APP_LEGACY_CLAIM_TOKEN", "owner-claim-token-123")
 	t.Setenv("APP_SIGNUP_RATE_LIMIT_PER_MINUTE", "3")
 	t.Setenv("APP_LOGIN_RATE_LIMIT_PER_MINUTE", "4")
+	t.Setenv("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", "1234")
+	t.Setenv("APP_TRUSTED_PROXIES", "127.0.0.1, 10.0.0.0/8")
 
 	cfg := Load()
 
@@ -120,6 +128,12 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	}
 	if cfg.AuthFlow.LoginRateLimitPerMinute != 4 {
 		t.Fatalf("expected login rate limit from environment, got %d", cfg.AuthFlow.LoginRateLimitPerMinute)
+	}
+	if cfg.AuthFlow.RateLimitMaxBuckets != 1234 {
+		t.Fatalf("expected auth rate limit max buckets from environment, got %d", cfg.AuthFlow.RateLimitMaxBuckets)
+	}
+	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "127.0.0.1" || cfg.TrustedProxies[1] != "10.0.0.0/8" {
+		t.Fatalf("expected trusted proxies from environment, got %v", cfg.TrustedProxies)
 	}
 }
 
@@ -266,6 +280,10 @@ func TestValidateRejectsInvalidAuthRateLimits(t *testing.T) {
 			name:     "negative login rate limit",
 			authFlow: AuthFlowConfig{LoginRateLimitPerMinute: -1},
 		},
+		{
+			name:     "negative max buckets",
+			authFlow: AuthFlowConfig{RateLimitMaxBuckets: -1},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -278,6 +296,25 @@ func TestValidateRejectsInvalidAuthRateLimits(t *testing.T) {
 				t.Fatalf("expected ErrInvalidAuthFlow, got %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateRejectsInvalidTrustedProxy(t *testing.T) {
+	cfg := testConfig()
+	cfg.TrustedProxies = []string{"not-a-proxy"}
+
+	err := cfg.Validate()
+	if !errors.Is(err, ErrInvalidProxy) {
+		t.Fatalf("expected ErrInvalidProxy, got %v", err)
+	}
+}
+
+func TestValidateAllowsTrustedProxyAddressesAndCIDRs(t *testing.T) {
+	cfg := testConfig()
+	cfg.TrustedProxies = []string{"127.0.0.1", "::1", "10.0.0.0/8"}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected trusted proxies to be allowed, got %v", err)
 	}
 }
 

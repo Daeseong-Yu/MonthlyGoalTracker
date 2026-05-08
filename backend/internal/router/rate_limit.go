@@ -13,7 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const maxAuthRateLimitBodyBytes = 64 * 1024
+const (
+	maxAuthRateLimitBodyBytes   = 64 * 1024
+	authRateLimitPruneEvery     = time.Minute
+	defaultAuthRateLimitMaxKeys = 10000
+)
 
 type rateBucket struct {
 	count   int
@@ -21,17 +25,28 @@ type rateBucket struct {
 }
 
 type fixedWindowRateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	now     func() time.Time
-	buckets map[string]rateBucket
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+	maxKeys  int
+	now      func() time.Time
+	buckets  map[string]rateBucket
+	prunedAt time.Time
 }
 
 func newFixedWindowRateLimiter(limit int, window time.Duration) *fixedWindowRateLimiter {
+	return newFixedWindowRateLimiterWithMaxKeys(limit, window, defaultAuthRateLimitMaxKeys)
+}
+
+func newFixedWindowRateLimiterWithMaxKeys(limit int, window time.Duration, maxKeys int) *fixedWindowRateLimiter {
+	if maxKeys <= 0 {
+		maxKeys = defaultAuthRateLimitMaxKeys
+	}
+
 	return &fixedWindowRateLimiter{
 		limit:   limit,
 		window:  window,
+		maxKeys: maxKeys,
 		now:     time.Now,
 		buckets: make(map[string]rateBucket),
 	}
@@ -44,17 +59,45 @@ func (l *fixedWindowRateLimiter) allow(key string) bool {
 	defer l.mu.Unlock()
 
 	bucket, ok := l.buckets[key]
-	if !ok || !now.Before(bucket.resetAt) {
-		l.buckets[key] = rateBucket{count: 1, resetAt: now.Add(l.window)}
-		return true
-	}
-	if bucket.count >= l.limit {
-		return false
+	if ok {
+		if now.Before(bucket.resetAt) {
+			if bucket.count >= l.limit {
+				return false
+			}
+
+			bucket.count++
+			l.buckets[key] = bucket
+			return true
+		}
+
+		delete(l.buckets, key)
 	}
 
-	bucket.count++
-	l.buckets[key] = bucket
+	if l.shouldPrune(now) {
+		l.pruneExpired(now)
+	}
+	if l.maxKeys > 0 && len(l.buckets) >= l.maxKeys {
+		l.pruneExpired(now)
+		if len(l.buckets) >= l.maxKeys {
+			return false
+		}
+	}
+
+	l.buckets[key] = rateBucket{count: 1, resetAt: now.Add(l.window)}
 	return true
+}
+
+func (l *fixedWindowRateLimiter) shouldPrune(now time.Time) bool {
+	return l.prunedAt.IsZero() || !now.Before(l.prunedAt.Add(authRateLimitPruneEvery))
+}
+
+func (l *fixedWindowRateLimiter) pruneExpired(now time.Time) {
+	for key, bucket := range l.buckets {
+		if !now.Before(bucket.resetAt) {
+			delete(l.buckets, key)
+		}
+	}
+	l.prunedAt = now
 }
 
 type authRateLimiter struct {
@@ -63,16 +106,20 @@ type authRateLimiter struct {
 }
 
 func newAuthRateLimiter(limit int, window time.Duration) *authRateLimiter {
+	return newAuthRateLimiterWithMaxKeys(limit, window, defaultAuthRateLimitMaxKeys)
+}
+
+func newAuthRateLimiterWithMaxKeys(limit int, window time.Duration, maxKeys int) *authRateLimiter {
 	return &authRateLimiter{
-		ipLimiter:        newFixedWindowRateLimiter(limit, window),
-		principalLimiter: newFixedWindowRateLimiter(limit, window),
+		ipLimiter:        newFixedWindowRateLimiterWithMaxKeys(limit, window, maxKeys),
+		principalLimiter: newFixedWindowRateLimiterWithMaxKeys(limit, window, maxKeys),
 	}
 }
 
 func (l *authRateLimiter) Middleware(scope string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		principal := authRateLimitPrincipal(c)
-		if !l.ipLimiter.allow(scope + ":ip:" + requestRemoteAddress(c.Request)) {
+		if !l.ipLimiter.allow(scope + ":ip:" + requestClientAddress(c)) {
 			rejectRateLimited(c)
 			return
 		}
@@ -105,6 +152,15 @@ func authRateLimitPrincipal(c *gin.Context) string {
 	}
 
 	return strings.ToLower(strings.TrimSpace(payload.Email))
+}
+
+func requestClientAddress(c *gin.Context) string {
+	clientIP := strings.TrimSpace(c.ClientIP())
+	if clientIP != "" {
+		return clientIP
+	}
+
+	return requestRemoteAddress(c.Request)
 }
 
 func requestRemoteAddress(request *http.Request) string {

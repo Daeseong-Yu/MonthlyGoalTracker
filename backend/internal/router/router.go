@@ -1,6 +1,7 @@
 package router
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/config"
@@ -13,6 +14,7 @@ import (
 
 func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	r := gin.Default()
+	configureTrustedProxies(r, cfg.TrustedProxies)
 
 	sessionConfig := cfg.Session.WithDefaults()
 	authFlowConfig := cfg.AuthFlow.WithDefaults()
@@ -47,8 +49,16 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	}
 	apiRoot.GET("/bootstrap", authHandler.Bootstrap)
 
-	signupLimiter := newAuthRateLimiter(authFlowConfig.SignupRateLimitPerMinute, time.Minute)
-	loginLimiter := newAuthRateLimiter(authFlowConfig.LoginRateLimitPerMinute, time.Minute)
+	signupLimiter := newAuthRateLimiterWithMaxKeys(
+		authFlowConfig.SignupRateLimitPerMinute,
+		time.Minute,
+		authFlowConfig.RateLimitMaxBuckets,
+	)
+	loginLimiter := newAuthRateLimiterWithMaxKeys(
+		authFlowConfig.LoginRateLimitPerMinute,
+		time.Minute,
+		authFlowConfig.RateLimitMaxBuckets,
+	)
 
 	authRoutes := apiRoot.Group("/auth")
 	authRoutes.POST("/signup", signupLimiter.Middleware("signup"), authHandler.SignUp)
@@ -73,4 +83,10 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	api.PUT("/checks", checkHandler.Set)
 
 	return r
+}
+
+func configureTrustedProxies(engine *gin.Engine, trustedProxies []string) {
+	if err := engine.SetTrustedProxies(trustedProxies); err != nil {
+		panic(fmt.Sprintf("invalid trusted proxy config: %v", err))
+	}
 }
