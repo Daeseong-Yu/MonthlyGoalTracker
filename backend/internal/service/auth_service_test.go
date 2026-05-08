@@ -74,15 +74,52 @@ func TestAuthServiceSignUpRejectsInvalidLegacyClaimToken(t *testing.T) {
 	}
 }
 
+func TestAuthServiceSignUpHashesPasswordBeforeDuplicateEmailCheck(t *testing.T) {
+	hashDone := false
+	users := &fakeAuthUserRepository{
+		findByEmailUser: &domain.User{ID: 9, Email: "owner@example.com"},
+		hashDone:        &hashDone,
+	}
+	sessions := &fakeAuthSessionRepository{}
+	authService := NewAuthService(users, sessions, time.Hour, "")
+	authService.hashPassword = func(password string) (string, error) {
+		hashDone = true
+		return "hashed-password", nil
+	}
+
+	result, err := authService.SignUp(context.Background(), "owner@example.com", "strong-password", "ko", "")
+	if result != nil {
+		t.Fatal("expected nil auth result")
+	}
+	if !errors.Is(err, ErrEmailAlreadyExists) {
+		t.Fatalf("expected ErrEmailAlreadyExists, got %v", err)
+	}
+	if !users.findByEmailCalled {
+		t.Fatal("expected duplicate email check to run")
+	}
+	if !users.hashDoneAtFind {
+		t.Fatal("expected password hash to be computed before duplicate email check")
+	}
+	if users.createCalled {
+		t.Fatal("expected duplicate email to stop before creating a user")
+	}
+	if sessions.createdSession != nil {
+		t.Fatal("expected duplicate email to stop before creating a session")
+	}
+}
+
 type fakeAuthUserRepository struct {
-	findByEmailUser *domain.User
-	findByEmailErr  error
-	createErr       error
-	createCalled    bool
-	email           string
-	locale          string
-	passwordHash    string
-	claimLegacy     bool
+	findByEmailUser   *domain.User
+	findByEmailErr    error
+	createErr         error
+	createCalled      bool
+	findByEmailCalled bool
+	hashDone          *bool
+	hashDoneAtFind    bool
+	email             string
+	locale            string
+	passwordHash      string
+	claimLegacy       bool
 }
 
 func (r *fakeAuthUserRepository) CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool) (*domain.User, error) {
@@ -109,6 +146,10 @@ func (r *fakeAuthUserRepository) CreateWithPassword(ctx context.Context, email, 
 func (r *fakeAuthUserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	_ = ctx
 	_ = email
+	r.findByEmailCalled = true
+	if r.hashDone != nil {
+		r.hashDoneAtFind = *r.hashDone
+	}
 	if r.findByEmailUser != nil {
 		return r.findByEmailUser, nil
 	}

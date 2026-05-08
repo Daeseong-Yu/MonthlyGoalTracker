@@ -337,8 +337,6 @@ function authErrorMessage(
 
     if (mode === "signup") {
       switch (error.code) {
-        case "email already exists":
-          return authMessages.signupEmailExists;
         case "weak password":
           return authMessages.signupWeakPassword;
         case "invalid email":

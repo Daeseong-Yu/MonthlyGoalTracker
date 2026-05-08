@@ -236,7 +236,7 @@ func writeAuthError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrInvalidEmail), errors.Is(err, service.ErrWeakPassword), errors.Is(err, service.ErrInvalidLocale):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrEmailAlreadyExists):
-		c.JSON(http.StatusConflict, gin.H{"error": "email already exists"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "signup failed"})
 	case errors.Is(err, service.ErrInvalidLegacyClaim):
 		c.JSON(http.StatusForbidden, gin.H{"error": "invalid legacy claim"})
 	case errors.Is(err, service.ErrLegacyClaimRequired):

@@ -57,15 +57,17 @@ type AuthService struct {
 	sessions             AuthSessionRepository
 	ttl                  time.Duration
 	now                  func() time.Time
+	hashPassword         func(password string) (string, error)
 	legacyClaimTokenHash string
 }
 
 func NewAuthService(users AuthUserRepository, sessions AuthSessionRepository, ttl time.Duration, legacyClaimToken string) *AuthService {
 	authService := &AuthService{
-		users:    users,
-		sessions: sessions,
-		ttl:      ttl,
-		now:      time.Now,
+		users:        users,
+		sessions:     sessions,
+		ttl:          ttl,
+		now:          time.Now,
+		hashPassword: bcryptHashPassword,
 	}
 
 	if token := strings.TrimSpace(legacyClaimToken); token != "" {
@@ -92,6 +94,11 @@ func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legac
 		return nil, err
 	}
 
+	passwordHash, err := s.hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
 	existingUser, err := s.users.FindByEmail(ctx, normalizedEmail)
 	if err == nil && existingUser.ID != 0 {
 		return nil, ErrEmailAlreadyExists
@@ -100,17 +107,21 @@ func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legac
 		return nil, err
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, err
-	}
-
-	user, err := s.users.CreateWithPassword(ctx, normalizedEmail, string(passwordHash), normalizedLocale, claimLegacy)
+	user, err := s.users.CreateWithPassword(ctx, normalizedEmail, passwordHash, normalizedLocale, claimLegacy)
 	if err != nil {
 		return nil, err
 	}
 
 	return s.createSession(ctx, *user)
+}
+
+func bcryptHashPassword(password string) (string, error) {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+
+	return string(passwordHash), nil
 }
 
 func (s *AuthService) shouldClaimLegacy(legacyClaimToken string) (bool, error) {
