@@ -14,6 +14,7 @@ import {
 import {
   bootstrapSession,
   clearAuthCSRFToken,
+  isAPIError,
   login as loginSession,
   logoutSession,
   signUp as signUpSession,
@@ -191,12 +192,8 @@ function AuthScreen({
           ? await loginSession(email, password, locale)
           : await signUpSession(email, password, locale, legacyClaimToken);
       onAuthenticated(response);
-    } catch {
-      setError(
-        mode === "login"
-          ? authMessages.loginFailed
-          : authMessages.signupFailed,
-      );
+    } catch (error) {
+      setError(authErrorMessage(error, mode, authMessages));
     } finally {
       setBusy(false);
     }
@@ -326,6 +323,39 @@ function AuthScreen({
       </section>
     </main>
   );
+}
+
+function authErrorMessage(
+  error: unknown,
+  mode: AuthMode,
+  authMessages: AppMessages["auth"],
+) {
+  if (isAPIError(error)) {
+    if (error.status === 429 || error.code === "too many requests") {
+      return authMessages.authRateLimited;
+    }
+
+    if (mode === "signup") {
+      switch (error.code) {
+        case "email already exists":
+          return authMessages.signupEmailExists;
+        case "weak password":
+          return authMessages.signupWeakPassword;
+        case "invalid email":
+          return authMessages.signupInvalidEmail;
+        case "invalid locale":
+          return authMessages.signupInvalidLocale;
+        case "invalid legacy claim":
+          return authMessages.signupInvalidLegacyClaim;
+        case "legacy claim required":
+          return authMessages.signupLegacyClaimRequired;
+      }
+    }
+  }
+
+  return mode === "login"
+    ? authMessages.loginFailed
+    : authMessages.signupFailed;
 }
 
 function Dashboard({

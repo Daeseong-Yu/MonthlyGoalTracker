@@ -33,6 +33,13 @@ export type AppMessages = {
     submitBusy: string;
     loginFailed: string;
     signupFailed: string;
+    authRateLimited: string;
+    signupEmailExists: string;
+    signupWeakPassword: string;
+    signupInvalidEmail: string;
+    signupInvalidLocale: string;
+    signupInvalidLegacyClaim: string;
+    signupLegacyClaimRequired: string;
     languageHint: string;
   };
   status: Record<LoadStatus, string>;
@@ -147,6 +154,13 @@ export const messages: Record<AppLocale, AppMessages> = {
       submitBusy: "처리 중",
       loginFailed: "이메일 또는 비밀번호를 확인해 주세요.",
       signupFailed: "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
+      authRateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      signupEmailExists: "이미 가입된 이메일입니다. 로그인해 주세요.",
+      signupWeakPassword: "비밀번호는 8자 이상이어야 합니다.",
+      signupInvalidEmail: "올바른 이메일 주소를 입력해 주세요.",
+      signupInvalidLocale: "지원하지 않는 언어입니다.",
+      signupInvalidLegacyClaim: "기존 데이터 이전 토큰을 확인해 주세요.",
+      signupLegacyClaimRequired: "기존 데이터가 있어 이전 토큰이 필요합니다.",
       languageHint: "접속 지역을 기준으로 언어를 먼저 제안합니다.",
     },
     status: {
@@ -264,6 +278,13 @@ export const messages: Record<AppLocale, AppMessages> = {
       submitBusy: "Working",
       loginFailed: "Check your email or password.",
       signupFailed: "Sign-up failed. Check your email or password.",
+      authRateLimited: "Too many attempts. Try again shortly.",
+      signupEmailExists: "This email is already registered. Log in instead.",
+      signupWeakPassword: "Password must be at least 8 characters.",
+      signupInvalidEmail: "Enter a valid email address.",
+      signupInvalidLocale: "This language is not supported.",
+      signupInvalidLegacyClaim: "Check the existing data claim token.",
+      signupLegacyClaimRequired: "Existing data needs a claim token.",
       languageHint: "Language is suggested from your connection region first.",
     },
     status: {

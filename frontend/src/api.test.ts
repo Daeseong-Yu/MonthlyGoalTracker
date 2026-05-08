@@ -317,6 +317,26 @@ describe("api client", () => {
       "month request failed with status 500",
     );
   });
+
+  it("preserves API error status and server code", async () => {
+    stubFetch(jsonErrorResponse(429, "too many requests"));
+
+    let caughtError: unknown;
+    try {
+      await login("tester@example.com", "secret123", "ko");
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toMatchObject({
+      code: "too many requests",
+      status: 429,
+    });
+    expect(caughtError).toBeInstanceOf(Error);
+    expect((caughtError as Error).message).toBe(
+      "login request failed with status 429: too many requests",
+    );
+  });
 });
 
 function stubFetch(response: Response) {
@@ -332,6 +352,15 @@ function okResponse() {
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function jsonErrorResponse(status: number, error: string) {
+  return new Response(JSON.stringify({ error }), {
+    status,
     headers: {
       "Content-Type": "application/json",
     },

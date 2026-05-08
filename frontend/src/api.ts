@@ -9,6 +9,22 @@ import type {
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 let csrfToken: string | null = null;
 
+export class APIError extends Error {
+  readonly code: string | null;
+  readonly status: number;
+
+  constructor(errorLabel: string, status: number, code: string | null) {
+    super(`${errorLabel} failed with status ${status}${code ? `: ${code}` : ""}`);
+    this.name = "APIError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export function isAPIError(error: unknown): error is APIError {
+  return error instanceof APIError;
+}
+
 export async function bootstrapSession(): Promise<BootstrapResponse> {
   const response = await requestJSON<BootstrapResponse>(
     "/api/bootstrap",
@@ -177,10 +193,26 @@ async function request(
 ) {
   const response = await fetch(`${apiBaseURL}${path}`, requestInit(options));
   if (!response.ok) {
-    throw new Error(`${errorLabel} failed with status ${response.status}`);
+    throw await toAPIError(response, errorLabel);
   }
 
   return response;
+}
+
+async function toAPIError(response: Response, errorLabel: string): Promise<APIError> {
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === "string") {
+        return new APIError(errorLabel, response.status, body.error);
+      }
+    } catch {
+      // Preserve the old status-only behavior when a failed JSON response is invalid.
+    }
+  }
+
+  return new APIError(errorLabel, response.status, null);
 }
 
 function requestInit(options?: RequestOptions): RequestInit {

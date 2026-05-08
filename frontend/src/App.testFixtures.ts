@@ -181,6 +181,15 @@ export function jsonResponse(body: unknown) {
   });
 }
 
+export function jsonErrorResponse(status: number, error: string) {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 export function errorResponse(status: number) {
   return new Response(null, { status });
 }

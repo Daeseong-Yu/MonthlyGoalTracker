@@ -16,6 +16,7 @@ import {
   hasFetchedJsonBody,
   hasFetchedPath,
   hasNoFetchedPath,
+  jsonErrorResponse,
   jsonResponse,
   monthFromRequest,
   okResponse,
@@ -135,6 +136,84 @@ describe("App", () => {
     );
     expect(document.body.textContent).toContain("Goals");
   });
+
+  it("shows rate limit feedback on login", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/login") {
+          return jsonErrorResponse(429, "too many requests");
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("월간 목표 트래커");
+    await setInputValue("이메일", "person@example.com");
+    await setInputValue("비밀번호", "secret123");
+    await submitForm();
+
+    await waitForText("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
+
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/login")).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    [409, "email already exists", "이미 가입된 이메일입니다. 로그인해 주세요."],
+    [400, "weak password", "비밀번호는 8자 이상이어야 합니다."],
+    [
+      409,
+      "legacy claim required",
+      "기존 데이터가 있어 이전 토큰이 필요합니다.",
+    ],
+  ] as const)(
+    "shows %s signup feedback from auth errors",
+    async (status, serverError, expectedMessage) => {
+      const monthViewApiHandler = createMonthViewApiHandler();
+      const fetchMock = stubFetch(
+        (input) => {
+          if (requestPath(input) === "/api/auth/signup") {
+            return jsonErrorResponse(status, serverError);
+          }
+
+          return monthViewApiHandler(input);
+        },
+        {
+          bootstrap: {
+            authenticated: false,
+            locale: "ko",
+            user: null,
+          },
+        },
+      );
+
+      renderApp(<App />);
+
+      await waitForText("월간 목표 트래커");
+      await clickButton("회원가입 tab");
+      await setInputValue("이메일", "person@example.com");
+      await setInputValue("비밀번호", "secret123");
+      await submitForm();
+
+      await waitForText(expectedMessage);
+
+      expect(
+        hasFetchedPath(fetchMock, (path) => path === "/api/auth/signup"),
+      ).toBe(true);
+    },
+  );
 
   it("retries the current month after falling back to sample data", async () => {
     let failedInitialLoad = false;
