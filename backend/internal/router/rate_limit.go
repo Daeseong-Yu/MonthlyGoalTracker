@@ -6,10 +6,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/gin-gonic/gin"
 )
 
@@ -130,6 +132,31 @@ func (l *authRateLimiter) Middleware(scope string) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func (l *authRateLimiter) AuthenticatedUserMiddleware(scope string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		principal := authenticatedUserRateLimitPrincipal(c)
+		if !l.ipLimiter.allow(scope + ":ip:" + requestClientAddress(c)) {
+			rejectRateLimited(c)
+			return
+		}
+		if principal != "" && !l.principalLimiter.allow(scope+":principal:"+principal) {
+			rejectRateLimited(c)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func authenticatedUserRateLimitPrincipal(c *gin.Context) string {
+	user, ok := principal.UserFromContext(c.Request.Context())
+	if !ok {
+		return authRateLimitPrincipal(c)
+	}
+
+	return strconv.FormatUint(uint64(user.ID), 10)
 }
 
 func authRateLimitPrincipal(c *gin.Context) string {

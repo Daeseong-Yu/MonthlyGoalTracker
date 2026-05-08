@@ -130,6 +130,37 @@ func (r *UserRepository) UpdateLocale(ctx context.Context, id uint, locale strin
 	return &user, nil
 }
 
+func (r *UserRepository) UpdatePasswordHashAndReplaceSessions(ctx context.Context, id uint, passwordHash string, session *domain.Session) (*domain.User, error) {
+	var user domain.User
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).First(&user, id).Error; err != nil {
+			return err
+		}
+
+		if err := tx.WithContext(ctx).Model(&user).Update("password_hash", passwordHash).Error; err != nil {
+			return err
+		}
+		user.PasswordHash = passwordHash
+
+		if err := tx.WithContext(ctx).Where("user_id = ?", user.ID).Delete(&domain.Session{}).Error; err != nil {
+			return err
+		}
+		if session != nil {
+			session.UserID = user.ID
+			session.User = user
+			if err := tx.WithContext(ctx).Omit("User").Create(session).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }

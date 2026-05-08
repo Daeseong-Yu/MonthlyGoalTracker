@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
+	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
 	"github.com/gin-gonic/gin"
 )
 
@@ -41,6 +43,31 @@ func TestAuthRateLimiterLimitsByPrincipal(t *testing.T) {
 	}
 
 	second := performAuthRateLimitRequest(t, engine, `{"email":" owner@example.com "}`, "198.51.100.2:1000")
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request status %d, got %d", http.StatusTooManyRequests, second.Code)
+	}
+}
+
+func TestAuthRateLimiterLimitsByAuthenticatedUser(t *testing.T) {
+	limiter := newAuthRateLimiter(1, time.Minute)
+	engine := newTestEngine(t)
+	engine.POST("/auth", func(c *gin.Context) {
+		ctx := principal.WithUser(c.Request.Context(), domain.User{
+			ID:       7,
+			Username: "owner@example.com",
+		})
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}, limiter.AuthenticatedUserMiddleware("password-change"), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	first := performAuthRateLimitRequest(t, engine, `{"currentPassword":"first","newPassword":"secret123"}`, "198.51.100.1:1000")
+	if first.Code != http.StatusNoContent {
+		t.Fatalf("expected first request status %d, got %d", http.StatusNoContent, first.Code)
+	}
+
+	second := performAuthRateLimitRequest(t, engine, `{"currentPassword":"second","newPassword":"secret123"}`, "198.51.100.2:1000")
 	if second.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected second request status %d, got %d", http.StatusTooManyRequests, second.Code)
 	}

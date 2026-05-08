@@ -38,6 +38,7 @@ type AuthUserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByID(ctx context.Context, id uint) (*domain.User, error)
 	UpdateLocale(ctx context.Context, id uint, locale string) (*domain.User, error)
+	UpdatePasswordHashAndReplaceSessions(ctx context.Context, id uint, passwordHash string, session *domain.Session) (*domain.User, error)
 }
 
 type AuthSessionRepository interface {
@@ -320,6 +321,49 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, password string)
 	return s.createSession(ctx, *user)
 }
 
+func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPassword, newPassword string) (*AuthResult, error) {
+	if len(newPassword) < minPasswordLength {
+		return nil, ErrWeakPassword
+	}
+
+	user, err := s.users.FindByID(ctx, userID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrInvalidSession
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	passwordHash, err := s.hashPassword(newPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	session, sessionToken, csrfToken, err := s.newSession(*user)
+	if err != nil {
+		return nil, err
+	}
+
+	updatedUser, err := s.users.UpdatePasswordHashAndReplaceSessions(ctx, user.ID, passwordHash, &session)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrInvalidSession
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	session.User = *updatedUser
+	return &AuthResult{
+		User:      *updatedUser,
+		Session:   session,
+		Token:     sessionToken,
+		CSRFToken: csrfToken,
+	}, nil
+}
+
 func (s *AuthService) VerifyEmail(ctx context.Context, token string) (*AuthResult, error) {
 	if !s.emailVerificationEnabled() || strings.TrimSpace(token) == "" {
 		return nil, ErrInvalidVerificationToken
@@ -499,23 +543,9 @@ func InferLocale(countryCode, acceptLanguage string) string {
 }
 
 func (s *AuthService) createSession(ctx context.Context, user domain.User) (*AuthResult, error) {
-	sessionToken, err := generateToken()
+	session, sessionToken, csrfToken, err := s.newSession(user)
 	if err != nil {
 		return nil, err
-	}
-	csrfToken, err := generateToken()
-	if err != nil {
-		return nil, err
-	}
-
-	now := s.now()
-	session := domain.Session{
-		UserID:        user.ID,
-		User:          user,
-		TokenHash:     hashToken(sessionToken),
-		CSRFTokenHash: hashToken(csrfToken),
-		ExpiresAt:     now.Add(s.ttl),
-		LastUsedAt:    now,
 	}
 	if err := s.sessions.Create(ctx, &session); err != nil {
 		return nil, err
@@ -527,6 +557,27 @@ func (s *AuthService) createSession(ctx context.Context, user domain.User) (*Aut
 		Token:     sessionToken,
 		CSRFToken: csrfToken,
 	}, nil
+}
+
+func (s *AuthService) newSession(user domain.User) (domain.Session, string, string, error) {
+	sessionToken, err := generateToken()
+	if err != nil {
+		return domain.Session{}, "", "", err
+	}
+	csrfToken, err := generateToken()
+	if err != nil {
+		return domain.Session{}, "", "", err
+	}
+
+	now := s.now()
+	return domain.Session{
+		UserID:        user.ID,
+		User:          user,
+		TokenHash:     hashToken(sessionToken),
+		CSRFTokenHash: hashToken(csrfToken),
+		ExpiresAt:     now.Add(s.ttl),
+		LastUsedAt:    now,
+	}, sessionToken, csrfToken, nil
 }
 
 func normalizeEmailAddress(email string) (string, error) {

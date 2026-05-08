@@ -16,6 +16,7 @@ import {
 
 import {
   bootstrapSession,
+  changePassword,
   clearAuthCSRFToken,
   isAPIError,
   isAuthResponse,
@@ -213,6 +214,7 @@ export default function App() {
       locale={locale}
       messages={messages}
       user={user}
+      onAuthenticated={handleAuthenticated}
       onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
       onLoggedOut={handleLoggedOut}
     />
@@ -599,12 +601,14 @@ function Dashboard({
   locale,
   messages,
   user,
+  onAuthenticated,
   onLocaleChange,
   onLoggedOut,
 }: {
   locale: AppLocale;
   messages: AppMessages;
   user: UserSession;
+  onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
   onLoggedOut: () => void;
 }) {
@@ -818,11 +822,123 @@ function Dashboard({
               labels={messages.chart}
               month={monthController.month}
             />
+            <AccountSecurityPanel
+              labels={messages.account}
+              onPasswordChanged={onAuthenticated}
+            />
           </aside>
         </section>
       </div>
     </main>
   );
+}
+
+function AccountSecurityPanel({
+  labels,
+  onPasswordChanged,
+}: {
+  labels: AppMessages["account"];
+  onPasswordChanged: (response: AuthResponse) => void;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const response = await changePassword(currentPassword, newPassword);
+      onPasswordChanged(response);
+      setCurrentPassword("");
+      setNewPassword("");
+      setStatus(labels.passwordChanged);
+    } catch (error) {
+      setError(passwordChangeErrorMessage(error, labels));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
+      <form className="space-y-3" onSubmit={handleSubmit}>
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-normal text-zinc-950">
+          <KeyRound size={17} className="text-teal-700" />
+          {labels.heading}
+        </h2>
+        <label className="block text-sm font-medium text-zinc-700">
+          <span>{labels.currentPasswordLabel}</span>
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            type="password"
+            aria-label={labels.currentPasswordLabel}
+            autoComplete="current-password"
+            placeholder={labels.currentPasswordPlaceholder}
+            required
+            value={currentPassword}
+            disabled={busy}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+          />
+        </label>
+        <label className="block text-sm font-medium text-zinc-700">
+          <span>{labels.newPasswordLabel}</span>
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            type="password"
+            aria-label={labels.newPasswordLabel}
+            autoComplete="new-password"
+            placeholder={labels.newPasswordPlaceholder}
+            required
+            value={newPassword}
+            disabled={busy}
+            onChange={(event) => setNewPassword(event.target.value)}
+          />
+        </label>
+        {status ? (
+          <p className="text-xs font-medium text-teal-700" role="status">
+            {status}
+          </p>
+        ) : null}
+        {error ? (
+          <p className="text-xs font-medium text-rose-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button
+          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          type="submit"
+          aria-label={busy ? labels.changingPassword : labels.changePasswordButton}
+          disabled={busy}
+        >
+          <KeyRound size={17} />
+          {busy ? labels.changingPassword : labels.changePasswordButton}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function passwordChangeErrorMessage(
+  error: unknown,
+  labels: AppMessages["account"],
+) {
+  if (isAPIError(error)) {
+    if (error.code === "weak password") {
+      return labels.passwordChangeWeakPassword;
+    }
+
+    if (error.status === 401 || error.code === "unauthorized") {
+      return labels.passwordChangeUnauthorized;
+    }
+  }
+
+  return labels.passwordChangeFailed;
 }
 
 function LanguageToggle({

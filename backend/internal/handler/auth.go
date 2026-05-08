@@ -50,6 +50,11 @@ type resetPasswordRequest struct {
 	Password string `json:"password"`
 }
 
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
 type userSessionResponse struct {
 	ID        uint      `json:"id"`
 	Email     string    `json:"email"`
@@ -179,6 +184,29 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	result, err := h.service.ResetPassword(c.Request.Context(), req.Token, req.Password)
+	if err != nil {
+		writeAuthError(c, err)
+		return
+	}
+
+	h.setAuthCookies(c, result)
+	c.JSON(http.StatusOK, toAuthResponse(result))
+}
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	currentUser, ok := principal.UserFromContext(c.Request.Context())
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	result, err := h.service.ChangePassword(c.Request.Context(), currentUser.ID, req.CurrentPassword, req.NewPassword)
 	if err != nil {
 		writeAuthError(c, err)
 		return

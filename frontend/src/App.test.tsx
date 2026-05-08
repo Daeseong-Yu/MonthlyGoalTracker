@@ -426,6 +426,73 @@ describe("App", () => {
     );
   });
 
+  it("changes the signed-in user's password from the dashboard", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/password/change") {
+        return jsonResponse({
+          user: {
+            id: 1,
+            email: "tester@example.com",
+            locale: "ko",
+            createdAt: "2026-05-01T00:00:00Z",
+          },
+          csrfToken: "csrf-changed",
+          locale: "ko",
+        });
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+    await setInputValue("현재 비밀번호", "old-secret123");
+    await setInputValue("새 비밀번호", "new-secret123");
+    await submitForm();
+
+    await waitForText("비밀번호를 변경했습니다.");
+
+    expect(hasFetchedJsonBody<{
+      currentPassword: string;
+      newPassword: string;
+    }>(
+      fetchMock,
+      (path) => path === "/api/auth/password/change",
+      (body) =>
+        body.currentPassword === "old-secret123" &&
+        body.newPassword === "new-secret123",
+    )).toBe(true);
+    expect(getInput("현재 비밀번호").value).toBe("");
+    expect(getInput("새 비밀번호").value).toBe("");
+  });
+
+  it("shows password change feedback when the current password is wrong", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/password/change") {
+        return jsonErrorResponse(401, "unauthorized");
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+    await setInputValue("현재 비밀번호", "wrong-secret123");
+    await setInputValue("새 비밀번호", "new-secret123");
+    await submitForm();
+
+    await waitForText("현재 비밀번호를 확인해 주세요.");
+
+    expect(hasFetchedPath(
+      fetchMock,
+      (path) => path === "/api/auth/password/change",
+    )).toBe(true);
+  });
+
   it("retries the current month after falling back to sample data", async () => {
     let failedInitialLoad = false;
     let resolveRetryLoad: (() => void) | null = null;

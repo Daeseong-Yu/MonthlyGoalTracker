@@ -131,6 +131,22 @@ export async function resetPassword(
   return response;
 }
 
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<AuthResponse> {
+  const response = await requestJSON<AuthResponse>(
+    "/api/auth/password/change",
+    "password change request",
+    {
+      method: "POST",
+      body: { currentPassword, newPassword },
+    },
+  );
+  applyCSRFToken(response.csrfToken);
+  return response;
+}
+
 export async function logoutSession(): Promise<void> {
   await requestVoid("/api/auth/logout", "logout request", { method: "POST" });
   clearAuthCSRFToken();

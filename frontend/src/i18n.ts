@@ -52,6 +52,19 @@ export type AppMessages = {
     signupLegacyClaimRequired: string;
     languageHint: string;
   };
+  account: {
+    heading: string;
+    currentPasswordLabel: string;
+    currentPasswordPlaceholder: string;
+    newPasswordLabel: string;
+    newPasswordPlaceholder: string;
+    changePasswordButton: string;
+    changingPassword: string;
+    passwordChanged: string;
+    passwordChangeFailed: string;
+    passwordChangeUnauthorized: string;
+    passwordChangeWeakPassword: string;
+  };
   status: Record<LoadStatus, string>;
   summary: {
     totalCompleted: string;
@@ -186,6 +199,19 @@ export const messages: Record<AppLocale, AppMessages> = {
       signupInvalidLegacyClaim: "기존 데이터 이전 토큰을 확인해 주세요.",
       signupLegacyClaimRequired: "기존 데이터가 있어 이전 토큰이 필요합니다.",
       languageHint: "접속 지역을 기준으로 언어를 먼저 제안합니다.",
+    },
+    account: {
+      heading: "계정 보안",
+      currentPasswordLabel: "현재 비밀번호",
+      currentPasswordPlaceholder: "현재 비밀번호",
+      newPasswordLabel: "새 비밀번호",
+      newPasswordPlaceholder: "8자 이상",
+      changePasswordButton: "비밀번호 변경",
+      changingPassword: "변경 중",
+      passwordChanged: "비밀번호를 변경했습니다.",
+      passwordChangeFailed: "비밀번호 변경에 실패했습니다.",
+      passwordChangeUnauthorized: "현재 비밀번호를 확인해 주세요.",
+      passwordChangeWeakPassword: "새 비밀번호는 8자 이상이어야 합니다.",
     },
     status: {
       loading: "불러오는 중",
@@ -322,6 +348,20 @@ export const messages: Record<AppLocale, AppMessages> = {
       signupInvalidLegacyClaim: "Check the existing data claim token.",
       signupLegacyClaimRequired: "Existing data needs a claim token.",
       languageHint: "Language is suggested from your connection region first.",
+    },
+    account: {
+      heading: "Account security",
+      currentPasswordLabel: "Current password",
+      currentPasswordPlaceholder: "Current password",
+      newPasswordLabel: "New password",
+      newPasswordPlaceholder: "At least 8 characters",
+      changePasswordButton: "Change password",
+      changingPassword: "Changing",
+      passwordChanged: "Password changed.",
+      passwordChangeFailed: "Could not change password.",
+      passwordChangeUnauthorized: "Check your current password.",
+      passwordChangeWeakPassword:
+        "New password must be at least 8 characters.",
     },
     status: {
       loading: "Loading",

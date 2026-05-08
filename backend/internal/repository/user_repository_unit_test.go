@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
@@ -186,6 +187,58 @@ func TestUserRepositoryCreateWithPasswordRequiresClaimWhenLegacyUserIsUnclaimed(
 	}
 	if !errors.Is(err, domain.ErrLegacyClaimRequired) {
 		t.Fatalf("expected ErrLegacyClaimRequired, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestUserRepositoryUpdatePasswordHashAndReplaceSessionsUsesTransaction(t *testing.T) {
+	repo, mock, closeDB := newMockUserRepository(t)
+	defer closeDB()
+
+	session := &domain.Session{
+		TokenHash:     "token-hash",
+		CSRFTokenHash: "csrf-token-hash",
+		ExpiresAt:     fixedNow().Add(time.Hour),
+		LastUsedAt:    fixedNow(),
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users" WHERE "users"."id" = $1 ORDER BY "users"."id" LIMIT $2`)).
+		WithArgs(uint(7), 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(7, "owner@example.com", "owner@example.com", "old-hash", "ko", fixedNow(), fixedNow(), fixedNow()))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "users" SET "password_hash"=$1,"updated_at"=$2 WHERE "id" = $3`)).
+		WithArgs("new-hash", fixedNow(), uint(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "sessions" WHERE user_id = $1`)).
+		WithArgs(uint(7)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "sessions" ("user_id","token_hash","csrf_token_hash","expires_at","last_used_at","created_at","updated_at") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "id"`)).
+		WithArgs(uint(7), "token-hash", "csrf-token-hash", fixedNow().Add(time.Hour), fixedNow(), fixedNow(), fixedNow()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(31))
+	mock.ExpectCommit()
+
+	user, err := repo.UpdatePasswordHashAndReplaceSessions(context.Background(), 7, "new-hash", session)
+	if err != nil {
+		t.Fatalf("expected password hash update and session replacement to succeed, got %v", err)
+	}
+	if user.ID != 7 {
+		t.Fatalf("expected user ID 7, got %d", user.ID)
+	}
+	if user.PasswordHash != "new-hash" {
+		t.Fatalf("expected new password hash, got %q", user.PasswordHash)
+	}
+	if user.Locale != "ko" {
+		t.Fatalf("expected locale ko to be preserved, got %q", user.Locale)
+	}
+	if session.UserID != 7 {
+		t.Fatalf("expected replacement session user ID 7, got %d", session.UserID)
+	}
+	if session.ID != 31 {
+		t.Fatalf("expected replacement session ID 31, got %d", session.ID)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

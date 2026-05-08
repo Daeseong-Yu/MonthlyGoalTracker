@@ -542,19 +542,151 @@ func TestAuthServiceResetPasswordRejectsInvalidToken(t *testing.T) {
 	}
 }
 
+func TestAuthServiceChangePasswordVerifiesCurrentPasswordUpdatesHashAndRefreshesSession(t *testing.T) {
+	currentPasswordHash, err := bcryptHashPassword("current-secret")
+	if err != nil {
+		t.Fatalf("failed to hash current password: %v", err)
+	}
+
+	users := &fakeAuthUserRepository{
+		findByIDUser: &domain.User{
+			ID:           7,
+			Email:        "owner@example.com",
+			PasswordHash: currentPasswordHash,
+			Locale:       "ko",
+		},
+	}
+	sessions := &fakeAuthSessionRepository{}
+	authService := NewAuthService(users, sessions, time.Hour, "")
+	authService.hashPassword = func(password string) (string, error) {
+		if password != "new-secret" {
+			t.Fatalf("expected password new-secret, got %q", password)
+		}
+		return "hashed-new-secret", nil
+	}
+
+	result, err := authService.ChangePassword(context.Background(), 7, "current-secret", "new-secret")
+	if err != nil {
+		t.Fatalf("expected password change to succeed, got %v", err)
+	}
+	if users.findByIDID != 7 {
+		t.Fatalf("expected user 7 lookup, got %d", users.findByIDID)
+	}
+	if !users.updatePasswordHashCalled {
+		t.Fatal("expected password hash update")
+	}
+	if users.updatePasswordHashID != 7 {
+		t.Fatalf("expected password hash update for user 7, got %d", users.updatePasswordHashID)
+	}
+	if users.updatedPasswordHash != "hashed-new-secret" {
+		t.Fatalf("expected updated password hash, got %q", users.updatedPasswordHash)
+	}
+	if !users.replaceSessionsCalled {
+		t.Fatal("expected password hash update and session replacement")
+	}
+	if users.replaceSessionsID != 7 {
+		t.Fatalf("expected session replacement for user 7, got %d", users.replaceSessionsID)
+	}
+	if users.replacedSession == nil {
+		t.Fatal("expected replacement session")
+	}
+	if users.replacedSession.UserID != 7 {
+		t.Fatalf("expected replacement session for user 7, got %d", users.replacedSession.UserID)
+	}
+	if result.User.PasswordHash != "hashed-new-secret" {
+		t.Fatalf("expected returned user to have updated password hash, got %q", result.User.PasswordHash)
+	}
+	if result.Token == "" || result.CSRFToken == "" {
+		t.Fatal("expected new session and CSRF tokens")
+	}
+}
+
+func TestAuthServiceChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
+	currentPasswordHash, err := bcryptHashPassword("current-secret")
+	if err != nil {
+		t.Fatalf("failed to hash current password: %v", err)
+	}
+
+	users := &fakeAuthUserRepository{
+		findByIDUser: &domain.User{
+			ID:           7,
+			Email:        "owner@example.com",
+			PasswordHash: currentPasswordHash,
+			Locale:       "ko",
+		},
+	}
+	sessions := &fakeAuthSessionRepository{}
+	authService := NewAuthService(users, sessions, time.Hour, "")
+	authService.hashPassword = func(password string) (string, error) {
+		t.Fatalf("expected wrong current password to stop before hashing new password, got %q", password)
+		return "", nil
+	}
+
+	result, err := authService.ChangePassword(context.Background(), 7, "wrong-secret", "new-secret")
+	if result != nil {
+		t.Fatal("expected nil auth result")
+	}
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected ErrInvalidCredentials, got %v", err)
+	}
+	if users.updatePasswordHashCalled {
+		t.Fatal("expected wrong current password to avoid updating password hash")
+	}
+	if users.replaceSessionsCalled {
+		t.Fatal("expected wrong current password to avoid replacing sessions")
+	}
+	if sessions.deletedUserID != 0 {
+		t.Fatal("expected wrong current password to avoid deleting sessions")
+	}
+	if sessions.createdSession != nil {
+		t.Fatal("expected wrong current password to avoid creating a session")
+	}
+}
+
+func TestAuthServiceChangePasswordRejectsWeakNewPasswordBeforeLookup(t *testing.T) {
+	users := &fakeAuthUserRepository{}
+	sessions := &fakeAuthSessionRepository{}
+	authService := NewAuthService(users, sessions, time.Hour, "")
+
+	result, err := authService.ChangePassword(context.Background(), 7, "current-secret", "short")
+	if result != nil {
+		t.Fatal("expected nil auth result")
+	}
+	if !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("expected ErrWeakPassword, got %v", err)
+	}
+	if users.findByIDCalled {
+		t.Fatal("expected weak new password to stop before user lookup")
+	}
+	if sessions.createdSession != nil {
+		t.Fatal("expected weak new password to avoid creating a session")
+	}
+}
+
 type fakeAuthUserRepository struct {
-	findByEmailUser   *domain.User
-	findByEmailErr    error
-	createErr         error
-	createCalled      bool
-	findByEmailCalled bool
-	hashDone          *bool
-	hashDoneAtFind    bool
-	email             string
-	findByEmailEmail  string
-	locale            string
-	passwordHash      string
-	claimLegacy       bool
+	findByEmailUser          *domain.User
+	findByEmailErr           error
+	findByIDUser             *domain.User
+	findByIDErr              error
+	createErr                error
+	createCalled             bool
+	findByEmailCalled        bool
+	findByIDCalled           bool
+	hashDone                 *bool
+	hashDoneAtFind           bool
+	email                    string
+	findByEmailEmail         string
+	findByIDID               uint
+	locale                   string
+	passwordHash             string
+	claimLegacy              bool
+	updatePasswordHashCalled bool
+	updatePasswordHashID     uint
+	updatedPasswordHash      string
+	updatePasswordHashErr    error
+	replaceSessionsCalled    bool
+	replaceSessionsID        uint
+	replacedSession          *domain.Session
 }
 
 func (r *fakeAuthUserRepository) CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool, emailVerifiedAt *time.Time) (*domain.User, error) {
@@ -598,7 +730,15 @@ func (r *fakeAuthUserRepository) FindByEmail(ctx context.Context, email string) 
 
 func (r *fakeAuthUserRepository) FindByID(ctx context.Context, id uint) (*domain.User, error) {
 	_ = ctx
-	_ = id
+	r.findByIDCalled = true
+	r.findByIDID = id
+	if r.findByIDErr != nil {
+		return nil, r.findByIDErr
+	}
+	if r.findByIDUser != nil {
+		return r.findByIDUser, nil
+	}
+
 	return nil, gorm.ErrRecordNotFound
 }
 
@@ -607,6 +747,38 @@ func (r *fakeAuthUserRepository) UpdateLocale(ctx context.Context, id uint, loca
 	_ = id
 	_ = locale
 	return nil, gorm.ErrRecordNotFound
+}
+
+func (r *fakeAuthUserRepository) UpdatePasswordHashAndReplaceSessions(ctx context.Context, id uint, passwordHash string, session *domain.Session) (*domain.User, error) {
+	_ = ctx
+	r.updatePasswordHashCalled = true
+	r.updatePasswordHashID = id
+	r.updatedPasswordHash = passwordHash
+	r.replaceSessionsCalled = true
+	r.replaceSessionsID = id
+	if session != nil {
+		sessionCopy := *session
+		r.replacedSession = &sessionCopy
+	}
+	if r.updatePasswordHashErr != nil {
+		return nil, r.updatePasswordHashErr
+	}
+	if r.findByIDUser != nil {
+		user := *r.findByIDUser
+		user.PasswordHash = passwordHash
+		if session != nil {
+			session.UserID = user.ID
+			session.User = user
+		}
+		return &user, nil
+	}
+
+	return &domain.User{
+		ID:           id,
+		Email:        r.email,
+		PasswordHash: passwordHash,
+		Locale:       r.locale,
+	}, nil
 }
 
 type fakeAuthSessionRepository struct {

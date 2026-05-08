@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   bootstrapSession,
+  changePassword,
   clearAuthCSRFToken,
   createGoal,
   deactivateGoal,
@@ -322,6 +323,63 @@ describe("api client", () => {
         method: "POST",
         credentials: "include",
         headers: jsonHeaders("csrf-reset"),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
+      },
+    );
+  });
+
+  it("changes a logged-in password and refreshes CSRF for later unsafe requests", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        authenticated: true,
+        locale: "ko",
+        csrfToken: "csrf-bootstrap",
+        user: userSession,
+      }),
+    );
+
+    await bootstrapSession();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        user: userSession,
+        csrfToken: "csrf-change",
+        locale: "ko",
+      }),
+    );
+
+    await expect(
+      changePassword("old-secret123", "new-secret123"),
+    ).resolves.toEqual({
+      user: userSession,
+      csrfToken: "csrf-change",
+      locale: "ko",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/auth/password/change",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders("csrf-bootstrap"),
+        body: JSON.stringify({
+          currentPassword: "old-secret123",
+          newPassword: "new-secret123",
+        }),
+      },
+    );
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders("csrf-change"),
         body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
       },
     );

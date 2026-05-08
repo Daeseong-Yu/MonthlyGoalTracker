@@ -87,6 +87,7 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	protectedAuthRoutes.Use(csrfMiddleware(sessionConfig.CSRFCookieName))
 	protectedAuthRoutes.POST("/logout", authHandler.Logout)
 	protectedAuthRoutes.PATCH("/me/locale", authHandler.UpdateLocale)
+	protectedAuthRoutes.POST("/password/change", loginLimiter.AuthenticatedUserMiddleware("password-change"), authHandler.ChangePassword)
 
 	api := apiRoot.Group("")
 	api.Use(sessionMiddleware(authService, sessionConfig.CookieName))
