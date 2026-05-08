@@ -19,6 +19,7 @@ import {
   jsonResponse,
   monthFromRequest,
   okResponse,
+  pendingJsonResponse,
   pendingResponse,
   requestPath,
   shortDate,
@@ -84,18 +85,54 @@ describe("App", () => {
     expect(document.body.textContent).toContain("chart points: 2");
   });
 
-  it("falls back to sample data and disables API-only actions when loading fails", async () => {
-    stubFetch(() => errorResponse(500));
+  it("retries the current month after falling back to sample data", async () => {
+    let failedInitialLoad = false;
+    let resolveRetryLoad: (() => void) | null = null;
+    const fetchMock = stubFetch((input) => {
+      if (!failedInitialLoad) {
+        failedInitialLoad = true;
+        return errorResponse(500);
+      }
+
+      return pendingJsonResponse(
+        buildMonthView(monthFromRequest(input)),
+        (resolve) => {
+          resolveRetryLoad = resolve;
+        },
+      );
+    });
 
     renderApp(<App />);
 
     await waitForText("샘플 데이터");
+    const failedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
     expect(document.body.textContent).toContain(
       "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
     );
     expect(getButton("목표 이월").disabled).toBe(true);
     expect(getButton("목표 추가").disabled).toBe(true);
+
+    await clickButton("다시 시도");
+
+    await waitFor(() => fetchMock.mock.calls.length >= 2);
+
+    expect(document.body.textContent).toContain("불러오는 중");
+    expect(document.body.textContent).not.toContain(
+      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+    );
+    expect(queryButton("다시 시도")).toBeNull();
+
+    await resolvePending(resolveRetryLoad);
+
+    await waitForText("API 데이터");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(monthFromRequest(fetchMock.mock.calls[1][0])).toBe(failedMonth);
+    expect(document.body.textContent).toContain("API walk");
+    expect(document.body.textContent).not.toContain(
+      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+    );
   });
 
   it("reserves five daily goal columns when no goals exist", async () => {
