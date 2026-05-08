@@ -1,59 +1,667 @@
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   CalendarDays,
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  KeyRound,
+  Languages,
+  LogIn,
+  LogOut,
+  MailCheck,
   RefreshCw,
+  ShieldCheck,
+  UserPlus,
 } from "lucide-react";
 
 import {
-  formatMonth,
-  statusClassName,
-  statusLabel,
-} from "./appDisplay";
+  bootstrapSession,
+  changePassword,
+  clearAuthCSRFToken,
+  isAPIError,
+  isAuthResponse,
+  login as loginSession,
+  logoutOtherSessions,
+  logoutSession,
+  requestPasswordReset,
+  resetPassword,
+  signUp as signUpSession,
+  updateUserLocale,
+  verifyEmail,
+} from "./api";
+import { formatMonth, statusClassName, statusLabel } from "./appDisplay";
 import ChartPanel from "./ChartPanel";
 import DailyRecordTable from "./DailyRecordTable";
 import GoalPanel from "./GoalPanel";
+import { messagesForLocale, normalizeLocale, type AppMessages } from "./i18n";
 import MetricSummary from "./MetricSummary";
 import { useMonthController } from "./useMonthController";
+import type { AppLocale, AuthResponse, UserSession } from "./types";
+
+type AuthMode = "login" | "signup" | "forgot" | "reset";
+const localeStorageKey = "monthlyGoalTracker.locale";
 
 export default function App() {
-  const monthController = useMonthController();
+  const [locale, setLocale] = useState<AppLocale>(
+    () => readStoredLocale() ?? "ko",
+  );
+  const [user, setUser] = useState<UserSession | null>(null);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [bootstrapFailed, setBootstrapFailed] = useState(false);
+  const [emailVerificationFailed, setEmailVerificationFailed] = useState(false);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(
+    () => readPasswordResetToken(),
+  );
+  const messages = useMemo(() => messagesForLocale(locale), [locale]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      try {
+        const response = await bootstrapSession();
+        if (cancelled) {
+          return;
+        }
+
+        const nextUser = response.authenticated ? response.user : null;
+        const nextLocale = normalizeLocale(
+          nextUser?.locale ?? readStoredLocale() ?? response.locale,
+        );
+        setLocale(nextLocale);
+        storeLocale(nextLocale);
+        const verificationToken = nextUser ? null : readEmailVerificationToken();
+        const resetToken = nextUser ? null : readPasswordResetToken();
+
+        if (nextUser && readEmailVerificationToken()) {
+          removeEmailVerificationToken();
+        }
+
+        if (nextUser && readPasswordResetToken()) {
+          removePasswordResetToken();
+        }
+
+        if (verificationToken) {
+          try {
+            const authResponse = await verifyEmail(verificationToken);
+            if (cancelled) {
+              return;
+            }
+
+            removeEmailVerificationToken();
+            removePasswordResetToken();
+            const verifiedLocale = normalizeLocale(
+              authResponse.user.locale ?? authResponse.locale,
+            );
+            setLocale(verifiedLocale);
+            storeLocale(verifiedLocale);
+            setUser(authResponse.user);
+            setPasswordResetToken(null);
+            setEmailVerificationFailed(false);
+            setBootstrapFailed(false);
+            return;
+          } catch {
+            if (cancelled) {
+              return;
+            }
+
+            clearAuthCSRFToken();
+            removeEmailVerificationToken();
+            setUser(null);
+            setPasswordResetToken(resetToken);
+            setEmailVerificationFailed(true);
+            setBootstrapFailed(false);
+            return;
+          }
+        }
+
+        setUser(nextUser);
+        setPasswordResetToken(resetToken);
+        setEmailVerificationFailed(false);
+        setBootstrapFailed(false);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        clearAuthCSRFToken();
+        setUser(null);
+        setPasswordResetToken(readPasswordResetToken());
+        setEmailVerificationFailed(false);
+        setBootstrapFailed(true);
+      } finally {
+        if (!cancelled) {
+          setBootstrapped(true);
+        }
+      }
+    }
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleLocaleChange(nextLocale: AppLocale) {
+    if (nextLocale === locale) {
+      return;
+    }
+
+    setLocale(nextLocale);
+    storeLocale(nextLocale);
+    if (!user) {
+      return;
+    }
+
+    setUser({ ...user, locale: nextLocale });
+    try {
+      const updatedUser = await updateUserLocale(nextLocale);
+      setUser(updatedUser);
+    } catch {
+      setUser((currentUser) =>
+        currentUser === null ? currentUser : { ...currentUser, locale: nextLocale },
+      );
+    }
+  }
+
+  function handleAuthenticated(response: AuthResponse) {
+    const nextLocale = normalizeLocale(response.user.locale ?? response.locale);
+    setLocale(nextLocale);
+    storeLocale(nextLocale);
+    setUser(response.user);
+    setPasswordResetToken(null);
+    removeEmailVerificationToken();
+    removePasswordResetToken();
+    setEmailVerificationFailed(false);
+    setBootstrapFailed(false);
+  }
+
+  function handleLoggedOut() {
+    clearAuthCSRFToken();
+    setUser(null);
+    setPasswordResetToken(readPasswordResetToken());
+    setEmailVerificationFailed(false);
+  }
+
+  if (!bootstrapped) {
+    return <BootstrapScreen messages={messages} />;
+  }
+
+  if (!user) {
+    return (
+      <AuthScreen
+        bootstrapError={
+          bootstrapFailed ? messages.app.bootstrapError : null
+        }
+        verificationError={
+          emailVerificationFailed ? messages.auth.emailVerificationFailed : null
+        }
+        locale={locale}
+        messages={messages}
+        passwordResetToken={passwordResetToken}
+        onAuthenticated={handleAuthenticated}
+        onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+        onPasswordResetTokenConsumed={() => {
+          setPasswordResetToken(null);
+          removePasswordResetToken();
+        }}
+      />
+    );
+  }
+
+  return (
+    <Dashboard
+      locale={locale}
+      messages={messages}
+      user={user}
+      onAuthenticated={handleAuthenticated}
+      onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+      onLoggedOut={handleLoggedOut}
+    />
+  );
+}
+
+function BootstrapScreen({ messages }: { messages: AppMessages }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f5] px-4 text-zinc-900">
+      <p
+        className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-600 shadow-soft"
+        role="status"
+      >
+        {messages.app.bootstrapLoading}
+      </p>
+    </main>
+  );
+}
+
+function AuthScreen({
+  bootstrapError,
+  verificationError,
+  locale,
+  messages,
+  passwordResetToken,
+  onAuthenticated,
+  onLocaleChange,
+  onPasswordResetTokenConsumed,
+}: {
+  bootstrapError: string | null;
+  verificationError: string | null;
+  locale: AppLocale;
+  messages: AppMessages;
+  passwordResetToken: string | null;
+  onAuthenticated: (response: AuthResponse) => void;
+  onLocaleChange: (locale: AppLocale) => void;
+  onPasswordResetTokenConsumed: () => void;
+}) {
+  const [mode, setMode] = useState<AuthMode>(
+    () => (passwordResetToken ? "reset" : "login"),
+  );
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [legacyClaimToken, setLegacyClaimToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const authMessages = messages.auth;
+  const submitLabel = authSubmitLabel(mode, authMessages);
+  const submitIcon = authSubmitIcon(mode);
+
+  useEffect(() => {
+    if (!passwordResetToken) {
+      return;
+    }
+
+    setMode("reset");
+    setEmail("");
+    setPassword("");
+    setLegacyClaimToken("");
+    setError(null);
+    setStatus(null);
+  }, [passwordResetToken]);
+
+  function moveToMode(nextMode: AuthMode) {
+    if (mode === "reset") {
+      onPasswordResetTokenConsumed();
+    }
+    setMode(nextMode);
+    setError(null);
+    setStatus(null);
+    setPassword("");
+    setLegacyClaimToken("");
+  }
+
+  function returnToLogin() {
+    moveToMode("login");
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+
+    try {
+      if (mode === "login") {
+        const response = await loginSession(email, password, locale);
+        onAuthenticated(response);
+        return;
+      }
+
+      if (mode === "forgot") {
+        await requestPasswordReset(email, locale);
+        setStatus(authMessages.passwordResetRequested);
+        setPassword("");
+        setLegacyClaimToken("");
+        return;
+      }
+
+      if (mode === "reset") {
+        if (!passwordResetToken) {
+          setError(authMessages.passwordResetTokenFailed);
+          return;
+        }
+
+        const response = await resetPassword(passwordResetToken, password);
+        onPasswordResetTokenConsumed();
+        onAuthenticated(response);
+        return;
+      }
+
+      const response = await signUpSession(
+        email,
+        password,
+        locale,
+        legacyClaimToken,
+      );
+      if (isAuthResponse(response)) {
+        onAuthenticated(response);
+        return;
+      }
+
+      setStatus(authMessages.signupAccepted);
+      setPassword("");
+      setLegacyClaimToken("");
+    } catch (error) {
+      setError(authErrorMessage(error, mode, authMessages));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f5] px-4 py-8 text-zinc-900">
+      <section className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-5 shadow-soft">
+        <div className="flex flex-col gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
+              {authMessages.title}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-600">
+              {authMessages.subtitle}
+            </p>
+          </div>
+
+          <LanguageToggle
+            label={messages.app.languageLabel}
+            locale={locale}
+            onChange={onLocaleChange}
+          />
+
+          {mode === "login" || mode === "signup" ? (
+            <div
+              className="grid grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-zinc-50 p-1"
+              role="tablist"
+            >
+              <button
+                className={authModeClassName(mode === "login")}
+                type="button"
+                aria-label={`${authMessages.loginTab} tab`}
+                aria-pressed={mode === "login"}
+                onClick={() => moveToMode("login")}
+              >
+                {authMessages.loginTab}
+              </button>
+              <button
+                className={authModeClassName(mode === "signup")}
+                type="button"
+                aria-label={`${authMessages.signupTab} tab`}
+                aria-pressed={mode === "signup"}
+                onClick={() => moveToMode("signup")}
+              >
+                {authMessages.signupTab}
+              </button>
+            </div>
+          ) : (
+            <button
+              className="inline-flex h-9 w-fit items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
+              type="button"
+              aria-label={authMessages.backToLoginButton}
+              onClick={returnToLogin}
+            >
+              <ArrowLeft size={15} />
+              {authMessages.backToLoginButton}
+            </button>
+          )}
+
+          <form className="space-y-3" onSubmit={handleSubmit}>
+            {mode !== "reset" ? (
+              <label className="block text-sm font-medium text-zinc-700">
+                <span>{authMessages.emailLabel}</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  type="email"
+                  aria-label={authMessages.emailLabel}
+                  autoComplete="email"
+                  placeholder={authMessages.emailPlaceholder}
+                  required
+                  value={email}
+                  disabled={busy}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+            ) : null}
+            {mode !== "forgot" ? (
+              <label className="block text-sm font-medium text-zinc-700">
+                <span>{authMessages.passwordLabel}</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  type="password"
+                  aria-label={authMessages.passwordLabel}
+                  autoComplete={
+                    mode === "login" ? "current-password" : "new-password"
+                  }
+                  placeholder={authMessages.passwordPlaceholder}
+                  required
+                  value={password}
+                  disabled={busy}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+            ) : null}
+            {mode === "signup" ? (
+              <label className="block text-sm font-medium text-zinc-700">
+                <span>{authMessages.legacyClaimTokenLabel}</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  type="text"
+                  aria-label={authMessages.legacyClaimTokenLabel}
+                  autoComplete="off"
+                  placeholder={authMessages.legacyClaimTokenPlaceholder}
+                  value={legacyClaimToken}
+                  disabled={busy}
+                  onChange={(event) => setLegacyClaimToken(event.target.value)}
+                />
+              </label>
+            ) : null}
+
+            {bootstrapError ? (
+              <p className="text-xs font-medium text-amber-700" role="status">
+                {bootstrapError}
+              </p>
+            ) : null}
+            {verificationError ? (
+              <p className="text-xs font-medium text-rose-700" role="alert">
+                {verificationError}
+              </p>
+            ) : null}
+            {status ? (
+              <p className="text-xs font-medium text-teal-700" role="status">
+                {status}
+              </p>
+            ) : null}
+            {error ? (
+              <p className="text-xs font-medium text-rose-700" role="alert">
+                {error}
+              </p>
+            ) : null}
+
+            <button
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              aria-label={submitLabel}
+              disabled={busy}
+            >
+              {submitIcon}
+              {busy ? authMessages.submitBusy : submitLabel}
+            </button>
+            {mode === "login" ? (
+              <button
+                className="inline-flex h-9 items-center gap-2 text-sm font-semibold text-teal-700 transition hover:text-teal-900"
+                type="button"
+                aria-label={authMessages.forgotPasswordButton}
+                onClick={() => moveToMode("forgot")}
+              >
+                <KeyRound size={14} />
+                {authMessages.forgotPasswordButton}
+              </button>
+            ) : null}
+          </form>
+
+          <p className="text-xs text-zinc-500">{authMessages.languageHint}</p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function authErrorMessage(
+  error: unknown,
+  mode: AuthMode,
+  authMessages: AppMessages["auth"],
+) {
+  if (isAPIError(error)) {
+    if (error.status === 429 || error.code === "too many requests") {
+      return authMessages.authRateLimited;
+    }
+
+    if (error.code === "invalid verification token") {
+      return authMessages.emailVerificationFailed;
+    }
+
+    if (error.code === "invalid password reset token") {
+      return authMessages.passwordResetTokenFailed;
+    }
+
+    if (mode === "login" && error.code === "email not verified") {
+      return authMessages.loginEmailNotVerified;
+    }
+
+    if (mode === "forgot") {
+      switch (error.code) {
+        case "invalid email":
+          return authMessages.signupInvalidEmail;
+        case "invalid locale":
+          return authMessages.signupInvalidLocale;
+      }
+    }
+
+    if (mode === "reset") {
+      if (error.code === "weak password") {
+        return authMessages.signupWeakPassword;
+      }
+
+      return authMessages.resetPasswordFailed;
+    }
+
+    if (mode === "signup") {
+      switch (error.code) {
+        case "weak password":
+          return authMessages.signupWeakPassword;
+        case "invalid email":
+          return authMessages.signupInvalidEmail;
+        case "invalid locale":
+          return authMessages.signupInvalidLocale;
+        case "invalid legacy claim":
+          return authMessages.signupInvalidLegacyClaim;
+        case "legacy claim required":
+          return authMessages.signupLegacyClaimRequired;
+      }
+    }
+  }
+
+  switch (mode) {
+    case "login":
+      return authMessages.loginFailed;
+    case "signup":
+      return authMessages.signupFailed;
+    case "forgot":
+      return authMessages.passwordResetRequestFailed;
+    case "reset":
+      return authMessages.resetPasswordFailed;
+  }
+}
+
+function authSubmitLabel(mode: AuthMode, authMessages: AppMessages["auth"]) {
+  switch (mode) {
+    case "login":
+      return authMessages.loginButton;
+    case "signup":
+      return authMessages.signupButton;
+    case "forgot":
+      return authMessages.requestPasswordResetButton;
+    case "reset":
+      return authMessages.resetPasswordButton;
+  }
+}
+
+function authSubmitIcon(mode: AuthMode) {
+  switch (mode) {
+    case "login":
+      return <LogIn size={17} />;
+    case "signup":
+      return <UserPlus size={17} />;
+    case "forgot":
+      return <MailCheck size={17} />;
+    case "reset":
+      return <KeyRound size={17} />;
+  }
+}
+
+function Dashboard({
+  locale,
+  messages,
+  user,
+  onAuthenticated,
+  onLocaleChange,
+  onLoggedOut,
+}: {
+  locale: AppLocale;
+  messages: AppMessages;
+  user: UserSession;
+  onAuthenticated: (response: AuthResponse) => void;
+  onLocaleChange: (locale: AppLocale) => void;
+  onLoggedOut: () => void;
+}) {
+  const monthController = useMonthController({ messages });
+
+  async function handleLogout() {
+    try {
+      await logoutSession();
+    } finally {
+      onLoggedOut();
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#f7f8f5] text-zinc-900">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
+        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              월간 목표 트래커
+              {messages.app.title}
             </h1>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-              <span>{formatMonth(monthController.month)} 기록</span>
+              <span>
+                {messages.app.monthRecord(
+                  formatMonth(monthController.month, locale),
+                )}
+              </span>
               <span
                 aria-live="polite"
                 className={statusClassName(monthController.loadStatus)}
                 role="status"
               >
-                {statusLabel(monthController.loadStatus)}
+                {statusLabel(monthController.loadStatus, messages.status)}
               </span>
             </p>
             {monthController.loadError ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <p className="text-xs font-medium text-amber-700" role="status">
-                  API 응답을 받지 못해 샘플 데이터를 표시합니다.
+                  {messages.app.fallbackNotice}
                 </p>
                 <button
                   className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 text-xs font-semibold text-amber-800 shadow-sm transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
                   type="button"
-                  aria-label="다시 시도"
+                  aria-label={messages.app.retry}
                   disabled={monthController.isLoading}
                   onClick={() =>
                     void monthController.loadMonth(monthController.month)
                   }
                 >
                   <RefreshCw size={14} />
-                  다시 시도
+                  {messages.app.retry}
                 </button>
               </div>
             ) : null}
@@ -76,8 +684,8 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
-              aria-label="이전 달"
-              title="이전 달"
+              aria-label={messages.app.previousMonth}
+              title={messages.app.previousMonth}
               disabled={
                 monthController.isLoading || monthController.isMutatingMonth
               }
@@ -90,7 +698,7 @@ export default function App() {
               <input
                 className="w-[8.5rem] bg-transparent text-sm outline-none"
                 type="month"
-                aria-label="기록할 월"
+                aria-label={messages.app.monthInput}
                 value={monthController.month}
                 disabled={
                   monthController.isLoading || monthController.isMutatingMonth
@@ -103,8 +711,8 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
-              aria-label="다음 달"
-              title="다음 달"
+              aria-label={messages.app.nextMonth}
+              title={messages.app.nextMonth}
               disabled={
                 monthController.isLoading || monthController.isMutatingMonth
               }
@@ -115,8 +723,8 @@ export default function App() {
             <button
               className="icon-button"
               type="button"
-              aria-label="목표 이월"
-              title="목표 이월"
+              aria-label={messages.app.prepareMonth}
+              title={messages.app.prepareMonth}
               disabled={
                 !monthController.canSaveChanges ||
                 monthController.isMutatingMonth
@@ -125,6 +733,27 @@ export default function App() {
             >
               <CalendarPlus size={18} />
             </button>
+            <LanguageToggle
+              compact
+              label={messages.app.languageLabel}
+              locale={locale}
+              onChange={onLocaleChange}
+            />
+            <p
+              className="max-w-[13rem] truncate text-xs font-medium text-zinc-600"
+              title={messages.app.signedInAs(user.email)}
+            >
+              {messages.app.signedInAs(user.email)}
+            </p>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label={messages.app.logout}
+              title={messages.app.logout}
+              onClick={() => void handleLogout()}
+            >
+              <LogOut size={18} />
+            </button>
           </div>
         </header>
 
@@ -132,6 +761,7 @@ export default function App() {
           activeGoalCount={monthController.activeMetricGoalCount}
           activeMetricLabel={monthController.activeMetricLabel}
           averageRate={monthController.averageRate}
+          labels={messages.summary}
           totalCompleted={monthController.totalCompleted}
         />
 
@@ -143,6 +773,8 @@ export default function App() {
             dailyRecordGoalSlots={monthController.dailyRecordGoalSlots}
             days={monthController.days}
             isMutatingMonth={monthController.isMutatingMonth}
+            labels={messages.dailyRecord}
+            locale={locale}
             savingChecks={monthController.savingChecks}
             savingMemos={monthController.savingMemos}
             onMemoBlur={(date, memo) =>
@@ -155,11 +787,6 @@ export default function App() {
           />
 
           <aside className="space-y-6">
-            <ChartPanel
-              chartData={monthController.chartData}
-              goalCount={monthController.goals.length}
-              month={monthController.month}
-            />
             <GoalPanel
               canSaveChanges={monthController.canSaveChanges}
               deactivatingGoalIDs={monthController.deactivatingGoalIDs}
@@ -168,6 +795,7 @@ export default function App() {
               goalFormOpen={monthController.goalFormOpen}
               goalListReferenceDate={monthController.goalListReferenceDate}
               isMutatingMonth={monthController.isMutatingMonth}
+              labels={messages.goalPanel}
               month={monthController.month}
               newGoalStartDate={monthController.newGoalStartDate}
               newGoalTitle={monthController.newGoalTitle}
@@ -190,9 +818,316 @@ export default function App() {
               }
               onToggleGoalForm={monthController.toggleGoalForm}
             />
+            <ChartPanel
+              chartData={monthController.chartData}
+              goalCount={monthController.goals.length}
+              labels={messages.chart}
+              month={monthController.month}
+            />
+            <AccountSecurityPanel
+              labels={messages.account}
+              onPasswordChanged={onAuthenticated}
+            />
           </aside>
         </section>
       </div>
     </main>
   );
+}
+
+function AccountSecurityPanel({
+  labels,
+  onPasswordChanged,
+}: {
+  labels: AppMessages["account"];
+  onPasswordChanged: (response: AuthResponse) => void;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+
+    try {
+      const response = await changePassword(currentPassword, newPassword);
+      onPasswordChanged(response);
+      setCurrentPassword("");
+      setNewPassword("");
+      setStatus(labels.passwordChanged);
+    } catch (error) {
+      setError(passwordChangeErrorMessage(error, labels));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLogoutOtherSessions() {
+    setSessionBusy(true);
+    setSessionError(null);
+    setSessionStatus(null);
+
+    try {
+      await logoutOtherSessions();
+      setSessionStatus(labels.otherSessionsLoggedOut);
+    } catch {
+      setSessionError(labels.otherSessionsLogoutFailed);
+    } finally {
+      setSessionBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
+      <form className="space-y-3" onSubmit={handleSubmit}>
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-normal text-zinc-950">
+          <KeyRound size={17} className="text-teal-700" />
+          {labels.heading}
+        </h2>
+        <label className="block text-sm font-medium text-zinc-700">
+          <span>{labels.currentPasswordLabel}</span>
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            type="password"
+            aria-label={labels.currentPasswordLabel}
+            autoComplete="current-password"
+            placeholder={labels.currentPasswordPlaceholder}
+            required
+            value={currentPassword}
+            disabled={busy}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+          />
+        </label>
+        <label className="block text-sm font-medium text-zinc-700">
+          <span>{labels.newPasswordLabel}</span>
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            type="password"
+            aria-label={labels.newPasswordLabel}
+            autoComplete="new-password"
+            placeholder={labels.newPasswordPlaceholder}
+            required
+            value={newPassword}
+            disabled={busy}
+            onChange={(event) => setNewPassword(event.target.value)}
+          />
+        </label>
+        {status ? (
+          <p className="text-xs font-medium text-teal-700" role="status">
+            {status}
+          </p>
+        ) : null}
+        {error ? (
+          <p className="text-xs font-medium text-rose-700" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button
+          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          type="submit"
+          aria-label={busy ? labels.changingPassword : labels.changePasswordButton}
+          disabled={busy}
+        >
+          <KeyRound size={17} />
+          {busy ? labels.changingPassword : labels.changePasswordButton}
+        </button>
+      </form>
+      <div className="mt-4 border-t border-zinc-200 pt-3">
+        {sessionStatus ? (
+          <p className="text-xs font-medium text-teal-700" role="status">
+            {sessionStatus}
+          </p>
+        ) : null}
+        {sessionError ? (
+          <p className="text-xs font-medium text-rose-700" role="alert">
+            {sessionError}
+          </p>
+        ) : null}
+        <button
+          className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          aria-label={
+            sessionBusy
+              ? labels.loggingOutOtherSessions
+              : labels.logoutOtherSessionsButton
+          }
+          disabled={sessionBusy}
+          onClick={() => void handleLogoutOtherSessions()}
+        >
+          <ShieldCheck size={17} className="text-teal-700" />
+          {sessionBusy
+            ? labels.loggingOutOtherSessions
+            : labels.logoutOtherSessionsButton}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function passwordChangeErrorMessage(
+  error: unknown,
+  labels: AppMessages["account"],
+) {
+  if (isAPIError(error)) {
+    if (error.code === "weak password") {
+      return labels.passwordChangeWeakPassword;
+    }
+
+    if (error.status === 401 || error.code === "unauthorized") {
+      return labels.passwordChangeUnauthorized;
+    }
+  }
+
+  return labels.passwordChangeFailed;
+}
+
+function LanguageToggle({
+  compact = false,
+  label,
+  locale,
+  onChange,
+}: {
+  compact?: boolean;
+  label: string;
+  locale: AppLocale;
+  onChange: (locale: AppLocale) => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 ${
+        compact ? "h-10 rounded-md border border-zinc-300 bg-white px-2" : ""
+      }`}
+      aria-label={label}
+    >
+      <Languages size={17} className="text-teal-700" />
+      <div className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 p-0.5">
+        <button
+          className={languageButtonClassName(locale === "ko")}
+          type="button"
+          aria-label={`${label} 한국어`}
+          aria-pressed={locale === "ko"}
+          onClick={() => onChange("ko")}
+        >
+          한국어
+        </button>
+        <button
+          className={languageButtonClassName(locale === "en")}
+          type="button"
+          aria-label={`${label} English`}
+          aria-pressed={locale === "en"}
+          onClick={() => onChange("en")}
+        >
+          English
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function authModeClassName(active: boolean) {
+  const base =
+    "h-9 rounded-md px-3 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+  return active
+    ? `${base} bg-white text-teal-800 shadow-sm`
+    : `${base} text-zinc-600 hover:text-zinc-950`;
+}
+
+function languageButtonClassName(active: boolean) {
+  const base =
+    "h-8 min-w-[4rem] rounded px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+  return active
+    ? `${base} bg-white text-teal-800 shadow-sm`
+    : `${base} text-zinc-600 hover:text-zinc-950`;
+}
+
+function readStoredLocale(): AppLocale | null {
+  try {
+    const storedLocale = window.localStorage.getItem(localeStorageKey);
+    return storedLocale === "ko" || storedLocale === "en"
+      ? storedLocale
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeLocale(locale: AppLocale) {
+  try {
+    window.localStorage.setItem(localeStorageKey, locale);
+  } catch {
+    // Local storage is optional; the server session remains authoritative.
+  }
+}
+
+function readEmailVerificationToken() {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("token")?.trim() ||
+    params.get("verifyToken")?.trim() ||
+    null
+  );
+}
+
+function removeEmailVerificationToken() {
+  removeSearchParams(["token", "verifyToken"]);
+}
+
+function readPasswordResetToken() {
+  const params = hashParams();
+  return (
+    params.get("resetToken")?.trim() ||
+    params.get("passwordResetToken")?.trim() ||
+    null
+  );
+}
+
+function removePasswordResetToken() {
+  removeSearchParams(["resetToken", "passwordResetToken"]);
+  removeHashParams(["resetToken", "passwordResetToken"]);
+}
+
+function hashParams() {
+  return new URLSearchParams(window.location.hash.replace(/^#/, ""));
+}
+
+function removeHashParams(keys: string[]) {
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+  let changed = false;
+
+  for (const key of keys) {
+    if (params.has(key)) {
+      params.delete(key);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    url.hash = params.toString();
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
+
+function removeSearchParams(keys: string[]) {
+  const url = new URL(window.location.href);
+  let changed = false;
+
+  for (const key of keys) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
 }

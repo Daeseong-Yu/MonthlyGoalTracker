@@ -17,6 +17,7 @@ type GoalPanelProps = {
   goalFormOpen: boolean;
   goalListReferenceDate: string;
   isMutatingMonth: boolean;
+  labels?: GoalPanelLabels;
   month: string;
   newGoalStartDate: string;
   newGoalTitle: string;
@@ -37,6 +38,60 @@ type GoalPanelProps = {
   onToggleGoalForm: () => void;
 };
 
+type GoalPanelLabels = {
+  heading: string;
+  add: string;
+  newGoalTitleAria: string;
+  newGoalTitlePlaceholder: string;
+  newGoalStartDateAria: string;
+  saveGoal: string;
+  savingGoal: string;
+  noActiveGoals: string;
+  periodContinues: string;
+  editTitleAria: (title: string) => string;
+  savingTitleAria: (title: string) => string;
+  saveTitleAria: (title: string) => string;
+  saveTitle: string;
+  savingTitle: string;
+  cancelEditAria: (title: string) => string;
+  cancelEditTitle: string;
+  editGoalAria: (title: string) => string;
+  editGoalTitle: string;
+  deactivatingAria: (title: string) => string;
+  alreadyDeactivatedAria: (title: string) => string;
+  deactivateAria: (title: string) => string;
+  deactivatingTitle: string;
+  alreadyDeactivatedTitle: string;
+  deactivateTitle: (date: string) => string;
+};
+
+const defaultLabels: GoalPanelLabels = {
+  heading: "목표",
+  add: "목표 추가",
+  newGoalTitleAria: "새 목표 제목",
+  newGoalTitlePlaceholder: "새 목표",
+  newGoalStartDateAria: "새 목표 시작일",
+  saveGoal: "목표 저장",
+  savingGoal: "목표 저장 중",
+  noActiveGoals: "진행 중인 목표가 없습니다.",
+  periodContinues: "계속",
+  editTitleAria: (title) => `${title} 제목 수정`,
+  savingTitleAria: (title) => `${title} 저장 중`,
+  saveTitleAria: (title) => `${title} 저장`,
+  saveTitle: "목표 저장",
+  savingTitle: "목표 저장 중",
+  cancelEditAria: (title) => `${title} 수정 취소`,
+  cancelEditTitle: "수정 취소",
+  editGoalAria: (title) => `${title} 수정`,
+  editGoalTitle: "목표 수정",
+  deactivatingAria: (title) => `${title} 종료 중`,
+  alreadyDeactivatedAria: (title) => `${title} 이미 종료됨`,
+  deactivateAria: (title) => `${title} 종료`,
+  deactivatingTitle: "목표 종료 중",
+  alreadyDeactivatedTitle: "이미 종료됨",
+  deactivateTitle: (date) => `목표 종료 (${date}까지 활성)`,
+};
+
 export default function GoalPanel({
   canSaveChanges,
   deactivatingGoalIDs,
@@ -45,6 +100,7 @@ export default function GoalPanel({
   goalFormOpen,
   goalListReferenceDate,
   isMutatingMonth,
+  labels = defaultLabels,
   month,
   newGoalStartDate,
   newGoalTitle,
@@ -64,12 +120,14 @@ export default function GoalPanel({
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-zinc-950">목표</h2>
+        <h2 className="text-base font-semibold text-zinc-950">
+          {labels.heading}
+        </h2>
         <button
           className="icon-button"
           type="button"
-          aria-label="목표 추가"
-          title="목표 추가"
+          aria-label={labels.add}
+          title={labels.add}
           disabled={!canSaveChanges || isMutatingMonth}
           onClick={onToggleGoalForm}
         >
@@ -83,17 +141,17 @@ export default function GoalPanel({
         >
           <input
             className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-            aria-label="새 목표 제목"
+            aria-label={labels.newGoalTitleAria}
             value={newGoalTitle}
             disabled={isMutatingMonth}
-            placeholder="새 목표"
+            placeholder={labels.newGoalTitlePlaceholder}
             onChange={(event) => onNewGoalTitleChange(event.target.value)}
           />
           <div className="flex gap-2">
             <input
               className="h-9 min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               type="date"
-              aria-label="새 목표 시작일"
+              aria-label={labels.newGoalStartDateAria}
               min={monthStartDate(month)}
               max={monthEndDate(month)}
               value={newGoalStartDate}
@@ -103,8 +161,8 @@ export default function GoalPanel({
             <button
               className="icon-button"
               type="submit"
-              aria-label={savingGoal ? "목표 저장 중" : "목표 저장"}
-              title={savingGoal ? "목표 저장 중" : "목표 저장"}
+              aria-label={savingGoal ? labels.savingGoal : labels.saveGoal}
+              title={savingGoal ? labels.savingGoal : labels.saveGoal}
               disabled={isMutatingMonth}
             >
               {savingGoal ? (
@@ -123,7 +181,7 @@ export default function GoalPanel({
       <div className="space-y-3">
         {visibleGoals.length === 0 ? (
           <p className="rounded-md border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm font-medium text-zinc-500">
-            진행 중인 목표가 없습니다.
+            {labels.noActiveGoals}
           </p>
         ) : null}
         {visibleGoals.map((goal) => {
@@ -144,7 +202,7 @@ export default function GoalPanel({
                 >
                   <input
                     className="h-9 w-full rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    aria-label={`${goal.title} 제목 수정`}
+                    aria-label={labels.editTitleAria(goal.title)}
                     value={editingGoalTitle}
                     disabled={isMutatingMonth}
                     onChange={(event) =>
@@ -153,7 +211,7 @@ export default function GoalPanel({
                   />
                   <div className="flex items-center justify-between gap-2">
                     <p className="min-w-0 truncate text-xs text-zinc-500">
-                      {formatGoalPeriod(goal)}
+                      {formatGoalPeriod(goal, labels.periodContinues)}
                     </p>
                     <div className="flex shrink-0 gap-1">
                       <button
@@ -161,10 +219,10 @@ export default function GoalPanel({
                         type="submit"
                         aria-label={
                           savingGoalTitle
-                            ? `${goal.title} 저장 중`
-                            : `${goal.title} 저장`
+                            ? labels.savingTitleAria(goal.title)
+                            : labels.saveTitleAria(goal.title)
                         }
-                        title={savingGoalTitle ? "목표 저장 중" : "목표 저장"}
+                        title={savingGoalTitle ? labels.savingTitle : labels.saveTitle}
                         disabled={isMutatingMonth}
                       >
                         {savingGoalTitle ? (
@@ -180,8 +238,8 @@ export default function GoalPanel({
                       <button
                         className="mini-icon-button"
                         type="button"
-                        aria-label={`${goal.title} 수정 취소`}
-                        title="수정 취소"
+                        aria-label={labels.cancelEditAria(goal.title)}
+                        title={labels.cancelEditTitle}
                         disabled={isMutatingMonth}
                         onClick={onCancelEditingGoal}
                       >
@@ -197,15 +255,15 @@ export default function GoalPanel({
                       {goal.title}
                     </p>
                     <p className="mt-1 text-xs text-zinc-500">
-                      {formatGoalPeriod(goal)}
+                      {formatGoalPeriod(goal, labels.periodContinues)}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button
                       className="mini-icon-button"
                       type="button"
-                      aria-label={`${goal.title} 수정`}
-                      title="목표 수정"
+                      aria-label={labels.editGoalAria(goal.title)}
+                      title={labels.editGoalTitle}
                       disabled={!canSaveChanges || isMutatingMonth}
                       onClick={() => onStartEditingGoal(goal)}
                     >
@@ -216,17 +274,17 @@ export default function GoalPanel({
                       type="button"
                       aria-label={
                         deactivating
-                          ? `${goal.title} 종료 중`
+                          ? labels.deactivatingAria(goal.title)
                           : alreadyDeactivated
-                          ? `${goal.title} 이미 종료됨`
-                          : `${goal.title} 종료`
+                          ? labels.alreadyDeactivatedAria(goal.title)
+                          : labels.deactivateAria(goal.title)
                       }
                       title={
                         deactivating
-                          ? "목표 종료 중"
+                          ? labels.deactivatingTitle
                           : alreadyDeactivated
-                          ? "이미 종료됨"
-                          : `목표 종료 (${shortDate(deactivationDate)}까지 활성)`
+                          ? labels.alreadyDeactivatedTitle
+                          : labels.deactivateTitle(shortDate(deactivationDate))
                       }
                       disabled={!canSaveChanges || isMutatingMonth || deactivating}
                       onClick={() => onDeactivateGoal(goal)}

@@ -16,6 +16,7 @@ import {
   hasFetchedJsonBody,
   hasFetchedPath,
   hasNoFetchedPath,
+  jsonErrorResponse,
   jsonResponse,
   monthFromRequest,
   okResponse,
@@ -42,6 +43,7 @@ import {
   resolvePending,
   setInputValue,
   stubFetch,
+  submitForm,
   tableHeaderCells,
   tableHeaders,
   waitFor,
@@ -83,6 +85,436 @@ describe("App", () => {
     expect(getInput("05.01 메모").className).toContain("w-56");
     expect(getInput("05.01 메모").className).toContain("max-w-full");
     expect(document.body.textContent).toContain("chart points: 2");
+  });
+
+  it("shows the English login screen from regional bootstrap and loads the dashboard after login", async () => {
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/login") {
+          return jsonResponse({
+            user: {
+              id: 4,
+              email: "person@example.com",
+              locale: "en",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            csrfToken: "csrf-login",
+            locale: "en",
+          });
+        }
+
+        return createMonthViewApiHandler()(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "en",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("Monthly Goal Tracker");
+
+    expect(document.body.textContent).toContain(
+      "Save personal goals under your own account.",
+    );
+
+    await setInputValue("Email", "person@example.com");
+    await setInputValue("Password", "secret123");
+    await submitForm();
+
+    await waitForText("API data");
+
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/login")).toBe(
+      true,
+    );
+    expect(document.body.textContent).toContain(
+      "Signed in as person@example.com",
+    );
+    expect(document.body.textContent).toContain("Goals");
+  });
+
+  it("shows rate limit feedback on login", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/login") {
+          return jsonErrorResponse(429, "too many requests");
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("월간 목표 트래커");
+    await setInputValue("이메일", "person@example.com");
+    await setInputValue("비밀번호", "secret123");
+    await submitForm();
+
+    await waitForText("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
+
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/login")).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    [
+      400,
+      "signup failed",
+      "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
+    ],
+    [
+      409,
+      "email already exists",
+      "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
+    ],
+    [400, "weak password", "비밀번호는 8자 이상이어야 합니다."],
+    [
+      409,
+      "legacy claim required",
+      "기존 데이터가 있어 이전 토큰이 필요합니다.",
+    ],
+  ] as const)(
+    "shows %s signup feedback from auth errors",
+    async (status, serverError, expectedMessage) => {
+      const monthViewApiHandler = createMonthViewApiHandler();
+      const fetchMock = stubFetch(
+        (input) => {
+          if (requestPath(input) === "/api/auth/signup") {
+            return jsonErrorResponse(status, serverError);
+          }
+
+          return monthViewApiHandler(input);
+        },
+        {
+          bootstrap: {
+            authenticated: false,
+            locale: "ko",
+            user: null,
+          },
+        },
+      );
+
+      renderApp(<App />);
+
+      await waitForText("월간 목표 트래커");
+      await clickButton("회원가입 tab");
+      await setInputValue("이메일", "person@example.com");
+      await setInputValue("비밀번호", "secret123");
+      await submitForm();
+
+      await waitForText(expectedMessage);
+
+      expect(
+        hasFetchedPath(fetchMock, (path) => path === "/api/auth/signup"),
+      ).toBe(true);
+    },
+  );
+
+  it("shows signup verification feedback without opening a session", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/signup") {
+          return jsonResponse({
+            status: "verification_required",
+            locale: "ko",
+          });
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("월간 목표 트래커");
+    await clickButton("회원가입 tab");
+    await setInputValue("이메일", "person@example.com");
+    await setInputValue("비밀번호", "secret123");
+    await submitForm();
+
+    await waitForText("가입 요청을 받았습니다. 인증 메일을 확인해 주세요.");
+
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/signup")).toBe(
+      true,
+    );
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
+  it("verifies an email token from the URL before loading the dashboard", async () => {
+    window.history.pushState({}, "", "/?token=email-token");
+
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/verify-email") {
+          return jsonResponse({
+            user: {
+              id: 4,
+              email: "person@example.com",
+              locale: "ko",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            csrfToken: "csrf-verified",
+            locale: "ko",
+          });
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+
+    expect(hasFetchedJsonBody<{ token: string }>(
+      fetchMock,
+      (path) => path === "/api/auth/verify-email",
+      (body) => body.token === "email-token",
+    )).toBe(true);
+    expect(window.location.search).not.toContain("token=");
+    expect(document.body.textContent).toContain(
+      "person@example.com로 로그인됨",
+    );
+  });
+
+  it("shows feedback when an email verification token is invalid", async () => {
+    window.history.pushState({}, "", "/?token=expired-token");
+
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/verify-email") {
+          return jsonErrorResponse(400, "invalid verification token");
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "ko",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("인증 링크가 만료되었거나 올바르지 않습니다.");
+
+    expect(hasFetchedPath(
+      fetchMock,
+      (path) => path === "/api/auth/verify-email",
+    )).toBe(true);
+    expect(window.location.search).not.toContain("token=");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
+  it("requests a password reset from the login screen", async () => {
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/password-reset/request") {
+          return jsonResponse({
+            status: "password_reset_requested",
+            locale: "ko",
+          });
+        }
+
+        return createMonthViewApiHandler()(input);
+      },
+      {
+        bootstrap: { authenticated: false, locale: "ko", user: null },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("월간 목표 트래커");
+    await clickButton("비밀번호 재설정");
+    await setInputValue("이메일", "person@example.com");
+    await submitForm();
+
+    await waitForText(
+      "비밀번호 재설정 메일을 보냈습니다. 받은 편지함을 확인해 주세요.",
+    );
+
+    expect(hasFetchedJsonBody<{ email: string; locale: string }>(
+      fetchMock,
+      (path) => path === "/api/auth/password-reset/request",
+      (body) => body.email === "person@example.com" && body.locale === "ko",
+    )).toBe(true);
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
+  it("resets a password from a URL token before loading the dashboard", async () => {
+    window.history.pushState({}, "", "/#resetToken=password-token");
+
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/password-reset/confirm") {
+          return jsonResponse({
+            user: {
+              id: 4,
+              email: "person@example.com",
+              locale: "ko",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            csrfToken: "csrf-reset",
+            locale: "ko",
+          });
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: { authenticated: false, locale: "ko", user: null },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("새 비밀번호 저장");
+    await setInputValue("비밀번호", "new-secret123");
+    await submitForm();
+
+    await waitForText("API 데이터");
+
+    expect(hasFetchedJsonBody<{ token: string; password: string }>(
+      fetchMock,
+      (path) => path === "/api/auth/password-reset/confirm",
+      (body) =>
+        body.token === "password-token" && body.password === "new-secret123",
+    )).toBe(true);
+    expect(window.location.search).not.toContain("resetToken=");
+    expect(window.location.hash).not.toContain("resetToken=");
+    expect(document.body.textContent).toContain(
+      "person@example.com로 로그인됨",
+    );
+  });
+
+  it("changes the signed-in user's password from the dashboard", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/password/change") {
+        return jsonResponse({
+          user: {
+            id: 1,
+            email: "tester@example.com",
+            locale: "ko",
+            createdAt: "2026-05-01T00:00:00Z",
+          },
+          csrfToken: "csrf-changed",
+          locale: "ko",
+        });
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+    await setInputValue("현재 비밀번호", "old-secret123");
+    await setInputValue("새 비밀번호", "new-secret123");
+    await submitForm();
+
+    await waitForText("비밀번호를 변경했습니다.");
+
+    expect(hasFetchedJsonBody<{
+      currentPassword: string;
+      newPassword: string;
+    }>(
+      fetchMock,
+      (path) => path === "/api/auth/password/change",
+      (body) =>
+        body.currentPassword === "old-secret123" &&
+        body.newPassword === "new-secret123",
+    )).toBe(true);
+    expect(getInput("현재 비밀번호").value).toBe("");
+    expect(getInput("새 비밀번호").value).toBe("");
+  });
+
+  it("shows password change feedback when the current password is wrong", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/password/change") {
+        return jsonErrorResponse(401, "unauthorized");
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+    await setInputValue("현재 비밀번호", "wrong-secret123");
+    await setInputValue("새 비밀번호", "new-secret123");
+    await submitForm();
+
+    await waitForText("현재 비밀번호를 확인해 주세요.");
+
+    expect(hasFetchedPath(
+      fetchMock,
+      (path) => path === "/api/auth/password/change",
+    )).toBe(true);
+  });
+
+  it("logs out other sessions from the dashboard", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/logout/others") {
+        return okResponse();
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+    await clickButton("다른 기기 로그아웃");
+
+    await waitForText("다른 기기에서 로그아웃했습니다.");
+
+    expect(hasFetchedPath(
+      fetchMock,
+      (path) => path === "/api/auth/logout/others",
+    )).toBe(true);
+    expect(document.body.textContent).toContain("API 데이터");
   });
 
   it("retries the current month after falling back to sample data", async () => {
@@ -427,7 +859,7 @@ describe("App", () => {
     renderApp(<App />);
     await waitForText("API 데이터");
 
-    expect(precedes(getHeading("일별 완료 개수"), getHeading("목표"))).toBe(
+    expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
       true,
     );
     expect(tableHeaders()).toEqual([

@@ -2,6 +2,7 @@ import { Component, type ReactNode } from "react";
 
 type ChartErrorBoundaryProps = {
   children: ReactNode;
+  failedLabel?: string;
   resetKey: string;
 };
 
@@ -34,7 +35,7 @@ export default class ChartErrorBoundary extends Component<
           className="flex h-72 min-h-72 items-center justify-center bg-zinc-50 text-sm font-medium text-zinc-500"
           role="status"
         >
-          차트를 불러오지 못했습니다.
+          {this.props.failedLabel ?? "차트를 불러오지 못했습니다."}
         </div>
       );
     }

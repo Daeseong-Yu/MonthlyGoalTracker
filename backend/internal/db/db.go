@@ -49,7 +49,14 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 		return ErrDatabaseRequired
 	}
 
+	emailVerificationTableExists := database.Migrator().HasTable(&domain.EmailVerificationToken{})
+
 	if err := database.WithContext(ctx).AutoMigrate(&domain.User{}); err != nil {
+		return err
+	}
+	if err := database.WithContext(ctx).
+		Exec(`UPDATE users SET locale = 'ko' WHERE locale IS NULL OR locale = ''`).
+		Error; err != nil {
 		return err
 	}
 
@@ -98,11 +105,23 @@ func Migrate(ctx context.Context, database *gorm.DB) error {
 
 	if err := database.WithContext(ctx).AutoMigrate(
 		&domain.User{},
+		&domain.EmailVerificationToken{},
+		&domain.PasswordResetToken{},
+		&domain.Session{},
 		&domain.Goal{},
 		&domain.DailyMemo{},
 		&domain.GoalCheck{},
 	); err != nil {
 		return err
+	}
+	if !emailVerificationTableExists {
+		if err := database.WithContext(ctx).
+			Model(&domain.User{}).
+			Where("email <> '' AND password_hash <> '' AND email_verified_at IS NULL").
+			Update("email_verified_at", gorm.Expr("created_at")).
+			Error; err != nil {
+			return err
+		}
 	}
 
 	return enforceGoalCheckOwnershipConstraint(ctx, database)
@@ -150,6 +169,7 @@ func ensureUser(ctx context.Context, database *gorm.DB, username string) (uint, 
 	}
 
 	if err := database.WithContext(ctx).
+		Select("Username").
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "username"}},
 			DoNothing: true,

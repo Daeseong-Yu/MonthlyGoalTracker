@@ -2,7 +2,25 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
 
+import type { BootstrapResponse } from "./types";
+
 const roots: Root[] = [];
+
+type StubFetchOptions = {
+  bootstrap?: BootstrapResponse;
+};
+
+const authenticatedBootstrap: BootstrapResponse = {
+  authenticated: true,
+  locale: "ko",
+  csrfToken: "test-csrf-token",
+  user: {
+    id: 1,
+    email: "tester@example.com",
+    locale: "ko",
+    createdAt: "2026-05-01T00:00:00Z",
+  },
+};
 
 export async function cleanupAppTest() {
   await act(async () => {
@@ -10,6 +28,7 @@ export async function cleanupAppTest() {
   });
   roots.length = 0;
   document.body.innerHTML = "";
+  window.localStorage.clear();
   vi.unstubAllGlobals();
 }
 
@@ -32,11 +51,18 @@ export function stubFetch(
     input: RequestInfo | URL,
     init?: RequestInit,
   ) => Response | Promise<Response>,
+  options: StubFetchOptions = {},
 ) {
   const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input, init) =>
     handler(input, init),
   );
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (requestPath(input) === "/api/bootstrap") {
+      return jsonResponse(options.bootstrap ?? authenticatedBootstrap);
+    }
+
+    return fetchMock(input, init);
+  });
   return fetchMock;
 }
 
@@ -73,6 +99,20 @@ export function getButton(label: string) {
 export async function clickButton(label: string) {
   await act(async () => {
     getButton(label).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+export async function submitForm() {
+  const form = document.querySelector("form");
+
+  if (!form) {
+    throw new Error("expected form");
+  }
+
+  await act(async () => {
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true }),
+    );
   });
 }
 
@@ -189,4 +229,21 @@ export function hasInputValue(value: string) {
   return Array.from(document.querySelectorAll("input")).some(
     (input) => input.value === value,
   );
+}
+
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function requestPath(input: RequestInfo | URL) {
+  return typeof input === "string"
+    ? input
+    : input instanceof URL
+      ? input.pathname
+      : input.url;
 }

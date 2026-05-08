@@ -90,7 +90,7 @@ describe("buildMonthSummary", () => {
     expect(summary.visibleGoals.map((goal) => goal.title)).toEqual(["Read"]);
   });
 
-  it("keeps ended goals out of cards while retaining daily table slots", () => {
+  it("keeps goals ended before the reference date out of cards while retaining daily table slots", () => {
     const summary = buildMonthSummary(
       {
         ...makeMonthView("2026-04"),
@@ -109,7 +109,7 @@ describe("buildMonthSummary", () => {
           },
         ],
       },
-      makeReferenceDate("2026-05-02"),
+      makeReferenceDate("2026-04-02"),
     );
 
     expect(summary.visibleGoals.map((goal) => goal.title)).toEqual(["Active"]);

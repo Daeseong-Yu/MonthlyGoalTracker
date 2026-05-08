@@ -22,9 +22,20 @@ export type MonthSummary = {
   visibleGoals: Goal[];
 };
 
+export type MonthSummaryMessages = {
+  todayActiveGoals: string;
+  dayActiveGoals: (day: number) => string;
+};
+
+const defaultMessages: MonthSummaryMessages = {
+  todayActiveGoals: "오늘 활성 목표",
+  dayActiveGoals: (day) => `${day}일 활성 목표`,
+};
+
 export function buildMonthSummary(
   monthView: MonthView,
   referenceDate = new Date(),
+  messages: MonthSummaryMessages = defaultMessages,
 ): MonthSummary {
   const { checks, days, goals, month } = monthView;
   const chartData = buildChartData(days, goals, checks);
@@ -43,8 +54,8 @@ export function buildMonthSummary(
   const currentMonthSelected = isCurrentMonth(month, referenceDate);
   const referencePoint = getReferencePoint(month, chartData, referenceDate);
   const activeMetricLabel = currentMonthSelected
-    ? "오늘 활성 목표"
-    : `${Number(referencePoint?.date.slice(8) ?? "1")}일 활성 목표`;
+    ? messages.todayActiveGoals
+    : messages.dayActiveGoals(Number(referencePoint?.date.slice(8) ?? "1"));
   const goalListReferenceDate = currentMonthSelected
     ? currentDate(referenceDate)
     : monthStartDate(month);

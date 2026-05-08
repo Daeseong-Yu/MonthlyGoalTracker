@@ -52,10 +52,7 @@ export function activeGoalInSlot(slotGoals: Goal[], date: string) {
 }
 
 export function isGoalVisibleInDisplay(goal: Goal, referenceDate: string) {
-  return (
-    goal.startDate <= referenceDate &&
-    (goal.endDate === null || referenceDate < goal.endDate)
-  );
+  return isGoalActiveOnDate(goal, referenceDate);
 }
 
 export function goalSlotTitle(slotGoals: Goal[]) {

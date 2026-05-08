@@ -3,8 +3,46 @@ package domain
 import "time"
 
 type User struct {
-	ID        uint   `gorm:"primaryKey"`
-	Username  string `gorm:"size:100;not null;uniqueIndex"`
+	ID              uint   `gorm:"primaryKey"`
+	Username        string `gorm:"size:100;not null;uniqueIndex"`
+	Email           string `gorm:"size:320;uniqueIndex"`
+	PasswordHash    string `gorm:"type:text"`
+	Locale          string `gorm:"size:8;not null;default:'ko'"`
+	EmailVerifiedAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type Session struct {
+	ID            uint      `gorm:"primaryKey"`
+	UserID        uint      `gorm:"not null;index"`
+	User          User      `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	TokenHash     string    `gorm:"size:64;not null;uniqueIndex"`
+	CSRFTokenHash string    `gorm:"size:64;not null"`
+	ExpiresAt     time.Time `gorm:"not null;index"`
+	LastUsedAt    time.Time `gorm:"not null"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type EmailVerificationToken struct {
+	ID        uint      `gorm:"primaryKey"`
+	UserID    uint      `gorm:"not null;index"`
+	User      User      `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	TokenHash string    `gorm:"size:64;not null;uniqueIndex"`
+	ExpiresAt time.Time `gorm:"not null;index"`
+	UsedAt    *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type PasswordResetToken struct {
+	ID        uint      `gorm:"primaryKey"`
+	UserID    uint      `gorm:"not null;index"`
+	User      User      `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	TokenHash string    `gorm:"size:64;not null;uniqueIndex"`
+	ExpiresAt time.Time `gorm:"not null;index"`
+	UsedAt    *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

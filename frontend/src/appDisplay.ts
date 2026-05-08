@@ -1,23 +1,21 @@
 import type { Goal } from "./types";
 
-const monthFormatter = new Intl.DateTimeFormat("ko-KR", {
-  year: "numeric",
-  month: "long",
-});
-
-const weekdayFormatter = new Intl.DateTimeFormat("ko-KR", {
-  weekday: "short",
-});
-
 export type LoadStatus = "loading" | "api" | "fallback";
+export type StatusLabels = Record<LoadStatus, string>;
 
-export function formatMonth(month: string) {
-  return monthFormatter.format(new Date(`${month}-01T00:00:00`));
+const defaultStatusLabels: StatusLabels = {
+  loading: "불러오는 중",
+  api: "API 데이터",
+  fallback: "샘플 데이터",
+};
+
+export function formatMonth(month: string, locale = "ko") {
+  return monthFormatter(locale).format(new Date(`${month}-01T00:00:00`));
 }
 
-export function formatGoalPeriod(goal: Goal) {
+export function formatGoalPeriod(goal: Goal, continuedLabel = "계속") {
   const start = goal.startDate.slice(5).replace("-", ".");
-  const end = goal.endDate?.slice(5).replace("-", ".") ?? "계속";
+  const end = goal.endDate?.slice(5).replace("-", ".") ?? continuedLabel;
   return `${start} - ${end}`;
 }
 
@@ -25,8 +23,8 @@ export function shortDate(date: string) {
   return date.slice(5).replace("-", ".");
 }
 
-export function weekday(date: string) {
-  return weekdayFormatter.format(new Date(`${date}T00:00:00`));
+export function weekday(date: string, locale = "ko") {
+  return weekdayFormatter(locale).format(new Date(`${date}T00:00:00`));
 }
 
 export function weekdayClassName(date: string) {
@@ -55,16 +53,11 @@ export function memoInputClassName(saving: boolean) {
   return `${base} border-zinc-200`;
 }
 
-export function statusLabel(status: LoadStatus) {
-  if (status === "loading") {
-    return "불러오는 중";
-  }
-
-  if (status === "api") {
-    return "API 데이터";
-  }
-
-  return "샘플 데이터";
+export function statusLabel(
+  status: LoadStatus,
+  labels: StatusLabels = defaultStatusLabels,
+) {
+  return labels[status];
 }
 
 export function statusClassName(status: LoadStatus) {
@@ -78,4 +71,21 @@ export function statusClassName(status: LoadStatus) {
   }
 
   return `${base} bg-amber-50 text-amber-800`;
+}
+
+function intlLocale(locale: string) {
+  return locale === "en" ? "en-US" : "ko-KR";
+}
+
+function monthFormatter(locale: string) {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    year: "numeric",
+    month: "long",
+  });
+}
+
+function weekdayFormatter(locale: string) {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    weekday: "short",
+  });
 }
