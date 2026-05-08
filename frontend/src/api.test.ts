@@ -9,6 +9,7 @@ import {
   ensureMonth,
   getMonthView,
   login,
+  logoutOtherSessions,
   logoutSession,
   requestPasswordReset,
   resetPassword,
@@ -450,6 +451,49 @@ describe("api client", () => {
         credentials: "include",
         headers: jsonHeaders(),
         body: JSON.stringify({ endDate: "2026-05-03" }),
+      },
+    );
+  });
+
+  it("logs out other sessions without clearing the current CSRF token", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse({
+        authenticated: true,
+        locale: "ko",
+        csrfToken: "csrf-bootstrap",
+        user: userSession,
+      }),
+    );
+
+    await bootstrapSession();
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await logoutOtherSessions();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/auth/logout/others",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-CSRF-Token": "csrf-bootstrap",
+        },
+      },
+    );
+
+    fetchMock.mockResolvedValueOnce(okResponse());
+    await createGoal("2026-05", "Read", "2026-05-01");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/months/2026-05/goals",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: jsonHeaders("csrf-bootstrap"),
+        body: JSON.stringify({ title: "Read", startDate: "2026-05-01" }),
       },
     );
   });

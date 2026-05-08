@@ -64,6 +64,10 @@ export type AppMessages = {
     passwordChangeFailed: string;
     passwordChangeUnauthorized: string;
     passwordChangeWeakPassword: string;
+    logoutOtherSessionsButton: string;
+    loggingOutOtherSessions: string;
+    otherSessionsLoggedOut: string;
+    otherSessionsLogoutFailed: string;
   };
   status: Record<LoadStatus, string>;
   summary: {
@@ -212,6 +216,10 @@ export const messages: Record<AppLocale, AppMessages> = {
       passwordChangeFailed: "비밀번호 변경에 실패했습니다.",
       passwordChangeUnauthorized: "현재 비밀번호를 확인해 주세요.",
       passwordChangeWeakPassword: "새 비밀번호는 8자 이상이어야 합니다.",
+      logoutOtherSessionsButton: "다른 기기 로그아웃",
+      loggingOutOtherSessions: "로그아웃 중",
+      otherSessionsLoggedOut: "다른 기기에서 로그아웃했습니다.",
+      otherSessionsLogoutFailed: "다른 기기 로그아웃에 실패했습니다.",
     },
     status: {
       loading: "불러오는 중",
@@ -362,6 +370,10 @@ export const messages: Record<AppLocale, AppMessages> = {
       passwordChangeUnauthorized: "Check your current password.",
       passwordChangeWeakPassword:
         "New password must be at least 8 characters.",
+      logoutOtherSessionsButton: "Log out other devices",
+      loggingOutOtherSessions: "Signing out",
+      otherSessionsLoggedOut: "Other devices signed out.",
+      otherSessionsLogoutFailed: "Could not sign out other devices.",
     },
     status: {
       loading: "Loading",

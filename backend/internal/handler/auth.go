@@ -248,6 +248,31 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *AuthHandler) LogoutOtherSessions(c *gin.Context) {
+	currentUser, ok := principal.UserFromContext(c.Request.Context())
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	token, err := c.Cookie(h.cookies.CookieName)
+	if errors.Is(err, http.ErrNoCookie) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	if err := h.service.LogoutOtherSessions(c.Request.Context(), currentUser.ID, token); err != nil {
+		writeAuthError(c, err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
 func (h *AuthHandler) Me(c *gin.Context) {
 	user, ok := principal.UserFromContext(c.Request.Context())
 	if !ok {

@@ -40,6 +40,13 @@ func (r *SessionRepository) DeleteByUserID(ctx context.Context, userID uint) err
 	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&domain.Session{}).Error
 }
 
+func (r *SessionRepository) DeleteOthersByUserIDAndTokenHash(ctx context.Context, userID uint, tokenHash string) error {
+	return r.db.WithContext(ctx).
+		Where("user_id = ? AND token_hash <> ?", userID, tokenHash).
+		Delete(&domain.Session{}).
+		Error
+}
+
 func (r *SessionRepository) UpdateLastUsedAt(ctx context.Context, id uint, lastUsedAt time.Time) error {
 	return r.db.WithContext(ctx).
 		Model(&domain.Session{}).

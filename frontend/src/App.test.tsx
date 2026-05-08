@@ -493,6 +493,30 @@ describe("App", () => {
     )).toBe(true);
   });
 
+  it("logs out other sessions from the dashboard", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/logout/others") {
+        return okResponse();
+      }
+
+      return monthViewApiHandler(input);
+    });
+
+    renderApp(<App />);
+
+    await waitForText("API 데이터");
+    await clickButton("다른 기기 로그아웃");
+
+    await waitForText("다른 기기에서 로그아웃했습니다.");
+
+    expect(hasFetchedPath(
+      fetchMock,
+      (path) => path === "/api/auth/logout/others",
+    )).toBe(true);
+    expect(document.body.textContent).toContain("API 데이터");
+  });
+
   it("retries the current month after falling back to sample data", async () => {
     let failedInitialLoad = false;
     let resolveRetryLoad: (() => void) | null = null;

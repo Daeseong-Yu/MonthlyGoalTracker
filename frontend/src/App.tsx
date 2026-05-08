@@ -11,6 +11,7 @@ import {
   LogOut,
   MailCheck,
   RefreshCw,
+  ShieldCheck,
   UserPlus,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ import {
   isAPIError,
   isAuthResponse,
   login as loginSession,
+  logoutOtherSessions,
   logoutSession,
   requestPasswordReset,
   resetPassword,
@@ -845,6 +847,9 @@ function AccountSecurityPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -862,6 +867,21 @@ function AccountSecurityPanel({
       setError(passwordChangeErrorMessage(error, labels));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleLogoutOtherSessions() {
+    setSessionBusy(true);
+    setSessionError(null);
+    setSessionStatus(null);
+
+    try {
+      await logoutOtherSessions();
+      setSessionStatus(labels.otherSessionsLoggedOut);
+    } catch {
+      setSessionError(labels.otherSessionsLogoutFailed);
+    } finally {
+      setSessionBusy(false);
     }
   }
 
@@ -920,6 +940,34 @@ function AccountSecurityPanel({
           {busy ? labels.changingPassword : labels.changePasswordButton}
         </button>
       </form>
+      <div className="mt-4 border-t border-zinc-200 pt-3">
+        {sessionStatus ? (
+          <p className="text-xs font-medium text-teal-700" role="status">
+            {sessionStatus}
+          </p>
+        ) : null}
+        {sessionError ? (
+          <p className="text-xs font-medium text-rose-700" role="alert">
+            {sessionError}
+          </p>
+        ) : null}
+        <button
+          className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          aria-label={
+            sessionBusy
+              ? labels.loggingOutOtherSessions
+              : labels.logoutOtherSessionsButton
+          }
+          disabled={sessionBusy}
+          onClick={() => void handleLogoutOtherSessions()}
+        >
+          <ShieldCheck size={17} className="text-teal-700" />
+          {sessionBusy
+            ? labels.loggingOutOtherSessions
+            : labels.logoutOtherSessionsButton}
+        </button>
+      </div>
     </section>
   );
 }

@@ -663,6 +663,44 @@ func TestAuthServiceChangePasswordRejectsWeakNewPasswordBeforeLookup(t *testing.
 	}
 }
 
+func TestAuthServiceLogoutOtherSessionsKeepsCurrentSession(t *testing.T) {
+	sessions := &fakeAuthSessionRepository{}
+	authService := NewAuthService(&fakeAuthUserRepository{}, sessions, time.Hour, "")
+
+	err := authService.LogoutOtherSessions(context.Background(), 7, " current-token ")
+	if err != nil {
+		t.Fatalf("expected other sessions logout to succeed, got %v", err)
+	}
+	if sessions.deletedOtherSessionsUserID != 7 {
+		t.Fatalf("expected user 7 sessions to be deleted, got %d", sessions.deletedOtherSessionsUserID)
+	}
+	if sessions.deletedOtherSessionsTokenHash == "" {
+		t.Fatal("expected current session token hash to be recorded")
+	}
+	if sessions.deletedOtherSessionsTokenHash == "current-token" {
+		t.Fatal("expected raw current token not to be passed to the repository")
+	}
+	if sessions.deletedOtherSessionsTokenHash != hashToken("current-token") {
+		t.Fatal("expected current token hash to exclude the current session")
+	}
+}
+
+func TestAuthServiceLogoutOtherSessionsRejectsBlankToken(t *testing.T) {
+	sessions := &fakeAuthSessionRepository{}
+	authService := NewAuthService(&fakeAuthUserRepository{}, sessions, time.Hour, "")
+
+	err := authService.LogoutOtherSessions(context.Background(), 7, "   ")
+	if !errors.Is(err, ErrInvalidSession) {
+		t.Fatalf("expected ErrInvalidSession, got %v", err)
+	}
+	if sessions.deletedOtherSessionsUserID != 0 {
+		t.Fatalf("expected blank token to avoid deleting sessions, got user %d", sessions.deletedOtherSessionsUserID)
+	}
+	if sessions.deletedOtherSessionsTokenHash != "" {
+		t.Fatal("expected blank token to avoid sending a token hash")
+	}
+}
+
 type fakeAuthUserRepository struct {
 	findByEmailUser          *domain.User
 	findByEmailErr           error
@@ -782,9 +820,11 @@ func (r *fakeAuthUserRepository) UpdatePasswordHashAndReplaceSessions(ctx contex
 }
 
 type fakeAuthSessionRepository struct {
-	createdSession *domain.Session
-	createErr      error
-	deletedUserID  uint
+	createdSession                *domain.Session
+	createErr                     error
+	deletedUserID                 uint
+	deletedOtherSessionsUserID    uint
+	deletedOtherSessionsTokenHash string
 }
 
 type fakeEmailVerificationRepository struct {
@@ -916,6 +956,13 @@ func (r *fakeAuthSessionRepository) DeleteByTokenHash(ctx context.Context, token
 func (r *fakeAuthSessionRepository) DeleteByUserID(ctx context.Context, userID uint) error {
 	_ = ctx
 	r.deletedUserID = userID
+	return nil
+}
+
+func (r *fakeAuthSessionRepository) DeleteOthersByUserIDAndTokenHash(ctx context.Context, userID uint, tokenHash string) error {
+	_ = ctx
+	r.deletedOtherSessionsUserID = userID
+	r.deletedOtherSessionsTokenHash = tokenHash
 	return nil
 }
 

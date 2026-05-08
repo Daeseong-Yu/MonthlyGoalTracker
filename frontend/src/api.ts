@@ -152,6 +152,12 @@ export async function logoutSession(): Promise<void> {
   clearAuthCSRFToken();
 }
 
+export async function logoutOtherSessions(): Promise<void> {
+  await requestVoid("/api/auth/logout/others", "other sessions logout request", {
+    method: "POST",
+  });
+}
+
 export async function updateUserLocale(
   locale: AppLocale,
 ): Promise<UserSession> {

@@ -46,6 +46,7 @@ type AuthSessionRepository interface {
 	FindByTokenHash(ctx context.Context, tokenHash string, now time.Time) (*domain.Session, error)
 	DeleteByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteByUserID(ctx context.Context, userID uint) error
+	DeleteOthersByUserIDAndTokenHash(ctx context.Context, userID uint, tokenHash string) error
 	UpdateLastUsedAt(ctx context.Context, id uint, lastUsedAt time.Time) error
 	UpdateCSRFTokenHash(ctx context.Context, id uint, csrfTokenHash string) error
 }
@@ -408,6 +409,15 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 	}
 
 	return s.sessions.DeleteByTokenHash(ctx, hashToken(token))
+}
+
+func (s *AuthService) LogoutOtherSessions(ctx context.Context, userID uint, currentToken string) error {
+	token := strings.TrimSpace(currentToken)
+	if token == "" {
+		return ErrInvalidSession
+	}
+
+	return s.sessions.DeleteOthersByUserIDAndTokenHash(ctx, userID, hashToken(token))
 }
 
 func (s *AuthService) UpdateLocale(ctx context.Context, userID uint, locale string) (*domain.User, error) {
