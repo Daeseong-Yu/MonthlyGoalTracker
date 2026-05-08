@@ -195,6 +195,24 @@ export function pendingResponse(captureResolve: (resolve: () => void) => void) {
   });
 }
 
+export function pendingJsonResponse(
+  body: unknown,
+  captureResolve: (resolve: () => void) => void,
+) {
+  return new Promise<Response>((resolve) => {
+    captureResolve(() => resolve(jsonResponse(body)));
+  });
+}
+
+export function pendingErrorResponse(
+  status: number,
+  captureResolve: (resolve: () => void) => void,
+) {
+  return new Promise<Response>((resolve) => {
+    captureResolve(() => resolve(errorResponse(status)));
+  });
+}
+
 export function monthFromRequest(input: RequestInfo | URL) {
   const path = requestPath(input);
   const match = /\/api\/months\/([^/]+)/.exec(path);

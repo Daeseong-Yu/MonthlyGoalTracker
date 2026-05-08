@@ -56,6 +56,7 @@ export function useMonthController() {
   const { checks, days, goals, month } = monthView;
   const activeMonthRef = useRef(month);
   const deactivatingGoalIDSetRef = useRef(new Set<number>());
+  const loadRequestIDRef = useRef(0);
   const preparingMonthRef = useRef(false);
   activeMonthRef.current = month;
   const currentDayKey = currentDate();
@@ -89,12 +90,23 @@ export function useMonthController() {
   }
 
   async function loadMonth(nextMonth: string) {
+    const requestID = loadRequestIDRef.current + 1;
+    loadRequestIDRef.current = requestID;
     resetMonthLoadState(nextMonth);
 
     try {
-      setMonthView(await getMonthView(nextMonth));
+      const nextMonthView = await getMonthView(nextMonth);
+      if (loadRequestIDRef.current !== requestID) {
+        return;
+      }
+
+      setMonthView(nextMonthView);
       setLoadStatus("api");
     } catch (error) {
+      if (loadRequestIDRef.current !== requestID) {
+        return;
+      }
+
       setLoadError(error instanceof Error ? error.message : "unknown error");
       setLoadStatus("fallback");
     }
