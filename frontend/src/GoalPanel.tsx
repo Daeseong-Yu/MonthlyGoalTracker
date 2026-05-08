@@ -1,8 +1,12 @@
-import { Ban, Check, Pencil, Plus, X } from "lucide-react";
+import { Ban, Check, LoaderCircle, Pencil, Plus, X } from "lucide-react";
 import type { FormEvent } from "react";
 
 import { formatGoalPeriod, shortDate } from "./appDisplay";
-import { deactivationDateForGoal, monthEndDate, monthStartDate } from "./monthLogic";
+import {
+  deactivationDateForGoal,
+  monthEndDate,
+  monthStartDate,
+} from "./monthLogic";
 import type { Goal } from "./types";
 
 type GoalPanelProps = {
@@ -16,6 +20,8 @@ type GoalPanelProps = {
   month: string;
   newGoalStartDate: string;
   newGoalTitle: string;
+  savingGoal: boolean;
+  savingGoalTitle: boolean;
   visibleGoals: Goal[];
   onCancelEditingGoal: () => void;
   onDeactivateGoal: (goal: Goal) => void;
@@ -42,6 +48,8 @@ export default function GoalPanel({
   month,
   newGoalStartDate,
   newGoalTitle,
+  savingGoal,
+  savingGoalTitle,
   visibleGoals,
   onCancelEditingGoal,
   onDeactivateGoal,
@@ -95,11 +103,19 @@ export default function GoalPanel({
             <button
               className="icon-button"
               type="submit"
-              aria-label="목표 저장"
-              title="목표 저장"
+              aria-label={savingGoal ? "목표 저장 중" : "목표 저장"}
+              title={savingGoal ? "목표 저장 중" : "목표 저장"}
               disabled={isMutatingMonth}
             >
-              <Plus size={18} />
+              {savingGoal ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="animate-spin"
+                  size={18}
+                />
+              ) : (
+                <Plus size={18} />
+              )}
             </button>
           </div>
         </form>
@@ -143,11 +159,23 @@ export default function GoalPanel({
                       <button
                         className="mini-icon-button"
                         type="submit"
-                        aria-label={`${goal.title} 저장`}
-                        title="목표 저장"
+                        aria-label={
+                          savingGoalTitle
+                            ? `${goal.title} 저장 중`
+                            : `${goal.title} 저장`
+                        }
+                        title={savingGoalTitle ? "목표 저장 중" : "목표 저장"}
                         disabled={isMutatingMonth}
                       >
-                        <Check size={15} />
+                        {savingGoalTitle ? (
+                          <LoaderCircle
+                            aria-hidden="true"
+                            className="animate-spin"
+                            size={15}
+                          />
+                        ) : (
+                          <Check size={15} />
+                        )}
                       </button>
                       <button
                         className="mini-icon-button"
@@ -187,19 +215,31 @@ export default function GoalPanel({
                       className="mini-icon-button"
                       type="button"
                       aria-label={
-                        alreadyDeactivated
+                        deactivating
+                          ? `${goal.title} 종료 중`
+                          : alreadyDeactivated
                           ? `${goal.title} 이미 종료됨`
                           : `${goal.title} 종료`
                       }
                       title={
-                        alreadyDeactivated
+                        deactivating
+                          ? "목표 종료 중"
+                          : alreadyDeactivated
                           ? "이미 종료됨"
                           : `목표 종료 (${shortDate(deactivationDate)}까지 활성)`
                       }
                       disabled={!canSaveChanges || isMutatingMonth || deactivating}
                       onClick={() => onDeactivateGoal(goal)}
                     >
-                      <Ban size={15} />
+                      {deactivating ? (
+                        <LoaderCircle
+                          aria-hidden="true"
+                          className="animate-spin"
+                          size={15}
+                        />
+                      ) : (
+                        <Ban size={15} />
+                      )}
                     </button>
                   </div>
                 </div>

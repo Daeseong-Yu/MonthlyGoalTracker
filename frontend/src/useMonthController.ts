@@ -516,6 +516,8 @@ export function useMonthController() {
     saveMemoForDate,
     saveMessage,
     savingChecks,
+    savingGoal,
+    savingGoalTitle,
     savingMemos,
     setEditingGoalTitle,
     setNewGoalStartDate,

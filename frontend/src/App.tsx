@@ -171,6 +171,8 @@ export default function App() {
               month={monthController.month}
               newGoalStartDate={monthController.newGoalStartDate}
               newGoalTitle={monthController.newGoalTitle}
+              savingGoal={monthController.savingGoal}
+              savingGoalTitle={monthController.savingGoalTitle}
               visibleGoals={monthController.visibleGoals}
               onCancelEditingGoal={monthController.cancelEditingGoal}
               onDeactivateGoal={(goal) =>
