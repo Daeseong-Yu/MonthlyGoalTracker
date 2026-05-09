@@ -87,6 +87,33 @@ describe("App", () => {
     expect(document.body.textContent).toContain("chart points: 2");
   });
 
+  it("opens a no-save preview for unauthenticated visitors", async () => {
+    const fetchMock = stubFetch(createMonthViewApiHandler(), {
+      bootstrap: { authenticated: false, locale: "ko", user: null },
+    });
+
+    renderApp(<App />);
+
+    await waitForText("샘플 데이터");
+
+    expect(document.body.textContent).toContain("미리보기");
+    expect(document.body.textContent).toContain(
+      "로그인하지 않은 변경사항은 저장되지 않습니다.",
+    );
+    expect(getButton("로그인")).toBeTruthy();
+    expect(queryButton("로그아웃")).toBeNull();
+    expect(document.body.textContent).not.toContain("계정 보안");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+
+    await setInputValue("05.01 메모", "preview memo");
+    await blurInput("05.01 메모");
+
+    await waitForText("미리보기 변경사항은 서버에 저장되지 않습니다.");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/memos/")))
+      .toBe(true);
+  });
+
   it("shows the English login screen from regional bootstrap and loads the dashboard after login", async () => {
     const fetchMock = stubFetch(
       (input) => {
@@ -116,7 +143,13 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("Monthly Goal Tracker");
+    await waitForText("Sample data");
+
+    expect(document.body.textContent).toContain("Preview mode");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+
+    await clickButton("Log in");
 
     expect(document.body.textContent).toContain(
       "Save personal goals under your own account.",
@@ -158,7 +191,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("월간 목표 트래커");
+    await waitForText("샘플 데이터");
+    await clickButton("로그인");
+    await waitForText("개인 목표를 계정별로 저장합니다.");
     await setInputValue("이메일", "person@example.com");
     await setInputValue("비밀번호", "secret123");
     await submitForm();
@@ -210,7 +245,9 @@ describe("App", () => {
 
       renderApp(<App />);
 
-      await waitForText("월간 목표 트래커");
+      await waitForText("샘플 데이터");
+      await clickButton("로그인");
+      await waitForText("개인 목표를 계정별로 저장합니다.");
       await clickButton("회원가입 tab");
       await setInputValue("이메일", "person@example.com");
       await setInputValue("비밀번호", "secret123");
@@ -248,7 +285,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("월간 목표 트래커");
+    await waitForText("샘플 데이터");
+    await clickButton("로그인");
+    await waitForText("개인 목표를 계정별로 저장합니다.");
     await clickButton("회원가입 tab");
     await setInputValue("이메일", "person@example.com");
     await setInputValue("비밀번호", "secret123");
@@ -361,7 +400,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("월간 목표 트래커");
+    await waitForText("샘플 데이터");
+    await clickButton("로그인");
+    await waitForText("개인 목표를 계정별로 저장합니다.");
     await clickButton("비밀번호 재설정");
     await setInputValue("이메일", "person@example.com");
     await submitForm();

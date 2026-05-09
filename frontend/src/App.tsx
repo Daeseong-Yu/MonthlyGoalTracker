@@ -53,6 +53,7 @@ export default function App() {
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(
     () => readPasswordResetToken(),
   );
+  const [showAuthScreen, setShowAuthScreen] = useState(false);
   const messages = useMemo(() => messagesForLocale(locale), [locale]);
 
   useEffect(() => {
@@ -172,6 +173,7 @@ export default function App() {
     storeLocale(nextLocale);
     setUser(response.user);
     setPasswordResetToken(null);
+    setShowAuthScreen(false);
     removeEmailVerificationToken();
     removePasswordResetToken();
     setEmailVerificationFailed(false);
@@ -182,6 +184,7 @@ export default function App() {
     clearAuthCSRFToken();
     setUser(null);
     setPasswordResetToken(readPasswordResetToken());
+    setShowAuthScreen(false);
     setEmailVerificationFailed(false);
   }
 
@@ -189,7 +192,10 @@ export default function App() {
     return <BootstrapScreen messages={messages} />;
   }
 
-  if (!user) {
+  const authFlowRequired =
+    !user && (showAuthScreen || passwordResetToken !== null || emailVerificationFailed);
+
+  if (authFlowRequired) {
     return (
       <AuthScreen
         bootstrapError={
@@ -207,17 +213,20 @@ export default function App() {
           setPasswordResetToken(null);
           removePasswordResetToken();
         }}
+        onPreviewRequested={() => setShowAuthScreen(false)}
       />
     );
   }
 
   return (
     <Dashboard
+      key={user ? "server" : "preview"}
       locale={locale}
       messages={messages}
       user={user}
       onAuthenticated={handleAuthenticated}
       onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+      onOpenAuth={() => setShowAuthScreen(true)}
       onLoggedOut={handleLoggedOut}
     />
   );
@@ -245,6 +254,7 @@ function AuthScreen({
   onAuthenticated,
   onLocaleChange,
   onPasswordResetTokenConsumed,
+  onPreviewRequested,
 }: {
   bootstrapError: string | null;
   verificationError: string | null;
@@ -254,6 +264,7 @@ function AuthScreen({
   onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
   onPasswordResetTokenConsumed: () => void;
+  onPreviewRequested?: () => void;
 }) {
   const [mode, setMode] = useState<AuthMode>(
     () => (passwordResetToken ? "reset" : "login"),
@@ -368,6 +379,18 @@ function AuthScreen({
             locale={locale}
             onChange={onLocaleChange}
           />
+
+          {onPreviewRequested && mode !== "reset" ? (
+            <button
+              className="inline-flex h-9 w-fit items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
+              type="button"
+              aria-label={authMessages.previewBackButton}
+              onClick={onPreviewRequested}
+            >
+              <ArrowLeft size={15} />
+              {authMessages.previewBackButton}
+            </button>
+          ) : null}
 
           {mode === "login" || mode === "signup" ? (
             <div
@@ -605,18 +628,28 @@ function Dashboard({
   user,
   onAuthenticated,
   onLocaleChange,
+  onOpenAuth,
   onLoggedOut,
 }: {
   locale: AppLocale;
   messages: AppMessages;
-  user: UserSession;
+  user: UserSession | null;
   onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
+  onOpenAuth: () => void;
   onLoggedOut: () => void;
 }) {
-  const monthController = useMonthController({ messages });
+  const previewMode = user === null;
+  const monthController = useMonthController({
+    messages,
+    mode: previewMode ? "preview" : "server",
+  });
 
   async function handleLogout() {
+    if (!user) {
+      return;
+    }
+
     try {
       await logoutSession();
     } finally {
@@ -645,6 +678,11 @@ function Dashboard({
               >
                 {statusLabel(monthController.loadStatus, messages.status)}
               </span>
+              {previewMode ? (
+                <span className="rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
+                  {messages.app.previewMode}
+                </span>
+              ) : null}
             </p>
             {monthController.loadError ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -676,6 +714,11 @@ function Dashboard({
                 role="status"
               >
                 {monthController.saveMessage}
+              </p>
+            ) : null}
+            {previewMode ? (
+              <p className="mt-2 text-xs font-medium text-zinc-600" role="status">
+                {messages.app.previewNotice}
               </p>
             ) : null}
           </div>
@@ -739,21 +782,35 @@ function Dashboard({
               locale={locale}
               onChange={onLocaleChange}
             />
-            <p
-              className="max-w-[13rem] truncate text-xs font-medium text-zinc-600"
-              title={messages.app.signedInAs(user.email)}
-            >
-              {messages.app.signedInAs(user.email)}
-            </p>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={messages.app.logout}
-              title={messages.app.logout}
-              onClick={() => void handleLogout()}
-            >
-              <LogOut size={18} />
-            </button>
+            {user ? (
+              <>
+                <p
+                  className="max-w-[13rem] truncate text-xs font-medium text-zinc-600"
+                  title={messages.app.signedInAs(user.email)}
+                >
+                  {messages.app.signedInAs(user.email)}
+                </p>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={messages.app.logout}
+                  title={messages.app.logout}
+                  onClick={() => void handleLogout()}
+                >
+                  <LogOut size={18} />
+                </button>
+              </>
+            ) : (
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+                type="button"
+                aria-label={messages.app.login}
+                onClick={onOpenAuth}
+              >
+                <LogIn size={17} />
+                {messages.app.login}
+              </button>
+            )}
           </div>
         </header>
 
@@ -824,10 +881,12 @@ function Dashboard({
               labels={messages.chart}
               month={monthController.month}
             />
-            <AccountSecurityPanel
-              labels={messages.account}
-              onPasswordChanged={onAuthenticated}
-            />
+            {user ? (
+              <AccountSecurityPanel
+                labels={messages.account}
+                onPasswordChanged={onAuthenticated}
+              />
+            ) : null}
           </aside>
         </section>
       </div>
