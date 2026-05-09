@@ -42,24 +42,26 @@ describe("useMonthController", () => {
     });
 
     renderApp(<MonthControllerHarness mode="preview" />);
-    await waitForText("fallback");
+    await waitForText("local");
+    await waitForText("no first goal");
 
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    await clickButton("첫 체크 토글");
-    await waitForText("first check incomplete");
-    await waitForText("미리보기 변경사항은 서버에 저장되지 않습니다.");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("첫 메모 변경");
     await waitForText("preview memo");
     await clickButton("첫 메모 저장");
-    await waitForText("미리보기 변경사항은 서버에 저장되지 않습니다.");
+    await waitForText(
+      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
 
     await setInputValue("새 목표 제목", "Preview goal");
     await clickButton("새 목표 제출");
     await waitForText("Preview goal");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await clickButton("첫 체크 토글");
+    await waitForText("first check completed");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("목표 제목 수정 시작");
@@ -69,7 +71,9 @@ describe("useMonthController", () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("첫 목표 종료");
-    await waitForText("미리보기 변경사항은 서버에 저장되지 않습니다.");
+    await waitForText(
+      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -533,7 +537,7 @@ function MonthControllerHarness({ mode }: { mode?: MonthControllerMode }) {
   return (
     <section>
       <p>{controller.month}</p>
-      <p>{controller.goals[0]?.title}</p>
+      <p>{controller.goals[0]?.title ?? "no first goal"}</p>
       <p>{controller.goals.map((goal) => goal.title).join(" | ")}</p>
       <p>{controller.loadStatus}</p>
       <p>{controller.loadError ?? "no load error"}</p>

@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserPlus,
+  X,
 } from "lucide-react";
 
 import {
@@ -188,47 +189,53 @@ export default function App() {
     setEmailVerificationFailed(false);
   }
 
+  function handleCloseAuthFlow() {
+    setShowAuthScreen(false);
+    setEmailVerificationFailed(false);
+    if (passwordResetToken !== null) {
+      setPasswordResetToken(null);
+      removePasswordResetToken();
+    }
+  }
+
   if (!bootstrapped) {
     return <BootstrapScreen messages={messages} />;
   }
 
-  const authFlowRequired =
+  const authFlowOpen =
     !user && (showAuthScreen || passwordResetToken !== null || emailVerificationFailed);
 
-  if (authFlowRequired) {
-    return (
-      <AuthScreen
-        bootstrapError={
-          bootstrapFailed ? messages.app.bootstrapError : null
-        }
-        verificationError={
-          emailVerificationFailed ? messages.auth.emailVerificationFailed : null
-        }
+  return (
+    <>
+      <Dashboard
+        key={user ? "server" : "preview"}
         locale={locale}
         messages={messages}
-        passwordResetToken={passwordResetToken}
+        user={user}
         onAuthenticated={handleAuthenticated}
         onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
-        onPasswordResetTokenConsumed={() => {
-          setPasswordResetToken(null);
-          removePasswordResetToken();
-        }}
-        onPreviewRequested={() => setShowAuthScreen(false)}
+        onOpenAuth={() => setShowAuthScreen(true)}
+        onLoggedOut={handleLoggedOut}
       />
-    );
-  }
-
-  return (
-    <Dashboard
-      key={user ? "server" : "preview"}
-      locale={locale}
-      messages={messages}
-      user={user}
-      onAuthenticated={handleAuthenticated}
-      onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
-      onOpenAuth={() => setShowAuthScreen(true)}
-      onLoggedOut={handleLoggedOut}
-    />
+      {authFlowOpen ? (
+        <AuthScreen
+          bootstrapError={bootstrapFailed ? messages.app.bootstrapError : null}
+          verificationError={
+            emailVerificationFailed ? messages.auth.emailVerificationFailed : null
+          }
+          locale={locale}
+          messages={messages}
+          passwordResetToken={passwordResetToken}
+          onAuthenticated={handleAuthenticated}
+          onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+          onPasswordResetTokenConsumed={() => {
+            setPasswordResetToken(null);
+            removePasswordResetToken();
+          }}
+          onPreviewRequested={handleCloseAuthFlow}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -362,16 +369,37 @@ function AuthScreen({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f5] px-4 py-8 text-zinc-900">
-      <section className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-5 shadow-soft">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/35 px-4 py-8 text-zinc-900 sm:items-center">
+      <section
+        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-zinc-200 bg-white p-5 shadow-soft"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-dialog-title"
+      >
         <div className="flex flex-col gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              {authMessages.title}
-            </h1>
-            <p className="mt-1 text-sm text-zinc-600">
-              {authMessages.subtitle}
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1
+                id="auth-dialog-title"
+                className="text-2xl font-semibold tracking-normal text-zinc-950"
+              >
+                {authMessages.title}
+              </h1>
+              <p className="mt-1 text-sm text-zinc-600">
+                {authMessages.subtitle}
+              </p>
+            </div>
+            {onPreviewRequested ? (
+              <button
+                className="icon-button shrink-0"
+                type="button"
+                aria-label={authMessages.previewBackButton}
+                title={authMessages.previewBackButton}
+                onClick={onPreviewRequested}
+              >
+                <X size={18} />
+              </button>
+            ) : null}
           </div>
 
           <LanguageToggle
@@ -379,18 +407,6 @@ function AuthScreen({
             locale={locale}
             onChange={onLocaleChange}
           />
-
-          {onPreviewRequested && mode !== "reset" ? (
-            <button
-              className="inline-flex h-9 w-fit items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
-              type="button"
-              aria-label={authMessages.previewBackButton}
-              onClick={onPreviewRequested}
-            >
-              <ArrowLeft size={15} />
-              {authMessages.previewBackButton}
-            </button>
-          ) : null}
 
           {mode === "login" || mode === "signup" ? (
             <div
@@ -525,7 +541,7 @@ function AuthScreen({
           <p className="text-xs text-zinc-500">{authMessages.languageHint}</p>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 

@@ -16,7 +16,7 @@ import {
   validateNewGoalDraft,
 } from "./goalFormValidation";
 import { messages as localizedMessages, type AppMessages } from "./i18n";
-import { buildMockMonthView } from "./mockMonth";
+import { buildEmptyMonthView, buildMockMonthView } from "./mockMonth";
 import { buildMonthSummary } from "./monthSummary";
 import {
   applyCheckState,
@@ -48,10 +48,10 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   const summaryMessages = localeMessages.summary;
   const validationMessages = localeMessages.validation;
   const [monthView, setMonthView] = useState(() =>
-    buildMockMonthView(currentMonth()),
+    buildMonthViewForMode(currentMonth(), isPreviewMode),
   );
   const [loadStatus, setLoadStatus] = useState<LoadStatus>(() =>
-    isPreviewMode ? "fallback" : "loading",
+    isPreviewMode ? "local" : "loading",
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -116,7 +116,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     resetMonthLoadState(nextMonth);
 
     if (isPreviewMode) {
-      setLoadStatus("fallback");
+      setLoadStatus("local");
       return;
     }
 
@@ -533,7 +533,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     setPreparingMonth(false);
     deactivatingGoalIDSetRef.current.clear();
     setDeactivatingGoalIDs([]);
-    setMonthView(buildMockMonthView(nextMonth));
+    setMonthView(buildMonthViewForMode(nextMonth, isPreviewMode));
   }
 
   async function refreshMonthView(
@@ -627,6 +627,10 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     deactivateGoalFromMonth,
     cancelEditingGoal,
   };
+}
+
+function buildMonthViewForMode(month: string, isPreviewMode: boolean) {
+  return isPreviewMode ? buildEmptyMonthView(month) : buildMockMonthView(month);
 }
 
 function appendPreviewGoalState(

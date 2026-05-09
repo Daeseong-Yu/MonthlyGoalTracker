@@ -166,7 +166,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       prepareMonth: "목표 이월",
       login: "로그인",
       previewMode: "미리보기",
-      previewNotice: "로그인하지 않은 변경사항은 저장되지 않습니다.",
+      previewNotice:
+        "로그인하지 않아도 둘러볼 수 있지만, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
       signedInAs: (email) => `${email}로 로그인됨`,
       logout: "로그아웃",
       languageLabel: "언어",
@@ -234,6 +235,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       loading: "불러오는 중",
       api: "API 데이터",
       fallback: "샘플 데이터",
+      local: "로컬 체험",
     },
     summary: {
       totalCompleted: "이번 달 완료",
@@ -303,7 +305,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       deactivateFailure: "목표 종료에 실패했습니다.",
       deactivateRefreshFailure: "목표를 종료했지만 화면 갱신에 실패했습니다.",
       deactivateSuccess: "목표를 종료했습니다.",
-      previewSaveNotice: "미리보기 변경사항은 서버에 저장되지 않습니다.",
+      previewSaveNotice:
+        "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
     },
     validation: {
       addUnavailable: "API 데이터에서만 목표를 추가할 수 있습니다.",
@@ -326,7 +329,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       prepareMonth: "Carry goals forward",
       login: "Log in",
       previewMode: "Preview mode",
-      previewNotice: "Changes made without logging in are not saved.",
+      previewNotice:
+        "You can try the service without logging in, but saving changes and personal features require an account.",
       signedInAs: (email) => `Signed in as ${email}`,
       logout: "Log out",
       languageLabel: "Language",
@@ -393,6 +397,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       loading: "Loading",
       api: "API data",
       fallback: "Sample data",
+      local: "Local preview",
     },
     summary: {
       totalCompleted: "Completed this month",
@@ -462,7 +467,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       deactivateFailure: "Could not end the goal.",
       deactivateRefreshFailure: "The goal was ended, but the screen could not refresh.",
       deactivateSuccess: "Goal ended.",
-      previewSaveNotice: "Preview changes are not saved to the server.",
+      previewSaveNotice:
+        "Log in to save. Current changes only stay in this browser session.",
     },
     validation: {
       addUnavailable: "Goals can only be added to API data.",
