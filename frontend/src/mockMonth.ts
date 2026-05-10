@@ -21,6 +21,33 @@ export function buildMockMonthView(month: string): MonthView {
   };
 }
 
+export function buildEmptyMonthView(month: string): MonthView {
+  const days = Array.from({ length: daysInMonth(month) }, (_, index) => {
+    const date = dateForDay(month, index + 1);
+
+    return {
+      date,
+      memo: "",
+      activeGoalCount: 0,
+      completedCount: 0,
+      completionRate: 0,
+    };
+  });
+
+  return {
+    month,
+    goals: [],
+    days,
+    checks: [],
+    chart: days.map(({ date, activeGoalCount, completedCount, completionRate }) => ({
+      date,
+      activeGoalCount,
+      completedCount,
+      completionRate,
+    })),
+  };
+}
+
 function buildDays(
   month: string,
   dayCount: number,

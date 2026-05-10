@@ -11,6 +11,10 @@ export type AppMessages = {
     nextMonth: string;
     monthInput: string;
     prepareMonth: string;
+    login: string;
+    previewMode: string;
+    previewNotice: string;
+    previewSaveLogin: string;
     signedInAs: (email: string) => string;
     logout: string;
     languageLabel: string;
@@ -34,6 +38,7 @@ export type AppMessages = {
     backToLoginButton: string;
     requestPasswordResetButton: string;
     resetPasswordButton: string;
+    previewBackButton: string;
     submitBusy: string;
     loginFailed: string;
     loginEmailNotVerified: string;
@@ -138,6 +143,7 @@ export type AppMessages = {
     deactivateFailure: string;
     deactivateRefreshFailure: string;
     deactivateSuccess: string;
+    previewSaveNotice: string;
   };
   validation: {
     addUnavailable: string;
@@ -159,6 +165,11 @@ export const messages: Record<AppLocale, AppMessages> = {
       nextMonth: "다음 달",
       monthInput: "기록할 월",
       prepareMonth: "목표 이월",
+      login: "로그인",
+      previewMode: "미리보기",
+      previewNotice:
+        "로그인하지 않아도 둘러볼 수 있지만, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
+      previewSaveLogin: "로그인하고 저장하기",
       signedInAs: (email) => `${email}로 로그인됨`,
       logout: "로그아웃",
       languageLabel: "언어",
@@ -182,6 +193,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       backToLoginButton: "로그인으로 돌아가기",
       requestPasswordResetButton: "재설정 메일 보내기",
       resetPasswordButton: "새 비밀번호 저장",
+      previewBackButton: "미리보기로 돌아가기",
       submitBusy: "처리 중",
       loginFailed: "이메일 또는 비밀번호를 확인해 주세요.",
       loginEmailNotVerified: "이메일 인증 후 로그인해 주세요.",
@@ -225,6 +237,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       loading: "불러오는 중",
       api: "API 데이터",
       fallback: "샘플 데이터",
+      local: "로컬 체험",
     },
     summary: {
       totalCompleted: "이번 달 완료",
@@ -294,6 +307,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       deactivateFailure: "목표 종료에 실패했습니다.",
       deactivateRefreshFailure: "목표를 종료했지만 화면 갱신에 실패했습니다.",
       deactivateSuccess: "목표를 종료했습니다.",
+      previewSaveNotice:
+        "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
     },
     validation: {
       addUnavailable: "API 데이터에서만 목표를 추가할 수 있습니다.",
@@ -314,6 +329,11 @@ export const messages: Record<AppLocale, AppMessages> = {
       nextMonth: "Next month",
       monthInput: "Month to track",
       prepareMonth: "Carry goals forward",
+      login: "Log in",
+      previewMode: "Preview mode",
+      previewNotice:
+        "You can try the service without logging in, but saving changes and personal features require an account.",
+      previewSaveLogin: "Log in to save",
       signedInAs: (email) => `Signed in as ${email}`,
       logout: "Log out",
       languageLabel: "Language",
@@ -337,6 +357,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       backToLoginButton: "Back to login",
       requestPasswordResetButton: "Send reset email",
       resetPasswordButton: "Save new password",
+      previewBackButton: "Back to preview",
       submitBusy: "Working",
       loginFailed: "Check your email or password.",
       loginEmailNotVerified: "Verify your email before logging in.",
@@ -379,6 +400,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       loading: "Loading",
       api: "API data",
       fallback: "Sample data",
+      local: "Local preview",
     },
     summary: {
       totalCompleted: "Completed this month",
@@ -448,6 +470,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       deactivateFailure: "Could not end the goal.",
       deactivateRefreshFailure: "The goal was ended, but the screen could not refresh.",
       deactivateSuccess: "Goal ended.",
+      previewSaveNotice:
+        "Log in to save. Current changes only stay in this browser session.",
     },
     validation: {
       addUnavailable: "Goals can only be added to API data.",

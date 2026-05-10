@@ -16,7 +16,7 @@ import {
   validateNewGoalDraft,
 } from "./goalFormValidation";
 import { messages as localizedMessages, type AppMessages } from "./i18n";
-import { buildMockMonthView } from "./mockMonth";
+import { buildEmptyMonthView, buildMockMonthView } from "./mockMonth";
 import { buildMonthSummary } from "./monthSummary";
 import {
   applyCheckState,
@@ -31,21 +31,28 @@ import {
   monthStartDate,
   offsetMonth,
 } from "./monthLogic";
-import type { Goal } from "./types";
+import type { Goal, MonthView } from "./types";
+
+export type MonthControllerMode = "server" | "preview";
 
 type UseMonthControllerOptions = {
+  mode?: MonthControllerMode;
   messages?: Pick<AppMessages, "controller" | "summary" | "validation">;
 };
 
 export function useMonthController(options: UseMonthControllerOptions = {}) {
+  const mode = options.mode ?? "server";
+  const isPreviewMode = mode === "preview";
   const localeMessages = options.messages ?? localizedMessages.ko;
   const controllerMessages = localeMessages.controller;
   const summaryMessages = localeMessages.summary;
   const validationMessages = localeMessages.validation;
   const [monthView, setMonthView] = useState(() =>
-    buildMockMonthView(currentMonth()),
+    buildMonthViewForMode(currentMonth(), isPreviewMode),
   );
-  const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading");
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>(() =>
+    isPreviewMode ? "local" : "loading",
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -89,7 +96,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     [currentDayKey, monthView, summaryMessages],
   );
   const isLoading = loadStatus === "loading";
-  const canSaveChanges = loadStatus === "api";
+  const canSaveChanges = isPreviewMode || loadStatus === "api";
   const isMutatingMonth =
     savingGoal ||
     savingGoalTitle ||
@@ -107,6 +114,11 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     const requestID = loadRequestIDRef.current + 1;
     loadRequestIDRef.current = requestID;
     resetMonthLoadState(nextMonth);
+
+    if (isPreviewMode) {
+      setLoadStatus("local");
+      return;
+    }
 
     try {
       const nextMonthView = await getMonthView(nextMonth);
@@ -129,6 +141,14 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   async function prepareCurrentMonth() {
     if (!canSaveChanges) {
       setSaveFailure(controllerMessages.prepareUnavailable);
+      return;
+    }
+
+    if (isPreviewMode) {
+      clearSaveFeedback();
+      setGoalFormOpen(false);
+      cancelEditingGoal();
+      setSaveMessage(controllerMessages.previewSaveNotice);
       return;
     }
 
@@ -184,6 +204,15 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       (check) => check.goalId === goalId && check.date === date,
     );
 
+    if (isPreviewMode) {
+      clearSaveFeedback();
+      setMonthView((currentView) =>
+        applyCheckState(currentView, goalId, date, completed),
+      );
+      setSaveMessage(controllerMessages.previewSaveNotice);
+      return;
+    }
+
     clearSaveFeedback();
     setSavingChecks((currentKeys) => [...currentKeys, key]);
     setMonthView((currentView) =>
@@ -215,6 +244,12 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   async function saveMemoForDate(date: string, memo: string) {
     if (!canSaveChanges) {
       setSaveFailure(controllerMessages.memoUnavailable);
+      return;
+    }
+
+    if (isPreviewMode) {
+      clearSaveFeedback();
+      setSaveMessage(controllerMessages.previewSaveNotice);
       return;
     }
 
@@ -262,6 +297,22 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     const submittedMonth = month;
     const submittedLoadRequestID = loadRequestIDRef.current;
     clearSaveFeedback();
+
+    if (isPreviewMode) {
+      setMonthView((currentView) =>
+        appendPreviewGoalState(
+          currentView,
+          validation.trimmedTitle,
+          newGoalStartDate,
+        ),
+      );
+      setNewGoalTitle("");
+      setNewGoalStartDate(monthStartDate(submittedMonth));
+      setGoalFormOpen(false);
+      setSaveMessage(controllerMessages.previewSaveNotice);
+      return;
+    }
+
     setSavingGoal(true);
 
     try {
@@ -332,6 +383,16 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
+    if (isPreviewMode) {
+      clearSaveFeedback();
+      setMonthView((currentView) =>
+        applyGoalTitleState(currentView, goalID, validation.trimmedTitle),
+      );
+      cancelEditingGoal();
+      setSaveMessage(controllerMessages.previewSaveNotice);
+      return;
+    }
+
     clearSaveFeedback();
     setSavingGoalTitle(true);
 
@@ -375,6 +436,19 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     const endDate = deactivationDateForGoal(goal, submittedMonth);
     if (goal.endDate !== null && goal.endDate <= goalListReferenceDate) {
       setSaveFailure(controllerMessages.alreadyEnded);
+      return;
+    }
+
+    if (isPreviewMode) {
+      clearSaveFeedback();
+      setMonthView((currentView) =>
+        applyGoalEndDateState(currentView, goal.id, endDate),
+      );
+      const replacementStartDate = nextDate(endDate);
+      if (replacementStartDate <= monthEndDate(submittedMonth)) {
+        setNewGoalStartDate(replacementStartDate);
+      }
+      setSaveMessage(controllerMessages.previewSaveNotice);
       return;
     }
 
@@ -459,7 +533,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     setPreparingMonth(false);
     deactivatingGoalIDSetRef.current.clear();
     setDeactivatingGoalIDs([]);
-    setMonthView(buildMockMonthView(nextMonth));
+    setMonthView(buildMonthViewForMode(nextMonth, isPreviewMode));
   }
 
   async function refreshMonthView(
@@ -467,6 +541,10 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     submittedLoadRequestID: number,
     failureMessage: string,
   ) {
+    if (isPreviewMode) {
+      return true;
+    }
+
     try {
       const refreshedView = await getMonthView(submittedMonth);
       if (!isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -549,4 +627,30 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     deactivateGoalFromMonth,
     cancelEditingGoal,
   };
+}
+
+function buildMonthViewForMode(month: string, isPreviewMode: boolean) {
+  return isPreviewMode ? buildEmptyMonthView(month) : buildMockMonthView(month);
+}
+
+function appendPreviewGoalState(
+  view: MonthView,
+  title: string,
+  startDate: string,
+): MonthView {
+  const goal: Goal = {
+    id: nextPreviewGoalID(view.goals),
+    title,
+    startDate,
+    endDate: null,
+  };
+
+  return {
+    ...view,
+    goals: [...view.goals, goal],
+  };
+}
+
+function nextPreviewGoalID(goals: Goal[]) {
+  return goals.reduce((maxID, goal) => Math.max(maxID, goal.id), 0) + 1;
 }

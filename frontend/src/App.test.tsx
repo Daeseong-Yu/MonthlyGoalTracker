@@ -30,6 +30,7 @@ import {
   blurInput,
   cleanupAppTest,
   clickButton,
+  clickElement,
   getButton,
   getDailyRecordTable,
   getDashboardLayout,
@@ -38,6 +39,7 @@ import {
   getWeekdayLabel,
   hasInputValue,
   precedes,
+  pressKey,
   queryButton,
   renderApp,
   resolvePending,
@@ -87,6 +89,86 @@ describe("App", () => {
     expect(document.body.textContent).toContain("chart points: 2");
   });
 
+  it("opens a no-save preview for unauthenticated visitors", async () => {
+    const fetchMock = stubFetch(createMonthViewApiHandler(), {
+      bootstrap: { authenticated: false, locale: "ko", user: null },
+    });
+
+    renderApp(<App />);
+
+    await waitForText("로컬 체험");
+
+    expect(document.body.textContent).toContain("미리보기");
+    expect(document.body.textContent).toContain(
+      "로그인하지 않아도 둘러볼 수 있지만, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
+    );
+    expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
+    expect(document.body.textContent).not.toContain("아침 산책");
+    expect(document.body.textContent).not.toContain(
+      "비가 와서 실내 운동으로 변경",
+    );
+    expect(getButton("로그인")).toBeTruthy();
+    expect(queryButton("로그아웃")).toBeNull();
+    expect(document.body.textContent).not.toContain("계정 보안");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+
+    await setInputValue("05.01 메모", "preview memo");
+    await blurInput("05.01 메모");
+
+    await waitForText(
+      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
+    );
+    expect(getButton("로그인하고 저장하기")).toBeTruthy();
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/memos/")))
+      .toBe(true);
+
+    await clickButton("로그인하고 저장하기");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+    expect(document.body.textContent).toContain(
+      "개인 목표를 계정별로 저장합니다.",
+    );
+    await pressKey("Escape");
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
+
+    await clickButton("목표 추가");
+    await setInputValue("새 목표 제목", "Preview goal");
+    await clickButton("목표 저장");
+    await waitForText("Preview goal");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+  });
+
+  it("closes the auth modal without leaving the anonymous preview", async () => {
+    stubFetch(createMonthViewApiHandler(), {
+      bootstrap: { authenticated: false, locale: "ko", user: null },
+    });
+
+    renderApp(<App />);
+
+    await waitForText("로컬 체험");
+    await clickButton("로그인");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+
+    await pressKey("Escape");
+
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
+    expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
+
+    await clickButton("로그인");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+    const dialog = document.querySelector("[role='dialog']");
+
+    if (!dialog?.parentElement) {
+      throw new Error("expected auth modal backdrop");
+    }
+
+    await clickElement(dialog.parentElement);
+
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
+    expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
+  });
+
   it("shows the English login screen from regional bootstrap and loads the dashboard after login", async () => {
     const fetchMock = stubFetch(
       (input) => {
@@ -116,8 +198,18 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("Monthly Goal Tracker");
+    await waitForText("Local preview");
 
+    expect(document.body.textContent).toContain("Preview mode");
+    expect(document.body.textContent).toContain("No active goals.");
+    expect(document.body.textContent).not.toContain("아침 산책");
+    expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
+      .toBe(true);
+
+    await clickButton("Log in");
+
+    expect(document.querySelector("[role='dialog']")).not.toBeNull();
+    expect(document.body.textContent).toContain("No active goals.");
     expect(document.body.textContent).toContain(
       "Save personal goals under your own account.",
     );
@@ -158,7 +250,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("월간 목표 트래커");
+    await waitForText("로컬 체험");
+    await clickButton("로그인");
+    await waitForText("개인 목표를 계정별로 저장합니다.");
     await setInputValue("이메일", "person@example.com");
     await setInputValue("비밀번호", "secret123");
     await submitForm();
@@ -210,7 +304,9 @@ describe("App", () => {
 
       renderApp(<App />);
 
-      await waitForText("월간 목표 트래커");
+      await waitForText("로컬 체험");
+      await clickButton("로그인");
+      await waitForText("개인 목표를 계정별로 저장합니다.");
       await clickButton("회원가입 tab");
       await setInputValue("이메일", "person@example.com");
       await setInputValue("비밀번호", "secret123");
@@ -248,7 +344,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("월간 목표 트래커");
+    await waitForText("로컬 체험");
+    await clickButton("로그인");
+    await waitForText("개인 목표를 계정별로 저장합니다.");
     await clickButton("회원가입 tab");
     await setInputValue("이메일", "person@example.com");
     await setInputValue("비밀번호", "secret123");
@@ -361,7 +459,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("월간 목표 트래커");
+    await waitForText("로컬 체험");
+    await clickButton("로그인");
+    await waitForText("개인 목표를 계정별로 저장합니다.");
     await clickButton("비밀번호 재설정");
     await setInputValue("이메일", "person@example.com");
     await submitForm();

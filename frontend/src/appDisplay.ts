@@ -1,12 +1,13 @@
 import type { Goal } from "./types";
 
-export type LoadStatus = "loading" | "api" | "fallback";
+export type LoadStatus = "loading" | "api" | "fallback" | "local";
 export type StatusLabels = Record<LoadStatus, string>;
 
 const defaultStatusLabels: StatusLabels = {
   loading: "불러오는 중",
   api: "API 데이터",
   fallback: "샘플 데이터",
+  local: "로컬 체험",
 };
 
 export function formatMonth(month: string, locale = "ko") {
@@ -68,6 +69,10 @@ export function statusClassName(status: LoadStatus) {
 
   if (status === "loading") {
     return `${base} bg-zinc-100 text-zinc-600`;
+  }
+
+  if (status === "local") {
+    return `${base} bg-emerald-50 text-emerald-800`;
   }
 
   return `${base} bg-amber-50 text-amber-800`;

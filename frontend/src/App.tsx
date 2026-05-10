@@ -1,4 +1,10 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -13,6 +19,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserPlus,
+  X,
 } from "lucide-react";
 
 import {
@@ -53,6 +60,7 @@ export default function App() {
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(
     () => readPasswordResetToken(),
   );
+  const [showAuthScreen, setShowAuthScreen] = useState(false);
   const messages = useMemo(() => messagesForLocale(locale), [locale]);
 
   useEffect(() => {
@@ -172,6 +180,7 @@ export default function App() {
     storeLocale(nextLocale);
     setUser(response.user);
     setPasswordResetToken(null);
+    setShowAuthScreen(false);
     removeEmailVerificationToken();
     removePasswordResetToken();
     setEmailVerificationFailed(false);
@@ -182,44 +191,57 @@ export default function App() {
     clearAuthCSRFToken();
     setUser(null);
     setPasswordResetToken(readPasswordResetToken());
+    setShowAuthScreen(false);
     setEmailVerificationFailed(false);
+  }
+
+  function handleCloseAuthFlow() {
+    setShowAuthScreen(false);
+    setEmailVerificationFailed(false);
+    if (passwordResetToken !== null) {
+      setPasswordResetToken(null);
+      removePasswordResetToken();
+    }
   }
 
   if (!bootstrapped) {
     return <BootstrapScreen messages={messages} />;
   }
 
-  if (!user) {
-    return (
-      <AuthScreen
-        bootstrapError={
-          bootstrapFailed ? messages.app.bootstrapError : null
-        }
-        verificationError={
-          emailVerificationFailed ? messages.auth.emailVerificationFailed : null
-        }
-        locale={locale}
-        messages={messages}
-        passwordResetToken={passwordResetToken}
-        onAuthenticated={handleAuthenticated}
-        onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
-        onPasswordResetTokenConsumed={() => {
-          setPasswordResetToken(null);
-          removePasswordResetToken();
-        }}
-      />
-    );
-  }
+  const authFlowOpen =
+    !user && (showAuthScreen || passwordResetToken !== null || emailVerificationFailed);
 
   return (
-    <Dashboard
-      locale={locale}
-      messages={messages}
-      user={user}
-      onAuthenticated={handleAuthenticated}
-      onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
-      onLoggedOut={handleLoggedOut}
-    />
+    <>
+      <Dashboard
+        key={user ? "server" : "preview"}
+        locale={locale}
+        messages={messages}
+        user={user}
+        onAuthenticated={handleAuthenticated}
+        onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+        onOpenAuth={() => setShowAuthScreen(true)}
+        onLoggedOut={handleLoggedOut}
+      />
+      {authFlowOpen ? (
+        <AuthScreen
+          bootstrapError={bootstrapFailed ? messages.app.bootstrapError : null}
+          verificationError={
+            emailVerificationFailed ? messages.auth.emailVerificationFailed : null
+          }
+          locale={locale}
+          messages={messages}
+          passwordResetToken={passwordResetToken}
+          onAuthenticated={handleAuthenticated}
+          onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+          onPasswordResetTokenConsumed={() => {
+            setPasswordResetToken(null);
+            removePasswordResetToken();
+          }}
+          onPreviewRequested={handleCloseAuthFlow}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -245,6 +267,7 @@ function AuthScreen({
   onAuthenticated,
   onLocaleChange,
   onPasswordResetTokenConsumed,
+  onPreviewRequested,
 }: {
   bootstrapError: string | null;
   verificationError: string | null;
@@ -254,6 +277,7 @@ function AuthScreen({
   onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
   onPasswordResetTokenConsumed: () => void;
+  onPreviewRequested?: () => void;
 }) {
   const [mode, setMode] = useState<AuthMode>(
     () => (passwordResetToken ? "reset" : "login"),
@@ -281,6 +305,21 @@ function AuthScreen({
     setStatus(null);
   }, [passwordResetToken]);
 
+  useEffect(() => {
+    if (!onPreviewRequested) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onPreviewRequested?.();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onPreviewRequested]);
+
   function moveToMode(nextMode: AuthMode) {
     if (mode === "reset") {
       onPasswordResetTokenConsumed();
@@ -294,6 +333,12 @@ function AuthScreen({
 
   function returnToLogin() {
     moveToMode("login");
+  }
+
+  function handleBackdropClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) {
+      onPreviewRequested?.();
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -351,16 +396,40 @@ function AuthScreen({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f5] px-4 py-8 text-zinc-900">
-      <section className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-5 shadow-soft">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/35 px-4 py-8 text-zinc-900 sm:items-center"
+      onClick={handleBackdropClick}
+    >
+      <section
+        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-zinc-200 bg-white p-5 shadow-soft"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-dialog-title"
+      >
         <div className="flex flex-col gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              {authMessages.title}
-            </h1>
-            <p className="mt-1 text-sm text-zinc-600">
-              {authMessages.subtitle}
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1
+                id="auth-dialog-title"
+                className="text-2xl font-semibold tracking-normal text-zinc-950"
+              >
+                {authMessages.title}
+              </h1>
+              <p className="mt-1 text-sm text-zinc-600">
+                {authMessages.subtitle}
+              </p>
+            </div>
+            {onPreviewRequested ? (
+              <button
+                className="icon-button shrink-0"
+                type="button"
+                aria-label={authMessages.previewBackButton}
+                title={authMessages.previewBackButton}
+                onClick={onPreviewRequested}
+              >
+                <X size={18} />
+              </button>
+            ) : null}
           </div>
 
           <LanguageToggle
@@ -502,7 +571,7 @@ function AuthScreen({
           <p className="text-xs text-zinc-500">{authMessages.languageHint}</p>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 
@@ -605,18 +674,28 @@ function Dashboard({
   user,
   onAuthenticated,
   onLocaleChange,
+  onOpenAuth,
   onLoggedOut,
 }: {
   locale: AppLocale;
   messages: AppMessages;
-  user: UserSession;
+  user: UserSession | null;
   onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
+  onOpenAuth: () => void;
   onLoggedOut: () => void;
 }) {
-  const monthController = useMonthController({ messages });
+  const previewMode = user === null;
+  const monthController = useMonthController({
+    messages,
+    mode: previewMode ? "preview" : "server",
+  });
 
   async function handleLogout() {
+    if (!user) {
+      return;
+    }
+
     try {
       await logoutSession();
     } finally {
@@ -645,6 +724,11 @@ function Dashboard({
               >
                 {statusLabel(monthController.loadStatus, messages.status)}
               </span>
+              {previewMode ? (
+                <span className="rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
+                  {messages.app.previewMode}
+                </span>
+              ) : null}
             </p>
             {monthController.loadError ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -671,11 +755,26 @@ function Dashboard({
               </p>
             ) : null}
             {monthController.saveMessage ? (
-              <p
-                className="mt-2 text-xs font-medium text-teal-700"
-                role="status"
-              >
-                {monthController.saveMessage}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-xs font-medium text-teal-700" role="status">
+                  {monthController.saveMessage}
+                </p>
+                {previewMode ? (
+                  <button
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 shadow-sm transition hover:bg-teal-50"
+                    type="button"
+                    aria-label={messages.app.previewSaveLogin}
+                    onClick={onOpenAuth}
+                  >
+                    <LogIn size={14} />
+                    {messages.app.previewSaveLogin}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {previewMode ? (
+              <p className="mt-2 text-xs font-medium text-zinc-600" role="status">
+                {messages.app.previewNotice}
               </p>
             ) : null}
           </div>
@@ -739,21 +838,35 @@ function Dashboard({
               locale={locale}
               onChange={onLocaleChange}
             />
-            <p
-              className="max-w-[13rem] truncate text-xs font-medium text-zinc-600"
-              title={messages.app.signedInAs(user.email)}
-            >
-              {messages.app.signedInAs(user.email)}
-            </p>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={messages.app.logout}
-              title={messages.app.logout}
-              onClick={() => void handleLogout()}
-            >
-              <LogOut size={18} />
-            </button>
+            {user ? (
+              <>
+                <p
+                  className="max-w-[13rem] truncate text-xs font-medium text-zinc-600"
+                  title={messages.app.signedInAs(user.email)}
+                >
+                  {messages.app.signedInAs(user.email)}
+                </p>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={messages.app.logout}
+                  title={messages.app.logout}
+                  onClick={() => void handleLogout()}
+                >
+                  <LogOut size={18} />
+                </button>
+              </>
+            ) : (
+              <button
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+                type="button"
+                aria-label={messages.app.login}
+                onClick={onOpenAuth}
+              >
+                <LogIn size={17} />
+                {messages.app.login}
+              </button>
+            )}
           </div>
         </header>
 
@@ -824,10 +937,12 @@ function Dashboard({
               labels={messages.chart}
               month={monthController.month}
             />
-            <AccountSecurityPanel
-              labels={messages.account}
-              onPasswordChanged={onAuthenticated}
-            />
+            {user ? (
+              <AccountSecurityPanel
+                labels={messages.account}
+                onPasswordChanged={onAuthenticated}
+              />
+            ) : null}
           </aside>
         </section>
       </div>

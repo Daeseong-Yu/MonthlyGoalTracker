@@ -24,13 +24,57 @@ import {
 } from "./App.testHelpers";
 import { checkKey } from "./goalSlots";
 import { offsetMonth } from "./monthLogic";
-import { useMonthController } from "./useMonthController";
+import {
+  type MonthControllerMode,
+  useMonthController,
+} from "./useMonthController";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("useMonthController", () => {
   afterEach(async () => {
     await cleanupAppTest();
+  });
+
+  it("keeps preview changes local without calling save APIs", async () => {
+    const fetchMock = stubFetch(() => {
+      throw new Error("preview mode should not call the API");
+    });
+
+    renderApp(<MonthControllerHarness mode="preview" />);
+    await waitForText("local");
+    await waitForText("no first goal");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await clickButton("첫 메모 변경");
+    await waitForText("preview memo");
+    await clickButton("첫 메모 저장");
+    await waitForText(
+      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await setInputValue("새 목표 제목", "Preview goal");
+    await clickButton("새 목표 제출");
+    await waitForText("Preview goal");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await clickButton("첫 체크 토글");
+    await waitForText("first check completed");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await clickButton("목표 제목 수정 시작");
+    await setInputValue("목표 수정 제목", "Preview walk");
+    await clickButton("목표 제목 수정 제출");
+    await waitForText("Preview walk");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await clickButton("첫 목표 종료");
+    await waitForText(
+      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps the latest loaded month when older responses finish late", async () => {
@@ -472,8 +516,8 @@ describe("useMonthController", () => {
   });
 });
 
-function MonthControllerHarness() {
-  const controller = useMonthController();
+function MonthControllerHarness({ mode }: { mode?: MonthControllerMode }) {
+  const controller = useMonthController({ mode });
   const firstGoal = controller.goals[0];
   const firstDay = controller.days[0];
   const firstCheckKey =
@@ -493,10 +537,13 @@ function MonthControllerHarness() {
   return (
     <section>
       <p>{controller.month}</p>
-      <p>{controller.goals[0]?.title}</p>
+      <p>{controller.goals[0]?.title ?? "no first goal"}</p>
+      <p>{controller.goals.map((goal) => goal.title).join(" | ")}</p>
       <p>{controller.loadStatus}</p>
       <p>{controller.loadError ?? "no load error"}</p>
       <p>{controller.saveError ?? "no save error"}</p>
+      <p>{controller.saveMessage ?? "no save message"}</p>
+      <p>{firstDay?.memo ?? "no memo"}</p>
       <p>
         {firstCheckCompleted
           ? "first check completed"
@@ -566,6 +613,18 @@ function MonthControllerHarness() {
         }}
       >
         save first memo
+      </button>
+      <button
+        aria-label="첫 메모 변경"
+        type="button"
+        disabled={!firstDay}
+        onClick={() => {
+          if (firstDay) {
+            controller.updateMemo(firstDay.date, "preview memo");
+          }
+        }}
+      >
+        change first memo
       </button>
       <button
         aria-label="목표 이월"
