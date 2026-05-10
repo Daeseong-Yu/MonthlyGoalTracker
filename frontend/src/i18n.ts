@@ -14,6 +14,7 @@ export type AppMessages = {
     login: string;
     previewMode: string;
     previewNotice: string;
+    previewSaveLogin: string;
     signedInAs: (email: string) => string;
     logout: string;
     languageLabel: string;
@@ -168,6 +169,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       previewMode: "미리보기",
       previewNotice:
         "로그인하지 않아도 둘러볼 수 있지만, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
+      previewSaveLogin: "로그인하고 저장하기",
       signedInAs: (email) => `${email}로 로그인됨`,
       logout: "로그아웃",
       languageLabel: "언어",
@@ -331,6 +333,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       previewMode: "Preview mode",
       previewNotice:
         "You can try the service without logging in, but saving changes and personal features require an account.",
+      previewSaveLogin: "Log in to save",
       signedInAs: (email) => `Signed in as ${email}`,
       logout: "Log out",
       languageLabel: "Language",

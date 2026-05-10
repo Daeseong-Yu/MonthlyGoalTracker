@@ -30,6 +30,7 @@ import {
   blurInput,
   cleanupAppTest,
   clickButton,
+  clickElement,
   getButton,
   getDailyRecordTable,
   getDashboardLayout,
@@ -38,6 +39,7 @@ import {
   getWeekdayLabel,
   hasInputValue,
   precedes,
+  pressKey,
   queryButton,
   renderApp,
   resolvePending,
@@ -117,8 +119,17 @@ describe("App", () => {
     await waitForText(
       "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
     );
+    expect(getButton("로그인하고 저장하기")).toBeTruthy();
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/memos/")))
       .toBe(true);
+
+    await clickButton("로그인하고 저장하기");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+    expect(document.body.textContent).toContain(
+      "개인 목표를 계정별로 저장합니다.",
+    );
+    await pressKey("Escape");
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
 
     await clickButton("목표 추가");
     await setInputValue("새 목표 제목", "Preview goal");
@@ -126,6 +137,36 @@ describe("App", () => {
     await waitForText("Preview goal");
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
       .toBe(true);
+  });
+
+  it("closes the auth modal without leaving the anonymous preview", async () => {
+    stubFetch(createMonthViewApiHandler(), {
+      bootstrap: { authenticated: false, locale: "ko", user: null },
+    });
+
+    renderApp(<App />);
+
+    await waitForText("로컬 체험");
+    await clickButton("로그인");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+
+    await pressKey("Escape");
+
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
+    expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
+
+    await clickButton("로그인");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+    const dialog = document.querySelector("[role='dialog']");
+
+    if (!dialog?.parentElement) {
+      throw new Error("expected auth modal backdrop");
+    }
+
+    await clickElement(dialog.parentElement);
+
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
+    expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
   });
 
   it("shows the English login screen from regional bootstrap and loads the dashboard after login", async () => {

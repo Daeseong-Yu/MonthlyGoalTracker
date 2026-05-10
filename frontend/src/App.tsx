@@ -1,4 +1,10 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -299,6 +305,21 @@ function AuthScreen({
     setStatus(null);
   }, [passwordResetToken]);
 
+  useEffect(() => {
+    if (!onPreviewRequested) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onPreviewRequested?.();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onPreviewRequested]);
+
   function moveToMode(nextMode: AuthMode) {
     if (mode === "reset") {
       onPasswordResetTokenConsumed();
@@ -312,6 +333,12 @@ function AuthScreen({
 
   function returnToLogin() {
     moveToMode("login");
+  }
+
+  function handleBackdropClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) {
+      onPreviewRequested?.();
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -369,7 +396,10 @@ function AuthScreen({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/35 px-4 py-8 text-zinc-900 sm:items-center">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/35 px-4 py-8 text-zinc-900 sm:items-center"
+      onClick={handleBackdropClick}
+    >
       <section
         className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-zinc-200 bg-white p-5 shadow-soft"
         role="dialog"
@@ -725,12 +755,22 @@ function Dashboard({
               </p>
             ) : null}
             {monthController.saveMessage ? (
-              <p
-                className="mt-2 text-xs font-medium text-teal-700"
-                role="status"
-              >
-                {monthController.saveMessage}
-              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-xs font-medium text-teal-700" role="status">
+                  {monthController.saveMessage}
+                </p>
+                {previewMode ? (
+                  <button
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 shadow-sm transition hover:bg-teal-50"
+                    type="button"
+                    aria-label={messages.app.previewSaveLogin}
+                    onClick={onOpenAuth}
+                  >
+                    <LogIn size={14} />
+                    {messages.app.previewSaveLogin}
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             {previewMode ? (
               <p className="mt-2 text-xs font-medium text-zinc-600" role="status">

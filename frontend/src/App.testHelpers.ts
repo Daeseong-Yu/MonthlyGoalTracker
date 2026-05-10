@@ -102,6 +102,18 @@ export async function clickButton(label: string) {
   });
 }
 
+export async function clickElement(element: Element) {
+  await act(async () => {
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+export async function pressKey(key: string) {
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key }));
+  });
+}
+
 export async function submitForm() {
   const form = document.querySelector("form");
 
