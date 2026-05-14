@@ -94,6 +94,7 @@ func TestUserRepositoryCreateWithPasswordClaimsLegacyDefaultUser(t *testing.T) {
 		WithArgs("single-user", 1).
 		WillReturnRows(sqlmock.NewRows(userColumns()).
 			AddRow(9, "single-user", "", "", "ko", nil, fixedNow(), fixedNow()))
+	expectLegacyOwnedRowsQuery(mock, 9, 1)
 	verifiedAt := fixedNow()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE "users" SET "email"=$1,"email_verified_at"=$2,"locale"=$3,"password_hash"=$4,"username"=$5,"updated_at"=$6 WHERE id = $7`)).
 		WithArgs("owner@example.com", verifiedAt, "en", "hash", "owner@example.com", fixedNow(), uint(9)).
@@ -125,6 +126,37 @@ func TestUserRepositoryCreateWithPasswordClaimsLegacyDefaultUser(t *testing.T) {
 	}
 	if user.EmailVerifiedAt == nil || !user.EmailVerifiedAt.Equal(verifiedAt) {
 		t.Fatalf("expected email verified at %s, got %v", verifiedAt, user.EmailVerifiedAt)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestUserRepositoryCreateWithPasswordIgnoresEmptyDefaultUserWithoutLegacyData(t *testing.T) {
+	repo, mock, closeDB := newMockUserRepository(t)
+	defer closeDB()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM "users" WHERE username = $1 ORDER BY "users"."id" LIMIT $2 FOR UPDATE`)).
+		WithArgs("single-user", 1).
+		WillReturnRows(sqlmock.NewRows(userColumns()).
+			AddRow(9, "single-user", "", "", "ko", nil, fixedNow(), fixedNow()))
+	expectLegacyOwnedRowsQuery(mock, 9, 0)
+	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO "users" ("username","email","password_hash","locale","email_verified_at","created_at","updated_at") VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING "id"`)).
+		WithArgs("new@example.com", "new@example.com", "hash", "ko", nil, fixedNow(), fixedNow()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(21))
+	mock.ExpectCommit()
+
+	user, err := repo.CreateWithPassword(context.Background(), " New@Example.com ", "hash", "ko", false, nil)
+	if err != nil {
+		t.Fatalf("expected create with password to ignore empty default user, got %v", err)
+	}
+	if user.ID != 21 {
+		t.Fatalf("expected new user ID 21, got %d", user.ID)
+	}
+	if user.Username != "new@example.com" {
+		t.Fatalf("expected normalized username, got %q", user.Username)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -179,6 +211,7 @@ func TestUserRepositoryCreateWithPasswordRequiresClaimWhenLegacyUserIsUnclaimed(
 		WithArgs("single-user", 1).
 		WillReturnRows(sqlmock.NewRows(userColumns()).
 			AddRow(9, "single-user", "", "", "ko", nil, fixedNow(), fixedNow()))
+	expectLegacyOwnedRowsQuery(mock, 9, 2)
 	mock.ExpectRollback()
 
 	user, err := repo.CreateWithPassword(context.Background(), " New@Example.com ", "hash", "ko", false, nil)
@@ -255,4 +288,10 @@ func newMockUserRepository(t *testing.T) (*UserRepository, sqlmock.Sqlmock, func
 
 func userColumns() []string {
 	return []string{"id", "username", "email", "password_hash", "locale", "email_verified_at", "created_at", "updated_at"}
+}
+
+func expectLegacyOwnedRowsQuery(mock sqlmock.Sqlmock, userID int, ownedRows int64) {
+	mock.ExpectQuery(`SELECT\s+\(SELECT count\(\*\) FROM goals WHERE user_id = \$1\)\s+\+\s+\(SELECT count\(\*\) FROM daily_memos WHERE user_id = \$2\)\s+\+\s+\(SELECT count\(\*\) FROM goal_checks WHERE user_id = \$3\)\s+AS owned_rows`).
+		WithArgs(userID, userID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"owned_rows"}).AddRow(ownedRows))
 }

@@ -181,5 +181,33 @@ func unclaimedLegacyUser(ctx context.Context, tx *gorm.DB) (*domain.User, bool, 
 		return nil, false, nil
 	}
 
+	hasOwnedRows, err := legacyUserHasOwnedRows(ctx, tx, legacyUser.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	if !hasOwnedRows {
+		return nil, false, nil
+	}
+
 	return &legacyUser, true, nil
+}
+
+func legacyUserHasOwnedRows(ctx context.Context, tx *gorm.DB, userID uint) (bool, error) {
+	var ownedRows int64
+	if err := tx.WithContext(ctx).
+		Raw(`
+			SELECT
+				(SELECT count(*) FROM goals WHERE user_id = ?)
+				+ (SELECT count(*) FROM daily_memos WHERE user_id = ?)
+				+ (SELECT count(*) FROM goal_checks WHERE user_id = ?)
+				AS owned_rows`,
+			userID,
+			userID,
+			userID,
+		).
+		Scan(&ownedRows).Error; err != nil {
+		return false, err
+	}
+
+	return ownedRows > 0, nil
 }
