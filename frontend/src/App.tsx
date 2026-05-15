@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   KeyRound,
-  Languages,
   LogIn,
   LogOut,
   MailCheck,
@@ -761,7 +760,7 @@ function Dashboard({
                 </p>
                 {previewMode ? (
                   <button
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 shadow-sm transition hover:bg-teal-50"
+                    className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 shadow-sm transition hover:bg-teal-50"
                     type="button"
                     aria-label={messages.app.previewSaveLogin}
                     onClick={onOpenAuth}
@@ -858,7 +857,7 @@ function Dashboard({
               </>
             ) : (
               <button
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+                className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
                 type="button"
                 aria-label={messages.app.login}
                 onClick={onOpenAuth}
@@ -1115,32 +1114,34 @@ function LanguageToggle({
   locale: AppLocale;
   onChange: (locale: AppLocale) => void;
 }) {
+  const koreanLabel = locale === "en" ? "Korean" : "한국어";
+  const englishLabel = "English";
+
   return (
     <div
-      className={`flex items-center gap-2 ${
-        compact ? "h-10 rounded-md border border-zinc-300 bg-white px-2" : ""
+      className={`inline-flex shrink-0 items-center ${
+        compact ? "h-10 rounded-md border border-zinc-300 bg-white px-1.5" : ""
       }`}
       aria-label={label}
     >
-      <Languages size={17} className="text-teal-700" />
       <div className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 p-0.5">
         <button
           className={languageButtonClassName(locale === "ko")}
           type="button"
-          aria-label={`${label} 한국어`}
+          aria-label={`${label} ${koreanLabel}`}
           aria-pressed={locale === "ko"}
           onClick={() => onChange("ko")}
         >
-          한국어
+          {koreanLabel}
         </button>
         <button
           className={languageButtonClassName(locale === "en")}
           type="button"
-          aria-label={`${label} English`}
+          aria-label={`${label} ${englishLabel}`}
           aria-pressed={locale === "en"}
           onClick={() => onChange("en")}
         >
-          English
+          {englishLabel}
         </button>
       </div>
     </div>
@@ -1157,7 +1158,7 @@ function authModeClassName(active: boolean) {
 
 function languageButtonClassName(active: boolean) {
   const base =
-    "h-8 min-w-[4rem] rounded px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+    "h-8 min-w-[4rem] whitespace-nowrap rounded px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
   return active
     ? `${base} bg-white text-teal-800 shadow-sm`
     : `${base} text-zinc-600 hover:text-zinc-950`;
