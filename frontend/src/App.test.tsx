@@ -79,7 +79,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("API walk");
@@ -96,11 +96,11 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("로컬 체험");
+    await waitForText("체험 모드");
 
-    expect(document.body.textContent).toContain("미리보기");
+    expect(document.body.textContent).toContain("체험 모드");
     expect(document.body.textContent).toContain(
-      "로그인하지 않아도 둘러볼 수 있지만, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
+      "둘러보기는 바로 가능하며, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
     );
     expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
     expect(document.body.textContent).not.toContain("아침 산책");
@@ -146,7 +146,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("로컬 체험");
+    await waitForText("체험 모드");
     await clickButton("로그인");
     await waitFor(() => document.querySelector("[role='dialog']") !== null);
 
@@ -198,9 +198,10 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("Local preview");
+    await waitForText("Guest mode");
 
-    expect(document.body.textContent).toContain("Preview mode");
+    expect(document.body.textContent).toContain("Guest mode");
+    expect(document.body.textContent).toContain("Korean");
     expect(document.body.textContent).toContain("No active goals.");
     expect(document.body.textContent).not.toContain("아침 산책");
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
@@ -218,7 +219,7 @@ describe("App", () => {
     await setInputValue("Password", "secret123");
     await submitForm();
 
-    await waitForText("API data");
+    await waitForText("Account data");
 
     expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/login")).toBe(
       true,
@@ -250,7 +251,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("로컬 체험");
+    await waitForText("체험 모드");
     await clickButton("로그인");
     await waitForText("개인 목표를 계정별로 저장합니다.");
     await setInputValue("이메일", "person@example.com");
@@ -304,7 +305,7 @@ describe("App", () => {
 
       renderApp(<App />);
 
-      await waitForText("로컬 체험");
+      await waitForText("체험 모드");
       await clickButton("로그인");
       await waitForText("개인 목표를 계정별로 저장합니다.");
       await clickButton("회원가입 tab");
@@ -344,7 +345,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("로컬 체험");
+    await waitForText("체험 모드");
     await clickButton("로그인");
     await waitForText("개인 목표를 계정별로 저장합니다.");
     await clickButton("회원가입 tab");
@@ -393,7 +394,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(hasFetchedJsonBody<{ token: string }>(
       fetchMock,
@@ -459,7 +460,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("로컬 체험");
+    await waitForText("체험 모드");
     await clickButton("로그인");
     await waitForText("개인 목표를 계정별로 저장합니다.");
     await clickButton("비밀번호 재설정");
@@ -511,7 +512,7 @@ describe("App", () => {
     await setInputValue("비밀번호", "new-secret123");
     await submitForm();
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(hasFetchedJsonBody<{ token: string; password: string }>(
       fetchMock,
@@ -547,7 +548,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     await setInputValue("현재 비밀번호", "old-secret123");
     await setInputValue("새 비밀번호", "new-secret123");
     await submitForm();
@@ -580,7 +581,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     await setInputValue("현재 비밀번호", "wrong-secret123");
     await setInputValue("새 비밀번호", "new-secret123");
     await submitForm();
@@ -605,7 +606,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     await clickButton("다른 기기 로그아웃");
 
     await waitForText("다른 기기에서 로그아웃했습니다.");
@@ -614,7 +615,7 @@ describe("App", () => {
       fetchMock,
       (path) => path === "/api/auth/logout/others",
     )).toBe(true);
-    expect(document.body.textContent).toContain("API 데이터");
+    expect(document.body.textContent).toContain("계정 데이터");
   });
 
   it("retries the current month after falling back to sample data", async () => {
@@ -640,7 +641,7 @@ describe("App", () => {
     const failedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
     expect(document.body.textContent).toContain(
-      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+      "데이터를 불러오지 못해 샘플 데이터를 표시합니다.",
     );
     expect(getButton("목표 이월").disabled).toBe(true);
     expect(getButton("목표 추가").disabled).toBe(true);
@@ -651,19 +652,19 @@ describe("App", () => {
 
     expect(document.body.textContent).toContain("불러오는 중");
     expect(document.body.textContent).not.toContain(
-      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+      "데이터를 불러오지 못해 샘플 데이터를 표시합니다.",
     );
     expect(queryButton("다시 시도")).toBeNull();
 
     await resolvePending(resolveRetryLoad);
 
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(monthFromRequest(fetchMock.mock.calls[1][0])).toBe(failedMonth);
     expect(document.body.textContent).toContain("API walk");
     expect(document.body.textContent).not.toContain(
-      "API 응답을 받지 못해 샘플 데이터를 표시합니다.",
+      "데이터를 불러오지 못해 샘플 데이터를 표시합니다.",
     );
   });
 
@@ -671,7 +672,7 @@ describe("App", () => {
     stubFetch(createMonthViewApiHandler({ goalCount: 0 }));
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(tableHeaders()).toEqual([
       "날짜",
@@ -690,7 +691,7 @@ describe("App", () => {
     stubFetch(createMonthViewApiHandler({ goalCount: 6 }));
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(tableHeaders()).toEqual([
       "날짜",
@@ -726,7 +727,7 @@ describe("App", () => {
     });
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(tableHeaders()).toEqual([
       "날짜",
@@ -746,7 +747,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     const initialMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
@@ -763,7 +764,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     await clickButton("목표 이월");
 
@@ -778,7 +779,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     await clickButton("목표 이월");
     await waitForText("목표를 이월했습니다.");
@@ -810,7 +811,7 @@ describe("App", () => {
     });
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     await setInputValue("05.01 메모", "saving memo");
     await blurInput("05.01 메모");
@@ -853,7 +854,7 @@ describe("App", () => {
     });
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     await clickButton("목표 추가");
     await setInputValue("새 목표 제목", "API plan");
@@ -907,7 +908,7 @@ describe("App", () => {
     });
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
     await clickButton("API walk 종료");
@@ -934,7 +935,7 @@ describe("App", () => {
     );
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
 
     expect(queryButton("API walk 종료")).toBeNull();
@@ -957,7 +958,7 @@ describe("App", () => {
     );
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     expect(precedes(getHeading("목표"), getHeading("일별 완료 개수"))).toBe(
       true,
@@ -992,7 +993,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createMonthViewApiHandler({ goalCount: 5 }));
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     await clickButton("목표 추가");
     await setInputValue("새 목표 제목", "API overflow");
@@ -1009,7 +1010,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createMonthViewApiHandler());
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
 
     await clickButton("API walk 수정");
     await setInputValue("API walk 제목 수정", "   ");
@@ -1026,7 +1027,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createWorkflowApiHandler());
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
     const secondDay = `${loadedMonth}-02`;
 
@@ -1089,7 +1090,7 @@ describe("App", () => {
     const fetchMock = stubFetch(createFailingWorkflowApiHandler());
 
     renderApp(<App />);
-    await waitForText("API 데이터");
+    await waitForText("계정 데이터");
     const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
     const secondDay = `${loadedMonth}-02`;
     const secondDayReadButton = `${shortDate(secondDay)} API read 완료`;

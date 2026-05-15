@@ -5,9 +5,9 @@ export type StatusLabels = Record<LoadStatus, string>;
 
 const defaultStatusLabels: StatusLabels = {
   loading: "불러오는 중",
-  api: "API 데이터",
+  api: "계정 데이터",
   fallback: "샘플 데이터",
-  local: "로컬 체험",
+  local: "둘러보기",
 };
 
 export function formatMonth(month: string, locale = "ko") {

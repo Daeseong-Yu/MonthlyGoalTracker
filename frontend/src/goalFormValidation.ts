@@ -36,7 +36,7 @@ export type GoalValidationMessages = {
 };
 
 const defaultMessages: GoalValidationMessages = {
-  addUnavailable: "API 데이터에서만 목표를 추가할 수 있습니다.",
+  addUnavailable: "계정 데이터에서만 목표를 추가할 수 있습니다.",
   busy: "다른 저장 작업이 끝난 뒤 다시 시도해 주세요.",
   titleRequired: "목표 제목을 입력해 주세요.",
   startDateInMonth: "시작일은 선택한 월 안에서 골라 주세요.",

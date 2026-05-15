@@ -36,7 +36,7 @@ describe("goal form validation", () => {
     });
   });
 
-  it("rejects new goals when API data cannot be saved", () => {
+  it("rejects new goals when account data cannot be saved", () => {
     const result = validateNewGoalDraft({
       canSaveChanges: false,
       goals: [],
@@ -48,7 +48,7 @@ describe("goal form validation", () => {
 
     expect(result).toEqual({
       ok: false,
-      message: "API 데이터에서만 목표를 추가할 수 있습니다.",
+      message: "계정 데이터에서만 목표를 추가할 수 있습니다.",
     });
   });
 
@@ -92,11 +92,11 @@ describe("goal form validation", () => {
         canSaveChanges: false,
         isMutatingMonth: false,
         title: "Read",
-        unavailableMessage: "API 데이터에서만 목표를 수정할 수 있습니다.",
+        unavailableMessage: "계정 데이터에서만 목표를 수정할 수 있습니다.",
       }),
     ).toEqual({
       ok: false,
-      message: "API 데이터에서만 목표를 수정할 수 있습니다.",
+      message: "계정 데이터에서만 목표를 수정할 수 있습니다.",
     });
 
     expect(
@@ -104,7 +104,7 @@ describe("goal form validation", () => {
         canSaveChanges: true,
         isMutatingMonth: false,
         title: "  ",
-        unavailableMessage: "API 데이터에서만 목표를 수정할 수 있습니다.",
+        unavailableMessage: "계정 데이터에서만 목표를 수정할 수 있습니다.",
       }),
     ).toEqual({
       ok: false,
