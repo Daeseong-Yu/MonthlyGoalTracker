@@ -26,6 +26,7 @@ import {
   currentDate,
   currentMonth,
   deactivationDateForGoal,
+  isDateCheckable,
   isGoalActiveOnDate,
   monthEndDate,
   monthStartDate,
@@ -34,6 +35,7 @@ import {
 import type { Goal, MonthView } from "./types";
 
 export type MonthControllerMode = "server" | "preview";
+type SaveFeedbackScope = "global" | "goal";
 
 type UseMonthControllerOptions = {
   mode?: MonthControllerMode;
@@ -56,6 +58,8 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveFeedbackScope, setSaveFeedbackScope] =
+    useState<SaveFeedbackScope | null>(null);
   const [savingChecks, setSavingChecks] = useState<string[]>([]);
   const [savingMemos, setSavingMemos] = useState<string[]>([]);
   const [goalFormOpen, setGoalFormOpen] = useState(false);
@@ -148,7 +152,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       clearSaveFeedback();
       setGoalFormOpen(false);
       cancelEditingGoal();
-      setSaveMessage(controllerMessages.previewSaveNotice);
+      setSaveSuccess(controllerMessages.previewSaveNotice);
       return;
     }
 
@@ -168,7 +172,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       const preparedView = await ensureMonth(submittedMonth);
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setMonthView(preparedView);
-        setSaveMessage(controllerMessages.prepareSuccess);
+        setSaveSuccess(controllerMessages.prepareSuccess);
       }
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -184,7 +188,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
 
   async function toggleCheck(goalId: number, date: string) {
     const goal = goals.find((item) => item.id === goalId);
-    if (!goal || !isGoalActiveOnDate(goal, date)) {
+    if (!goal || !isGoalActiveOnDate(goal, date) || !isDateCheckable(date)) {
       return;
     }
 
@@ -209,7 +213,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       setMonthView((currentView) =>
         applyCheckState(currentView, goalId, date, completed),
       );
-      setSaveMessage(controllerMessages.previewSaveNotice);
+      setSaveSuccess(controllerMessages.previewSaveNotice);
       return;
     }
 
@@ -249,7 +253,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
 
     if (isPreviewMode) {
       clearSaveFeedback();
-      setSaveMessage(controllerMessages.previewSaveNotice);
+      setSaveSuccess(controllerMessages.previewSaveNotice);
       return;
     }
 
@@ -290,7 +294,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       messages: validationMessages,
     });
     if (!validation.ok) {
-      setSaveFailure(validation.message);
+      setSaveFailure(validation.message, "goal");
       return;
     }
 
@@ -309,7 +313,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       setNewGoalTitle("");
       setNewGoalStartDate(monthStartDate(submittedMonth));
       setGoalFormOpen(false);
-      setSaveMessage(controllerMessages.previewSaveNotice);
+      setSaveSuccess(controllerMessages.previewSaveNotice, "goal");
       return;
     }
 
@@ -323,7 +327,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       );
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure(controllerMessages.createFailure);
+        setSaveFailure(controllerMessages.createFailure, "goal");
         setSavingGoal(false);
       }
       return;
@@ -340,6 +344,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       submittedMonth,
       submittedLoadRequestID,
       controllerMessages.createRefreshFailure,
+      "goal",
     );
     if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
       setSavingGoal(false);
@@ -348,7 +353,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
 
   function startEditingGoal(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveFailure(controllerMessages.editUnavailable);
+      setSaveFailure(controllerMessages.editUnavailable, "goal");
       return;
     }
 
@@ -379,7 +384,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       messages: validationMessages,
     });
     if (!validation.ok) {
-      setSaveFailure(validation.message);
+      setSaveFailure(validation.message, "goal");
       return;
     }
 
@@ -389,7 +394,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
         applyGoalTitleState(currentView, goalID, validation.trimmedTitle),
       );
       cancelEditingGoal();
-      setSaveMessage(controllerMessages.previewSaveNotice);
+      setSaveSuccess(controllerMessages.previewSaveNotice, "goal");
       return;
     }
 
@@ -400,7 +405,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       await updateGoalTitle(goalID, validation.trimmedTitle);
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure(controllerMessages.editFailure);
+        setSaveFailure(controllerMessages.editFailure, "goal");
         setSavingGoalTitle(false);
       }
       return;
@@ -419,6 +424,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       submittedMonth,
       submittedLoadRequestID,
       controllerMessages.editRefreshFailure,
+      "goal",
     );
     if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
       setSavingGoalTitle(false);
@@ -427,7 +433,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
 
   async function deactivateGoalFromMonth(goal: Goal) {
     if (!canSaveChanges) {
-      setSaveFailure(controllerMessages.deactivateUnavailable);
+      setSaveFailure(controllerMessages.deactivateUnavailable, "goal");
       return;
     }
 
@@ -435,7 +441,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     const submittedLoadRequestID = loadRequestIDRef.current;
     const endDate = deactivationDateForGoal(goal, submittedMonth);
     if (goal.endDate !== null && goal.endDate <= goalListReferenceDate) {
-      setSaveFailure(controllerMessages.alreadyEnded);
+      setSaveFailure(controllerMessages.alreadyEnded, "goal");
       return;
     }
 
@@ -448,7 +454,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       if (replacementStartDate <= monthEndDate(submittedMonth)) {
         setNewGoalStartDate(replacementStartDate);
       }
-      setSaveMessage(controllerMessages.previewSaveNotice);
+      setSaveSuccess(controllerMessages.previewSaveNotice, "goal");
       return;
     }
 
@@ -463,7 +469,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
         await deactivateGoal(goal.id, endDate);
       } catch {
         if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-          setSaveFailure(controllerMessages.deactivateFailure);
+          setSaveFailure(controllerMessages.deactivateFailure, "goal");
         }
         return;
       }
@@ -483,12 +489,13 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
         submittedMonth,
         submittedLoadRequestID,
         controllerMessages.deactivateRefreshFailure,
+        "goal",
       );
       if (
         refreshed &&
         isCurrentSaveContext(submittedMonth, submittedLoadRequestID)
       ) {
-        setSaveMessage(controllerMessages.deactivateSuccess);
+        setSaveSuccess(controllerMessages.deactivateSuccess, "goal");
       }
     } finally {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -540,6 +547,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     submittedMonth: string,
     submittedLoadRequestID: number,
     failureMessage: string,
+    failureScope: SaveFeedbackScope = "global",
   ) {
     if (isPreviewMode) {
       return true;
@@ -555,7 +563,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return true;
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setSaveFailure(failureMessage);
+        setSaveFailure(failureMessage, failureScope);
       }
       return false;
     }
@@ -564,6 +572,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   function clearSaveFeedback() {
     setSaveError(null);
     setSaveMessage(null);
+    setSaveFeedbackScope(null);
   }
 
   function isCurrentSaveContext(
@@ -576,9 +585,16 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     );
   }
 
-  function setSaveFailure(message: string) {
+  function setSaveFailure(message: string, scope: SaveFeedbackScope = "global") {
     setSaveError(message);
     setSaveMessage(null);
+    setSaveFeedbackScope(scope);
+  }
+
+  function setSaveSuccess(message: string, scope: SaveFeedbackScope = "global") {
+    setSaveError(null);
+    setSaveMessage(message);
+    setSaveFeedbackScope(scope);
   }
 
   return {
@@ -587,6 +603,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     averageRate,
     canSaveChanges,
     chartData,
+    checkableThroughDate: currentDayKey,
     checks,
     dailyRecordGoalSlots,
     days,
@@ -607,6 +624,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     newGoalTitle,
     prepareCurrentMonth,
     saveError,
+    saveFeedbackScope,
     saveMemoForDate,
     saveMessage,
     savingChecks,

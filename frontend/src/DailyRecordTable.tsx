@@ -23,6 +23,7 @@ import type {
 type DailyRecordTableProps = {
   canSaveChanges: boolean;
   chartData: ChartPointWithLabel[];
+  checkableThroughDate: string;
   checks: GoalCheck[];
   dailyRecordGoalSlots: Goal[][];
   days: DayEntry[];
@@ -57,6 +58,7 @@ const defaultLabels: DailyRecordLabels = {
 export default function DailyRecordTable({
   canSaveChanges,
   chartData,
+  checkableThroughDate,
   checks,
   dailyRecordGoalSlots,
   days,
@@ -154,6 +156,8 @@ export default function DailyRecordTable({
                     }
 
                     const active = isGoalActiveOnDate(goal, day.date);
+                    const checkable =
+                      active && day.date <= checkableThroughDate;
                     const checked =
                       active &&
                       checks.some(
@@ -173,7 +177,7 @@ export default function DailyRecordTable({
                       >
                         <button
                           className={
-                            active
+                            checkable
                               ? checked
                                 ? "check-button checked"
                                 : "check-button"
@@ -186,7 +190,10 @@ export default function DailyRecordTable({
                           )}
                           aria-pressed={checked}
                           disabled={
-                            !active || !canSaveChanges || saving || isMutatingMonth
+                            !checkable ||
+                            !canSaveChanges ||
+                            saving ||
+                            isMutatingMonth
                           }
                           title={goal.title}
                           onClick={() => onToggleCheck(goal.id, day.date)}

@@ -50,9 +50,7 @@ describe("useMonthController", () => {
     await clickButton("첫 메모 변경");
     await waitForText("preview memo");
     await clickButton("첫 메모 저장");
-    await waitForText(
-      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
-    );
+    await waitForText("저장하려면 로그인해 주세요.");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await setInputValue("새 목표 제목", "Preview goal");
@@ -71,9 +69,7 @@ describe("useMonthController", () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("첫 목표 종료");
-    await waitForText(
-      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
-    );
+    await waitForText("저장하려면 로그인해 주세요.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

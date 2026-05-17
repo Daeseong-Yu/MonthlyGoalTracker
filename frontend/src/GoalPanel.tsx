@@ -1,4 +1,12 @@
-import { Ban, Check, LoaderCircle, Pencil, Plus, X } from "lucide-react";
+import {
+  Ban,
+  Check,
+  CheckCircle2,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  X,
+} from "lucide-react";
 import type { FormEvent } from "react";
 
 import { formatGoalPeriod, shortDate } from "./appDisplay";
@@ -21,6 +29,8 @@ type GoalPanelProps = {
   month: string;
   newGoalStartDate: string;
   newGoalTitle: string;
+  saveError?: string | null;
+  saveMessage?: string | null;
   savingGoal: boolean;
   savingGoalTitle: boolean;
   visibleGoals: Goal[];
@@ -46,6 +56,7 @@ type GoalPanelLabels = {
   newGoalStartDateAria: string;
   saveGoal: string;
   savingGoal: string;
+  endedStatus: string;
   noActiveGoals: string;
   periodContinues: string;
   editTitleAria: (title: string) => string;
@@ -73,6 +84,7 @@ const defaultLabels: GoalPanelLabels = {
   newGoalStartDateAria: "새 목표 시작일",
   saveGoal: "목표 저장",
   savingGoal: "목표 저장 중",
+  endedStatus: "종료됨",
   noActiveGoals: "진행 중인 목표가 없습니다.",
   periodContinues: "계속",
   editTitleAria: (title) => `${title} 제목 수정`,
@@ -104,6 +116,8 @@ export default function GoalPanel({
   month,
   newGoalStartDate,
   newGoalTitle,
+  saveError = null,
+  saveMessage = null,
   savingGoal,
   savingGoalTitle,
   visibleGoals,
@@ -117,6 +131,16 @@ export default function GoalPanel({
   onSubmitNewGoal,
   onToggleGoalForm,
 }: GoalPanelProps) {
+  const feedback = saveError ? (
+    <p className="text-xs font-medium text-rose-700" role="alert">
+      {saveError}
+    </p>
+  ) : saveMessage ? (
+    <p className="text-xs font-medium text-teal-700" role="status">
+      {saveMessage}
+    </p>
+  ) : null;
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -159,7 +183,7 @@ export default function GoalPanel({
               onChange={(event) => onNewGoalStartDateChange(event.target.value)}
             />
             <button
-              className="icon-button"
+              className="inline-flex h-9 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 rounded-md border border-teal-600 bg-teal-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
               type="submit"
               aria-label={savingGoal ? labels.savingGoal : labels.saveGoal}
               title={savingGoal ? labels.savingGoal : labels.saveGoal}
@@ -172,12 +196,15 @@ export default function GoalPanel({
                   size={18}
                 />
               ) : (
-                <Plus size={18} />
+                <Plus aria-hidden="true" size={16} />
               )}
+              <span>{savingGoal ? labels.savingGoal : labels.saveGoal}</span>
             </button>
           </div>
+          {feedback}
         </form>
       ) : null}
+      {!goalFormOpen && feedback ? <div className="mb-4">{feedback}</div> : null}
       <div className="space-y-3">
         {visibleGoals.length === 0 ? (
           <p className="rounded-md border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm font-medium text-zinc-500">
@@ -254,9 +281,16 @@ export default function GoalPanel({
                     <p className="truncate text-sm font-semibold text-zinc-950">
                       {goal.title}
                     </p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {formatGoalPeriod(goal, labels.periodContinues)}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <p className="text-xs text-zinc-500">
+                        {formatGoalPeriod(goal, labels.periodContinues)}
+                      </p>
+                      {alreadyDeactivated ? (
+                        <span className="rounded-md border border-zinc-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-zinc-600">
+                          {labels.endedStatus}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <button
@@ -286,7 +320,12 @@ export default function GoalPanel({
                           ? labels.alreadyDeactivatedTitle
                           : labels.deactivateTitle(shortDate(deactivationDate))
                       }
-                      disabled={!canSaveChanges || isMutatingMonth || deactivating}
+                      disabled={
+                        !canSaveChanges ||
+                        isMutatingMonth ||
+                        deactivating ||
+                        alreadyDeactivated
+                      }
                       onClick={() => onDeactivateGoal(goal)}
                     >
                       {deactivating ? (
@@ -295,6 +334,8 @@ export default function GoalPanel({
                           className="animate-spin"
                           size={15}
                         />
+                      ) : alreadyDeactivated ? (
+                        <CheckCircle2 size={15} />
                       ) : (
                         <Ban size={15} />
                       )}

@@ -566,8 +566,6 @@ function AuthScreen({
               </button>
             ) : null}
           </form>
-
-          <p className="text-xs text-zinc-500">{authMessages.languageHint}</p>
         </div>
       </section>
     </div>
@@ -705,27 +703,29 @@ function Dashboard({
   return (
     <main className="min-h-screen bg-[#f7f8f5] text-zinc-900">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
+        <header className="grid gap-3 border-b border-zinc-200 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-x-6">
+          <div className="min-w-0 xl:row-span-2">
             <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
               {messages.app.title}
             </h1>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-              <span>
-                {messages.app.monthRecord(
-                  formatMonth(monthController.month, locale),
-                )}
-              </span>
-              <span
-                aria-live="polite"
-                className={statusClassName(monthController.loadStatus)}
-                role="status"
-              >
-                {statusLabel(monthController.loadStatus, messages.status)}
-              </span>
+              {!previewMode ? (
+                <span
+                  aria-live="polite"
+                  className={statusClassName(monthController.loadStatus)}
+                  role="status"
+                >
+                  {statusLabel(monthController.loadStatus, messages.status)}
+                </span>
+              ) : null}
               {previewMode ? (
                 <span className="rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
                   {messages.app.previewMode}
+                </span>
+              ) : null}
+              {previewMode ? (
+                <span className="text-xs font-medium text-zinc-600">
+                  {messages.app.previewNotice}
                 </span>
               ) : null}
             </p>
@@ -748,37 +748,27 @@ function Dashboard({
                 </button>
               </div>
             ) : null}
-            {monthController.saveError ? (
+            {monthController.saveError &&
+            monthController.saveFeedbackScope !== "goal" ? (
               <p className="mt-2 text-xs font-medium text-rose-700" role="alert">
                 {monthController.saveError}
               </p>
             ) : null}
-            {monthController.saveMessage ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <p className="text-xs font-medium text-teal-700" role="status">
-                  {monthController.saveMessage}
-                </p>
-                {previewMode ? (
-                  <button
-                    className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 shadow-sm transition hover:bg-teal-50"
-                    type="button"
-                    aria-label={messages.app.previewSaveLogin}
-                    onClick={onOpenAuth}
-                  >
-                    <LogIn size={14} />
-                    {messages.app.previewSaveLogin}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            {previewMode ? (
-              <p className="mt-2 text-xs font-medium text-zinc-600" role="status">
-                {messages.app.previewNotice}
+            {monthController.saveMessage &&
+            monthController.saveFeedbackScope !== "goal" ? (
+              <p className="mt-2 text-xs font-medium text-teal-700" role="status">
+                {monthController.saveMessage}
               </p>
             ) : null}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium text-zinc-600 xl:text-right">
+            {messages.app.monthRecord(
+              formatMonth(monthController.month, locale),
+            )}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <button
               className="icon-button"
               type="button"
@@ -791,10 +781,10 @@ function Dashboard({
             >
               <ChevronLeft size={18} />
             </button>
-            <label className="flex h-10 items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium shadow-sm">
+            <label className="flex h-10 w-48 shrink-0 items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium shadow-sm">
               <CalendarDays size={17} className="text-teal-700" />
               <input
-                className="w-[8.5rem] bg-transparent text-sm outline-none"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="month"
                 aria-label={messages.app.monthInput}
                 value={monthController.month}
@@ -857,7 +847,7 @@ function Dashboard({
               </>
             ) : (
               <button
-                className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+                className="inline-flex h-10 w-24 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
                 type="button"
                 aria-label={messages.app.login}
                 onClick={onOpenAuth}
@@ -881,6 +871,7 @@ function Dashboard({
           <DailyRecordTable
             canSaveChanges={monthController.canSaveChanges}
             chartData={monthController.chartData}
+            checkableThroughDate={monthController.checkableThroughDate}
             checks={monthController.checks}
             dailyRecordGoalSlots={monthController.dailyRecordGoalSlots}
             days={monthController.days}
@@ -911,6 +902,16 @@ function Dashboard({
               month={monthController.month}
               newGoalStartDate={monthController.newGoalStartDate}
               newGoalTitle={monthController.newGoalTitle}
+              saveError={
+                monthController.saveFeedbackScope === "goal"
+                  ? monthController.saveError
+                  : null
+              }
+              saveMessage={
+                monthController.saveFeedbackScope === "goal"
+                  ? monthController.saveMessage
+                  : null
+              }
               savingGoal={monthController.savingGoal}
               savingGoalTitle={monthController.savingGoalTitle}
               visibleGoals={monthController.visibleGoals}
@@ -1114,19 +1115,21 @@ function LanguageToggle({
   locale: AppLocale;
   onChange: (locale: AppLocale) => void;
 }) {
-  const koreanLabel = locale === "en" ? "Korean" : "한국어";
-  const englishLabel = "English";
+  const koreanLabel = compact ? "KO" : locale === "en" ? "Korean" : "한국어";
+  const englishLabel = compact ? "EN" : "English";
 
   return (
     <div
       className={`inline-flex shrink-0 items-center ${
-        compact ? "h-10 rounded-md border border-zinc-300 bg-white px-1.5" : ""
+        compact
+          ? "h-10 w-[7.25rem] rounded-md border border-zinc-300 bg-white px-1.5"
+          : ""
       }`}
       aria-label={label}
     >
-      <div className="inline-flex rounded-md border border-zinc-200 bg-zinc-50 p-0.5">
+      <div className="inline-flex w-full rounded-md border border-zinc-200 bg-zinc-50 p-0.5">
         <button
-          className={languageButtonClassName(locale === "ko")}
+          className={languageButtonClassName(locale === "ko", compact)}
           type="button"
           aria-label={`${label} ${koreanLabel}`}
           aria-pressed={locale === "ko"}
@@ -1135,7 +1138,7 @@ function LanguageToggle({
           {koreanLabel}
         </button>
         <button
-          className={languageButtonClassName(locale === "en")}
+          className={languageButtonClassName(locale === "en", compact)}
           type="button"
           aria-label={`${label} ${englishLabel}`}
           aria-pressed={locale === "en"}
@@ -1156,12 +1159,13 @@ function authModeClassName(active: boolean) {
     : `${base} text-zinc-600 hover:text-zinc-950`;
 }
 
-function languageButtonClassName(active: boolean) {
+function languageButtonClassName(active: boolean, compact: boolean) {
   const base =
-    "h-8 min-w-[4rem] whitespace-nowrap rounded px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+    "h-8 whitespace-nowrap rounded px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+  const width = compact ? "w-12" : "min-w-[4rem]";
   return active
-    ? `${base} bg-white text-teal-800 shadow-sm`
-    : `${base} text-zinc-600 hover:text-zinc-950`;
+    ? `${base} ${width} bg-white text-teal-800 shadow-sm`
+    : `${base} ${width} text-zinc-600 hover:text-zinc-950`;
 }
 
 function readStoredLocale(): AppLocale | null {

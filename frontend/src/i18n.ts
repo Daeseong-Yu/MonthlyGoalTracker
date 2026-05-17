@@ -55,7 +55,6 @@ export type AppMessages = {
     signupInvalidLocale: string;
     signupInvalidLegacyClaim: string;
     signupLegacyClaimRequired: string;
-    languageHint: string;
   };
   account: {
     heading: string;
@@ -91,6 +90,7 @@ export type AppMessages = {
     newGoalStartDateAria: string;
     saveGoal: string;
     savingGoal: string;
+    endedStatus: string;
     noActiveGoals: string;
     periodContinues: string;
     editTitleAria: (title: string) => string;
@@ -167,8 +167,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       prepareMonth: "목표 이월",
       login: "로그인",
       previewMode: "체험 모드",
-      previewNotice:
-        "둘러보기는 바로 가능하며, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
+      previewNotice: "저장하려면 로그인해야 합니다.",
       previewSaveLogin: "로그인하고 저장하기",
       signedInAs: (email) => `${email}로 로그인됨`,
       logout: "로그아웃",
@@ -178,7 +177,7 @@ export const messages: Record<AppLocale, AppMessages> = {
     },
     auth: {
       title: "월간 목표 트래커",
-      subtitle: "개인 목표를 계정별로 저장합니다.",
+      subtitle: "목표를 저장하려면 로그인해 주세요.",
       loginTab: "로그인",
       signupTab: "회원가입",
       emailLabel: "이메일",
@@ -198,10 +197,9 @@ export const messages: Record<AppLocale, AppMessages> = {
       loginFailed: "이메일 또는 비밀번호를 확인해 주세요.",
       loginEmailNotVerified: "이메일 인증 후 로그인해 주세요.",
       signupFailed: "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
-      signupAccepted: "가입 요청을 받았습니다. 인증 메일을 확인해 주세요.",
+      signupAccepted: "인증 메일을 확인해 주세요.",
       emailVerificationFailed: "인증 링크가 만료되었거나 올바르지 않습니다.",
-      passwordResetRequested:
-        "비밀번호 재설정 메일을 보냈습니다. 받은 편지함을 확인해 주세요.",
+      passwordResetRequested: "재설정 메일을 확인해 주세요.",
       passwordResetRequestFailed:
         "재설정 요청에 실패했습니다. 이메일을 확인해 주세요.",
       resetPasswordFailed:
@@ -214,7 +212,6 @@ export const messages: Record<AppLocale, AppMessages> = {
       signupInvalidLocale: "지원하지 않는 언어입니다.",
       signupInvalidLegacyClaim: "기존 데이터 이전 토큰을 확인해 주세요.",
       signupLegacyClaimRequired: "기존 데이터가 있어 이전 토큰이 필요합니다.",
-      languageHint: "접속 지역을 기준으로 언어를 먼저 제안합니다.",
     },
     account: {
       heading: "계정 보안",
@@ -255,6 +252,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       newGoalStartDateAria: "새 목표 시작일",
       saveGoal: "목표 저장",
       savingGoal: "목표 저장 중",
+      endedStatus: "종료됨",
       noActiveGoals: "진행 중인 목표가 없습니다.",
       periodContinues: "계속",
       editTitleAria: (title) => `${title} 제목 수정`,
@@ -307,8 +305,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       deactivateFailure: "목표 종료에 실패했습니다.",
       deactivateRefreshFailure: "목표를 종료했지만 화면 갱신에 실패했습니다.",
       deactivateSuccess: "목표를 종료했습니다.",
-      previewSaveNotice:
-        "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
+      previewSaveNotice: "저장하려면 로그인해 주세요.",
     },
     validation: {
       addUnavailable: "계정 데이터에서만 목표를 추가할 수 있습니다.",
@@ -331,7 +328,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       prepareMonth: "Carry goals forward",
       login: "Log in",
       previewMode: "Guest mode",
-      previewNotice: "Explore now. Log in to save changes and use personal features.",
+      previewNotice: "Log in to save.",
       previewSaveLogin: "Log in to save",
       signedInAs: (email) => `Signed in as ${email}`,
       logout: "Log out",
@@ -341,7 +338,7 @@ export const messages: Record<AppLocale, AppMessages> = {
     },
     auth: {
       title: "Monthly Goal Tracker",
-      subtitle: "Save personal goals under your own account.",
+      subtitle: "Log in to save your goals.",
       loginTab: "Log in",
       signupTab: "Sign up",
       emailLabel: "Email",
@@ -361,9 +358,9 @@ export const messages: Record<AppLocale, AppMessages> = {
       loginFailed: "Check your email or password.",
       loginEmailNotVerified: "Verify your email before logging in.",
       signupFailed: "Sign-up failed. Check your email or password.",
-      signupAccepted: "Sign-up request received. Check your email to verify the account.",
+      signupAccepted: "Check your email to verify the account.",
       emailVerificationFailed: "This verification link is invalid or expired.",
-      passwordResetRequested: "Password reset email sent. Check your inbox.",
+      passwordResetRequested: "Check your email for the reset link.",
       passwordResetRequestFailed:
         "Password reset request failed. Check the email address.",
       resetPasswordFailed:
@@ -375,7 +372,6 @@ export const messages: Record<AppLocale, AppMessages> = {
       signupInvalidLocale: "This language is not supported.",
       signupInvalidLegacyClaim: "Check the existing data claim token.",
       signupLegacyClaimRequired: "Existing data needs a claim token.",
-      languageHint: "Language is suggested from your connection region first.",
     },
     account: {
       heading: "Account security",
@@ -417,6 +413,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       newGoalStartDateAria: "New goal start date",
       saveGoal: "Save goal",
       savingGoal: "Saving goal",
+      endedStatus: "Ended",
       noActiveGoals: "No active goals.",
       periodContinues: "Ongoing",
       editTitleAria: (title) => `Edit ${title} title`,
@@ -469,8 +466,7 @@ export const messages: Record<AppLocale, AppMessages> = {
       deactivateFailure: "Could not end the goal.",
       deactivateRefreshFailure: "The goal was ended, but the screen could not refresh.",
       deactivateSuccess: "Goal ended.",
-      previewSaveNotice:
-        "Log in to save. Current changes only stay in this browser session.",
+      previewSaveNotice: "Log in to save.",
     },
     validation: {
       addUnavailable: "Goals can only be added to account data.",

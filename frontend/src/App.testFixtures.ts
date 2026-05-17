@@ -243,6 +243,12 @@ export function monthFromGoalCreatePath(path: string) {
   return decodeURIComponent(match[1]);
 }
 
+export function goalIDFromUpdatePath(path: string) {
+  const match = /^\/api\/goals\/(\d+)$/.exec(path);
+
+  return match === null ? null : Number(match[1]);
+}
+
 export function shortFirstDayLabel(month: string) {
   return `${month.slice(5)}.01`;
 }
@@ -345,9 +351,10 @@ export function createWorkflowApiHandler(): AppFetchHandler {
       return okResponse();
     }
 
-    if (path === "/api/goals/1") {
+    const goalID = goalIDFromUpdatePath(path);
+    if (goalID !== null) {
       const body = requestBody<{ title: string }>(init);
-      view = updateGoalInView(requiredView(view), 1, body.title);
+      view = updateGoalInView(requiredView(view), goalID, body.title);
       return okResponse();
     }
 
@@ -402,7 +409,7 @@ export function createFailingWorkflowApiHandler(
 function isWorkflowWritePath(path: string) {
   return (
     path.endsWith("/goals") ||
-    path === "/api/goals/1" ||
+    goalIDFromUpdatePath(path) !== null ||
     path === "/api/checks" ||
     path.includes("/api/memos/")
   );
