@@ -18,6 +18,14 @@ export type AppMessages = {
     signedInAs: (email: string) => string;
     logout: string;
     languageLabel: string;
+    navDashboard: string;
+    navGoals: string;
+    navRecords: string;
+    navAccount: string;
+    themeLabel: string;
+    themeSystem: string;
+    themeLight: string;
+    themeDark: string;
     bootstrapLoading: string;
     bootstrapError: string;
   };
@@ -172,6 +180,14 @@ export const messages: Record<AppLocale, AppMessages> = {
       signedInAs: (email) => `${email}로 로그인됨`,
       logout: "로그아웃",
       languageLabel: "언어",
+      navDashboard: "대시보드",
+      navGoals: "목표",
+      navRecords: "기록",
+      navAccount: "계정",
+      themeLabel: "화면 모드",
+      themeSystem: "시스템",
+      themeLight: "라이트",
+      themeDark: "다크",
       bootstrapLoading: "로그인 상태를 확인하는 중",
       bootstrapError: "로그인 상태를 확인하지 못했습니다.",
     },
@@ -333,6 +349,14 @@ export const messages: Record<AppLocale, AppMessages> = {
       signedInAs: (email) => `Signed in as ${email}`,
       logout: "Log out",
       languageLabel: "Language",
+      navDashboard: "Dashboard",
+      navGoals: "Goals",
+      navRecords: "Records",
+      navAccount: "Account",
+      themeLabel: "Theme",
+      themeSystem: "System",
+      themeLight: "Light",
+      themeDark: "Dark",
       bootstrapLoading: "Checking your session",
       bootstrapError: "Could not check your session.",
     },

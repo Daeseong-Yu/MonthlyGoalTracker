@@ -12,11 +12,17 @@ import {
   ChevronLeft,
   ChevronRight,
   KeyRound,
+  LayoutDashboard,
+  ListChecks,
   LogIn,
   LogOut,
   MailCheck,
+  Monitor,
+  Moon,
   RefreshCw,
   ShieldCheck,
+  Sun,
+  Target,
   UserPlus,
   X,
 } from "lucide-react";
@@ -43,10 +49,17 @@ import GoalPanel from "./GoalPanel";
 import { messagesForLocale, normalizeLocale, type AppMessages } from "./i18n";
 import MetricSummary from "./MetricSummary";
 import { useMonthController } from "./useMonthController";
-import type { AppLocale, AuthResponse, UserSession } from "./types";
+import type {
+  AppLocale,
+  AuthResponse,
+  ResolvedTheme,
+  ThemePreference,
+  UserSession,
+} from "./types";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 const localeStorageKey = "monthlyGoalTracker.locale";
+const themeStorageKey = "monthlyGoalTracker.theme";
 
 export default function App() {
   const [locale, setLocale] = useState<AppLocale>(
@@ -60,7 +73,32 @@ export default function App() {
     () => readPasswordResetToken(),
   );
   const [showAuthScreen, setShowAuthScreen] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(
+    () => readStoredThemePreference(),
+  );
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveThemePreference(readStoredThemePreference()),
+  );
   const messages = useMemo(() => messagesForLocale(locale), [locale]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const applyResolvedTheme = () =>
+      setResolvedTheme(resolveThemePreference(themePreference));
+
+    applyResolvedTheme();
+
+    if (themePreference !== "system" || !mediaQuery) {
+      return;
+    }
+
+    mediaQuery.addEventListener("change", applyResolvedTheme);
+    return () => mediaQuery.removeEventListener("change", applyResolvedTheme);
+  }, [themePreference]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme;
+  }, [resolvedTheme]);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,6 +211,11 @@ export default function App() {
     }
   }
 
+  function handleThemePreferenceChange(nextPreference: ThemePreference) {
+    setThemePreference(nextPreference);
+    storeThemePreference(nextPreference);
+  }
+
   function handleAuthenticated(response: AuthResponse) {
     const nextLocale = normalizeLocale(response.user.locale ?? response.locale);
     setLocale(nextLocale);
@@ -219,6 +262,8 @@ export default function App() {
         user={user}
         onAuthenticated={handleAuthenticated}
         onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+        themePreference={themePreference}
+        onThemePreferenceChange={handleThemePreferenceChange}
         onOpenAuth={() => setShowAuthScreen(true)}
         onLoggedOut={handleLoggedOut}
       />
@@ -246,9 +291,9 @@ export default function App() {
 
 function BootstrapScreen({ messages }: { messages: AppMessages }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f5] px-4 text-zinc-900">
+    <main className="app-root flex min-h-screen items-center justify-center px-4">
       <p
-        className="rounded-md border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-600 shadow-soft"
+        className="panel-card px-4 py-3 text-sm font-semibold"
         role="status"
       >
         {messages.app.bootstrapLoading}
@@ -396,11 +441,11 @@ function AuthScreen({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-zinc-950/35 px-4 py-8 text-zinc-900 sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 px-4 py-8 sm:items-center"
       onClick={handleBackdropClick}
     >
       <section
-        className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-zinc-200 bg-white p-5 shadow-soft"
+        className="panel-card panel-card-padded max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto"
         role="dialog"
         aria-modal="true"
         aria-labelledby="auth-dialog-title"
@@ -410,11 +455,11 @@ function AuthScreen({
             <div className="min-w-0">
               <h1
                 id="auth-dialog-title"
-                className="text-2xl font-semibold tracking-normal text-zinc-950"
+                className="text-2xl font-semibold tracking-normal" style={{ color: "var(--text-primary)" }}
               >
                 {authMessages.title}
               </h1>
-              <p className="mt-1 text-sm text-zinc-600">
+              <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
                 {authMessages.subtitle}
               </p>
             </div>
@@ -439,7 +484,7 @@ function AuthScreen({
 
           {mode === "login" || mode === "signup" ? (
             <div
-              className="grid grid-cols-2 gap-1 rounded-md border border-zinc-200 bg-zinc-50 p-1"
+              className="surface-muted grid grid-cols-2 gap-1 p-1"
               role="tablist"
             >
               <button
@@ -463,7 +508,7 @@ function AuthScreen({
             </div>
           ) : (
             <button
-              className="inline-flex h-9 w-fit items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
+              className="secondary-action h-9 w-fit px-3 text-sm"
               type="button"
               aria-label={authMessages.backToLoginButton}
               onClick={returnToLogin}
@@ -475,10 +520,10 @@ function AuthScreen({
 
           <form className="space-y-3" onSubmit={handleSubmit}>
             {mode !== "reset" ? (
-              <label className="block text-sm font-medium text-zinc-700">
+              <label className="block text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
                 <span>{authMessages.emailLabel}</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  className="field-control mt-1 h-10 w-full rounded-md px-3 text-sm"
                   type="email"
                   aria-label={authMessages.emailLabel}
                   autoComplete="email"
@@ -491,10 +536,10 @@ function AuthScreen({
               </label>
             ) : null}
             {mode !== "forgot" ? (
-              <label className="block text-sm font-medium text-zinc-700">
+              <label className="block text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
                 <span>{authMessages.passwordLabel}</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  className="field-control mt-1 h-10 w-full rounded-md px-3 text-sm"
                   type="password"
                   aria-label={authMessages.passwordLabel}
                   autoComplete={
@@ -509,10 +554,10 @@ function AuthScreen({
               </label>
             ) : null}
             {mode === "signup" ? (
-              <label className="block text-sm font-medium text-zinc-700">
+              <label className="block text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
                 <span>{authMessages.legacyClaimTokenLabel}</span>
                 <input
-                  className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  className="field-control mt-1 h-10 w-full rounded-md px-3 text-sm"
                   type="text"
                   aria-label={authMessages.legacyClaimTokenLabel}
                   autoComplete="off"
@@ -525,28 +570,28 @@ function AuthScreen({
             ) : null}
 
             {bootstrapError ? (
-              <p className="text-xs font-medium text-amber-700" role="status">
+              <p className="text-xs font-semibold feedback-warning" role="status">
                 {bootstrapError}
               </p>
             ) : null}
             {verificationError ? (
-              <p className="text-xs font-medium text-rose-700" role="alert">
+              <p className="text-xs font-semibold feedback-error" role="alert">
                 {verificationError}
               </p>
             ) : null}
             {status ? (
-              <p className="text-xs font-medium text-teal-700" role="status">
+              <p className="text-xs font-semibold feedback-success" role="status">
                 {status}
               </p>
             ) : null}
             {error ? (
-              <p className="text-xs font-medium text-rose-700" role="alert">
+              <p className="text-xs font-semibold feedback-error" role="alert">
                 {error}
               </p>
             ) : null}
 
             <button
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="primary-action h-10 w-full px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
               type="submit"
               aria-label={submitLabel}
               disabled={busy}
@@ -556,7 +601,7 @@ function AuthScreen({
             </button>
             {mode === "login" ? (
               <button
-                className="inline-flex h-9 items-center gap-2 text-sm font-semibold text-teal-700 transition hover:text-teal-900"
+                className="inline-flex h-9 items-center gap-2 text-sm font-semibold transition" style={{ color: "var(--accent-denim-strong)" }}
                 type="button"
                 aria-label={authMessages.forgotPasswordButton}
                 onClick={() => moveToMode("forgot")}
@@ -668,17 +713,21 @@ function authSubmitIcon(mode: AuthMode) {
 function Dashboard({
   locale,
   messages,
+  themePreference,
   user,
   onAuthenticated,
   onLocaleChange,
+  onThemePreferenceChange,
   onOpenAuth,
   onLoggedOut,
 }: {
   locale: AppLocale;
   messages: AppMessages;
+  themePreference: ThemePreference;
   user: UserSession | null;
   onAuthenticated: (response: AuthResponse) => void;
   onLocaleChange: (locale: AppLocale) => void;
+  onThemePreferenceChange: (preference: ThemePreference) => void;
   onOpenAuth: () => void;
   onLoggedOut: () => void;
 }) {
@@ -687,6 +736,9 @@ function Dashboard({
     messages,
     mode: previewMode ? "preview" : "server",
   });
+  const monthLabel = messages.app.monthRecord(
+    formatMonth(monthController.month, locale),
+  );
 
   async function handleLogout() {
     if (!user) {
@@ -701,115 +753,71 @@ function Dashboard({
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8f5] text-zinc-900">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="grid gap-3 border-b border-zinc-200 pb-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-x-6">
-          <div className="min-w-0 xl:row-span-2">
-            <h1 className="text-2xl font-semibold tracking-normal text-zinc-950">
-              {messages.app.title}
-            </h1>
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-              {!previewMode ? (
-                <span
-                  aria-live="polite"
-                  className={statusClassName(monthController.loadStatus)}
-                  role="status"
-                >
-                  {statusLabel(monthController.loadStatus, messages.status)}
-                </span>
-              ) : null}
-              {previewMode ? (
-                <span className="rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
-                  {messages.app.previewMode}
-                </span>
-              ) : null}
-              {previewMode ? (
-                <span className="text-xs font-medium text-zinc-600">
-                  {messages.app.previewNotice}
-                </span>
-              ) : null}
-            </p>
-            {monthController.loadError ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <p className="text-xs font-medium text-amber-700" role="status">
-                  {messages.app.fallbackNotice}
-                </p>
-                <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 text-xs font-semibold text-amber-800 shadow-sm transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  type="button"
-                  aria-label={messages.app.retry}
-                  disabled={monthController.isLoading}
-                  onClick={() =>
-                    void monthController.loadMonth(monthController.month)
-                  }
-                >
-                  <RefreshCw size={14} />
-                  {messages.app.retry}
-                </button>
-              </div>
-            ) : null}
-            {monthController.saveError &&
-            monthController.saveFeedbackScope !== "goal" ? (
-              <p className="mt-2 text-xs font-medium text-rose-700" role="alert">
-                {monthController.saveError}
-              </p>
-            ) : null}
-            {monthController.saveMessage &&
-            monthController.saveFeedbackScope !== "goal" ? (
-              <p className="mt-2 text-xs font-medium text-teal-700" role="status">
-                {monthController.saveMessage}
-              </p>
-            ) : null}
+    <main className="app-root" id="dashboard">
+      <div className="app-shell">
+        <aside className="app-sidebar" aria-label={messages.app.title}>
+          <div className="sidebar-brand">
+            <span className="sidebar-brand-icon" aria-hidden="true">
+              <Target size={22} />
+            </span>
+            <p className="sidebar-title">Monthly Goal Tracker</p>
           </div>
 
-          <p className="text-sm font-medium text-zinc-600 xl:text-right">
-            {messages.app.monthRecord(
-              formatMonth(monthController.month, locale),
-            )}
-          </p>
+          <div className="sidebar-divider" />
 
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-            <button
-              className="icon-button"
-              type="button"
-              aria-label={messages.app.previousMonth}
-              title={messages.app.previousMonth}
-              disabled={
-                monthController.isLoading || monthController.isMutatingMonth
-              }
-              onClick={() => void monthController.moveMonth(-1)}
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <label className="flex h-10 w-48 shrink-0 items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium shadow-sm">
-              <CalendarDays size={17} className="text-teal-700" />
-              <input
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-                type="month"
-                aria-label={messages.app.monthInput}
-                value={monthController.month}
+          <div className="sidebar-section sidebar-month-section space-y-3">
+            <p className="sidebar-section-title">
+              {locale === "ko" ? "월 선택" : "Month"}
+            </p>
+            <div className="sidebar-month-row">
+              <button
+                className="icon-button"
+                type="button"
+                aria-label={messages.app.previousMonth}
+                title={messages.app.previousMonth}
                 disabled={
                   monthController.isLoading || monthController.isMutatingMonth
                 }
-                onChange={(event) =>
-                  void monthController.loadMonth(event.target.value)
+                onClick={() => void monthController.moveMonth(-1)}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <label className="field-control sidebar-month-input flex h-10 min-w-0 items-center gap-2 rounded-md px-2 text-sm font-semibold">
+                <span className="month-input-label">
+                  {formatMonth(monthController.month, locale)}
+                </span>
+                <CalendarDays
+                  size={16}
+                  style={{ color: "var(--accent-denim)" }}
+                />
+                <input
+                  className="sr-only"
+                  type="month"
+                  aria-label={messages.app.monthInput}
+                  value={monthController.month}
+                  disabled={
+                    monthController.isLoading || monthController.isMutatingMonth
+                  }
+                  onChange={(event) =>
+                    void monthController.loadMonth(event.target.value)
+                  }
+                />
+              </label>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label={messages.app.nextMonth}
+                title={messages.app.nextMonth}
+                disabled={
+                  monthController.isLoading || monthController.isMutatingMonth
                 }
-              />
-            </label>
+                onClick={() => void monthController.moveMonth(1)}
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
             <button
-              className="icon-button"
-              type="button"
-              aria-label={messages.app.nextMonth}
-              title={messages.app.nextMonth}
-              disabled={
-                monthController.isLoading || monthController.isMutatingMonth
-              }
-              onClick={() => void monthController.moveMonth(1)}
-            >
-              <ChevronRight size={18} />
-            </button>
-            <button
-              className="icon-button"
+              className="secondary-action h-10 w-full px-3 text-sm"
               type="button"
               aria-label={messages.app.prepareMonth}
               title={messages.app.prepareMonth}
@@ -819,134 +827,336 @@ function Dashboard({
               }
               onClick={() => void monthController.prepareCurrentMonth()}
             >
-              <CalendarPlus size={18} />
+              <CalendarPlus size={17} />
+              {messages.app.prepareMonth}
             </button>
-            <LanguageToggle
-              compact
-              label={messages.app.languageLabel}
-              locale={locale}
-              onChange={onLocaleChange}
-            />
-            {user ? (
-              <>
-                <p
-                  className="max-w-[13rem] truncate text-xs font-medium text-zinc-600"
-                  title={messages.app.signedInAs(user.email)}
-                >
-                  {messages.app.signedInAs(user.email)}
-                </p>
-                <button
-                  className="icon-button"
-                  type="button"
-                  aria-label={messages.app.logout}
-                  title={messages.app.logout}
-                  onClick={() => void handleLogout()}
-                >
-                  <LogOut size={18} />
-                </button>
-              </>
-            ) : (
-              <button
-                className="inline-flex h-10 w-24 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
-                type="button"
-                aria-label={messages.app.login}
-                onClick={onOpenAuth}
-              >
-                <LogIn size={17} />
-                {messages.app.login}
-              </button>
-            )}
           </div>
-        </header>
 
-        <MetricSummary
-          activeGoalCount={monthController.activeMetricGoalCount}
-          activeMetricLabel={monthController.activeMetricLabel}
-          averageRate={monthController.averageRate}
-          labels={messages.summary}
-          totalCompleted={monthController.totalCompleted}
-        />
+          <nav className="space-y-1" aria-label={messages.app.navDashboard}>
+            <a className="sidebar-nav-link is-active" href="#dashboard">
+              <LayoutDashboard size={16} />
+              {messages.app.navDashboard}
+            </a>
+            <a className="sidebar-nav-link" href="#goals">
+              <Target size={16} />
+              {messages.app.navGoals}
+            </a>
+            <a className="sidebar-nav-link" href="#records">
+              <ListChecks size={16} />
+              {messages.app.navRecords}
+            </a>
+            <a className="sidebar-nav-link" href="#account">
+              <ShieldCheck size={16} />
+              {messages.app.navAccount}
+            </a>
+          </nav>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20.5rem]">
-          <DailyRecordTable
-            canSaveChanges={monthController.canSaveChanges}
-            chartData={monthController.chartData}
-            checkableThroughDate={monthController.checkableThroughDate}
-            checks={monthController.checks}
-            dailyRecordGoalSlots={monthController.dailyRecordGoalSlots}
-            days={monthController.days}
-            isMutatingMonth={monthController.isMutatingMonth}
-            labels={messages.dailyRecord}
-            locale={locale}
-            savingChecks={monthController.savingChecks}
-            savingMemos={monthController.savingMemos}
-            onMemoBlur={(date, memo) =>
-              void monthController.saveMemoForDate(date, memo)
-            }
-            onMemoChange={monthController.updateMemo}
-            onToggleCheck={(goalId, date) =>
-              void monthController.toggleCheck(goalId, date)
-            }
+          <div className="sidebar-divider" />
+
+          <ThemePreferenceToggle
+            displayLabel={locale === "ko" ? "테마" : messages.app.themeLabel}
+            label={messages.app.themeLabel}
+            preference={themePreference}
+            systemLabel={messages.app.themeSystem}
+            lightLabel={messages.app.themeLight}
+            darkLabel={messages.app.themeDark}
+            onChange={onThemePreferenceChange}
           />
 
-          <aside className="space-y-6">
-            <GoalPanel
-              canSaveChanges={monthController.canSaveChanges}
-              deactivatingGoalIDs={monthController.deactivatingGoalIDs}
-              editingGoalID={monthController.editingGoalID}
-              editingGoalTitle={monthController.editingGoalTitle}
-              goalFormOpen={monthController.goalFormOpen}
-              goalListReferenceDate={monthController.goalListReferenceDate}
-              isMutatingMonth={monthController.isMutatingMonth}
-              labels={messages.goalPanel}
-              month={monthController.month}
-              newGoalStartDate={monthController.newGoalStartDate}
-              newGoalTitle={monthController.newGoalTitle}
-              saveError={
-                monthController.saveFeedbackScope === "goal"
-                  ? monthController.saveError
-                  : null
-              }
-              saveMessage={
-                monthController.saveFeedbackScope === "goal"
-                  ? monthController.saveMessage
-                  : null
-              }
-              savingGoal={monthController.savingGoal}
-              savingGoalTitle={monthController.savingGoalTitle}
-              visibleGoals={monthController.visibleGoals}
-              onCancelEditingGoal={monthController.cancelEditingGoal}
-              onDeactivateGoal={(goal) =>
-                void monthController.deactivateGoalFromMonth(goal)
-              }
-              onEditingGoalTitleChange={monthController.setEditingGoalTitle}
-              onNewGoalStartDateChange={monthController.setNewGoalStartDate}
-              onNewGoalTitleChange={monthController.setNewGoalTitle}
-              onStartEditingGoal={monthController.startEditingGoal}
-              onSubmitGoalTitle={(event, goalID) =>
-                void monthController.submitGoalTitle(event, goalID)
-              }
-              onSubmitNewGoal={(event) =>
-                void monthController.submitNewGoal(event)
-              }
-              onToggleGoalForm={monthController.toggleGoalForm}
+          {previewMode ? (
+            <div className="preview-card">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {locale === "ko" ? "미리보기 모드" : "Preview mode"}
+                </p>
+                <span className="preview-info" aria-hidden="true">
+                  i
+                </span>
+              </div>
+              <p className="mt-3 text-xs font-semibold leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                {messages.app.previewNotice}
+              </p>
+              <button
+                className="secondary-action mt-4 h-10 w-full px-3 text-sm"
+                type="button"
+                aria-label={locale === "ko" ? "미리보기 종료" : "End preview"}
+                onClick={onOpenAuth}
+              >
+                {locale === "ko" ? "미리보기 종료" : "End preview"}
+              </button>
+            </div>
+          ) : null}
+        </aside>
+
+        <div className="app-content">
+          <div className="app-content-inner">
+            <header className="app-topbar">
+              <h1 className="sr-only">{monthLabel}</h1>
+              <div className="topbar-status">
+                  {!previewMode ? (
+                    <span
+                      aria-live="polite"
+                      className={statusClassName(monthController.loadStatus)}
+                      role="status"
+                    >
+                      {locale === "ko" ? "모든 시스템 정상" : "All systems normal"}
+                      <span className="sr-only">
+                        {statusLabel(monthController.loadStatus, messages.status)}
+                      </span>
+                    </span>
+                  ) : null}
+                  {previewMode ? (
+                    <span className="status-pill status-pill--local">
+                      {locale === "ko" ? "모든 시스템 정상" : "All systems normal"}
+                      <span className="sr-only">{messages.app.previewMode}</span>
+                    </span>
+                  ) : null}
+                {monthController.loadError ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold feedback-warning" role="status">
+                      {messages.app.fallbackNotice}
+                    </p>
+                    <button
+                      className="secondary-action h-8 px-2.5 text-xs"
+                      type="button"
+                      aria-label={messages.app.retry}
+                      disabled={monthController.isLoading}
+                      onClick={() =>
+                        void monthController.loadMonth(monthController.month)
+                      }
+                    >
+                      <RefreshCw size={14} />
+                      {messages.app.retry}
+                    </button>
+                  </div>
+                ) : null}
+                {monthController.saveError &&
+                monthController.saveFeedbackScope !== "goal" ? (
+                  <p className="mt-2 text-xs font-semibold feedback-error" role="alert">
+                    {monthController.saveError}
+                  </p>
+                ) : null}
+                {monthController.saveMessage &&
+                monthController.saveFeedbackScope !== "goal" ? (
+                  <p className="mt-2 text-xs font-semibold feedback-success" role="status">
+                    {monthController.saveMessage}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="app-toolbar">
+                <LanguageToggle
+                  compact
+                  label={messages.app.languageLabel}
+                  locale={locale}
+                  onChange={onLocaleChange}
+                />
+                {user ? (
+                  <>
+                    <p
+                      className="max-w-[13rem] truncate text-xs font-semibold"
+                      style={{ color: "var(--text-secondary)" }}
+                      title={messages.app.signedInAs(user.email)}
+                    >
+                      {messages.app.signedInAs(user.email)}
+                    </p>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={messages.app.logout}
+                      title={messages.app.logout}
+                      onClick={() => void handleLogout()}
+                    >
+                      <LogOut size={18} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="secondary-action h-10 px-3 text-sm"
+                    type="button"
+                    aria-label={messages.app.login}
+                    onClick={onOpenAuth}
+                  >
+                    <LogIn size={17} />
+                    {messages.app.login}
+                  </button>
+                )}
+              </div>
+            </header>
+
+            <MetricSummary
+              activeGoalCount={monthController.activeMetricGoalCount}
+              activeMetricLabel={monthController.activeMetricLabel}
+              averageRate={monthController.averageRate}
+              labels={messages.summary}
+              totalCompleted={monthController.totalCompleted}
             />
-            <ChartPanel
-              chartData={monthController.chartData}
-              goalCount={monthController.goals.length}
-              labels={messages.chart}
-              month={monthController.month}
-            />
-            {user ? (
-              <AccountSecurityPanel
-                labels={messages.account}
-                onPasswordChanged={onAuthenticated}
-              />
-            ) : null}
-          </aside>
-        </section>
+
+            <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_26rem]">
+              <div id="records" className="min-w-0">
+                <DailyRecordTable
+                  canSaveChanges={monthController.canSaveChanges}
+                  chartData={monthController.chartData}
+                  checkableThroughDate={monthController.checkableThroughDate}
+                  checks={monthController.checks}
+                  dailyRecordGoalSlots={monthController.dailyRecordGoalSlots}
+                  days={monthController.days}
+                  isMutatingMonth={monthController.isMutatingMonth}
+                  labels={messages.dailyRecord}
+                  locale={locale}
+                  savingChecks={monthController.savingChecks}
+                  savingMemos={monthController.savingMemos}
+                  onMemoBlur={(date, memo) =>
+                    void monthController.saveMemoForDate(date, memo)
+                  }
+                  onMemoChange={monthController.updateMemo}
+                  onToggleCheck={(goalId, date) =>
+                    void monthController.toggleCheck(goalId, date)
+                  }
+                />
+              </div>
+
+              <aside className="dashboard-side-panel space-y-3">
+                <div id="goals">
+                  <GoalPanel
+                    canSaveChanges={monthController.canSaveChanges}
+                    deactivatingGoalIDs={monthController.deactivatingGoalIDs}
+                    editingGoalID={monthController.editingGoalID}
+                    editingGoalTitle={monthController.editingGoalTitle}
+                    goalFormOpen={monthController.goalFormOpen}
+                    goalListReferenceDate={monthController.goalListReferenceDate}
+                    isMutatingMonth={monthController.isMutatingMonth}
+                    labels={messages.goalPanel}
+                    month={monthController.month}
+                    newGoalStartDate={monthController.newGoalStartDate}
+                    newGoalTitle={monthController.newGoalTitle}
+                    saveError={
+                      monthController.saveFeedbackScope === "goal"
+                        ? monthController.saveError
+                        : null
+                    }
+                    saveMessage={
+                      monthController.saveFeedbackScope === "goal"
+                        ? monthController.saveMessage
+                        : null
+                    }
+                    savingGoal={monthController.savingGoal}
+                    savingGoalTitle={monthController.savingGoalTitle}
+                    visibleGoals={monthController.visibleGoals}
+                    goalProgress={buildGoalProgress(
+                      monthController.visibleGoals,
+                      monthController.days,
+                      monthController.checks,
+                    )}
+                    onCancelEditingGoal={monthController.cancelEditingGoal}
+                    onDeactivateGoal={(goal) =>
+                      void monthController.deactivateGoalFromMonth(goal)
+                    }
+                    onEditingGoalTitleChange={monthController.setEditingGoalTitle}
+                    onNewGoalStartDateChange={monthController.setNewGoalStartDate}
+                    onNewGoalTitleChange={monthController.setNewGoalTitle}
+                    onStartEditingGoal={monthController.startEditingGoal}
+                    onSubmitGoalTitle={(event, goalID) =>
+                      void monthController.submitGoalTitle(event, goalID)
+                    }
+                    onSubmitNewGoal={(event) =>
+                      void monthController.submitNewGoal(event)
+                    }
+                    onToggleGoalForm={monthController.toggleGoalForm}
+                  />
+                </div>
+                <ChartPanel
+                  chartData={monthController.chartData}
+                  goalCount={monthController.goals.length}
+                  labels={messages.chart}
+                  month={monthController.month}
+                />
+                {user ? (
+                  <div id="account">
+                    <AccountSecurityPanel
+                      labels={messages.account}
+                      onPasswordChanged={onAuthenticated}
+                    />
+                  </div>
+                ) : null}
+              </aside>
+            </section>
+          </div>
+        </div>
       </div>
     </main>
+  );
+}
+
+function ThemePreferenceToggle({
+  darkLabel,
+  displayLabel,
+  label,
+  lightLabel,
+  preference,
+  systemLabel,
+  onChange,
+}: {
+  darkLabel: string;
+  displayLabel?: string;
+  label: string;
+  lightLabel: string;
+  preference: ThemePreference;
+  systemLabel: string;
+  onChange: (preference: ThemePreference) => void;
+}) {
+  const options: Array<{
+    icon: JSX.Element;
+    label: string;
+    value: ThemePreference;
+  }> = [
+    { icon: <Monitor size={14} />, label: systemLabel, value: "system" },
+    { icon: <Sun size={14} />, label: lightLabel, value: "light" },
+    { icon: <Moon size={14} />, label: darkLabel, value: "dark" },
+  ];
+
+  return (
+    <div className="theme-toggle-panel sidebar-section space-y-2">
+      <p className="sidebar-section-title">{displayLabel ?? label}</p>
+      <div className="theme-toggle" role="radiogroup" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            className={`theme-toggle-button ${
+              preference === option.value ? "is-active" : ""
+            }`}
+            type="button"
+            role="radio"
+            aria-checked={preference === option.value}
+            aria-label={`${label} ${option.label}`}
+            onClick={() => onChange(option.value)}
+          >
+            {option.icon}
+            <span>{option.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function buildGoalProgress(
+  goals: Array<{ id: number; startDate: string; endDate: string | null }>,
+  days: Array<{ date: string }>,
+  checks: Array<{ goalId: number; date: string }>,
+) {
+  return Object.fromEntries(
+    goals.map((goal) => {
+      const activeDays = days.filter(
+        (day) =>
+          goal.startDate <= day.date && (goal.endDate === null || day.date <= goal.endDate),
+      );
+      const completed = checks.filter((check) => check.goalId === goal.id).length;
+      const total = activeDays.length;
+      const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      return [goal.id, { completed, percent, total }];
+    }),
   );
 }
 
@@ -1001,16 +1211,16 @@ function AccountSecurityPanel({
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
+    <section className="panel-card panel-card-padded">
       <form className="space-y-3" onSubmit={handleSubmit}>
-        <h2 className="flex items-center gap-2 text-base font-semibold tracking-normal text-zinc-950">
-          <KeyRound size={17} className="text-teal-700" />
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-normal" style={{ color: "var(--text-primary)" }}>
+          <KeyRound size={17} style={{ color: "var(--accent-denim)" }} />
           {labels.heading}
         </h2>
-        <label className="block text-sm font-medium text-zinc-700">
+        <label className="block text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
           <span>{labels.currentPasswordLabel}</span>
           <input
-            className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            className="field-control mt-1 h-10 w-full rounded-md px-3 text-sm"
             type="password"
             aria-label={labels.currentPasswordLabel}
             autoComplete="current-password"
@@ -1021,10 +1231,10 @@ function AccountSecurityPanel({
             onChange={(event) => setCurrentPassword(event.target.value)}
           />
         </label>
-        <label className="block text-sm font-medium text-zinc-700">
+        <label className="block text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
           <span>{labels.newPasswordLabel}</span>
           <input
-            className="mt-1 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            className="field-control mt-1 h-10 w-full rounded-md px-3 text-sm"
             type="password"
             aria-label={labels.newPasswordLabel}
             autoComplete="new-password"
@@ -1036,17 +1246,17 @@ function AccountSecurityPanel({
           />
         </label>
         {status ? (
-          <p className="text-xs font-medium text-teal-700" role="status">
+          <p className="text-xs font-semibold feedback-success" role="status">
             {status}
           </p>
         ) : null}
         {error ? (
-          <p className="text-xs font-medium text-rose-700" role="alert">
+          <p className="text-xs font-semibold feedback-error" role="alert">
             {error}
           </p>
         ) : null}
         <button
-          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-teal-700 px-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="primary-action h-10 w-full px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
           type="submit"
           aria-label={busy ? labels.changingPassword : labels.changePasswordButton}
           disabled={busy}
@@ -1055,19 +1265,19 @@ function AccountSecurityPanel({
           {busy ? labels.changingPassword : labels.changePasswordButton}
         </button>
       </form>
-      <div className="mt-4 border-t border-zinc-200 pt-3">
+      <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
         {sessionStatus ? (
-          <p className="text-xs font-medium text-teal-700" role="status">
+          <p className="text-xs font-semibold feedback-success" role="status">
             {sessionStatus}
           </p>
         ) : null}
         {sessionError ? (
-          <p className="text-xs font-medium text-rose-700" role="alert">
+          <p className="text-xs font-semibold feedback-error" role="alert">
             {sessionError}
           </p>
         ) : null}
         <button
-          className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+          className="secondary-action mt-3 h-10 w-full px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
           type="button"
           aria-label={
             sessionBusy
@@ -1077,7 +1287,7 @@ function AccountSecurityPanel({
           disabled={sessionBusy}
           onClick={() => void handleLogoutOtherSessions()}
         >
-          <ShieldCheck size={17} className="text-teal-700" />
+          <ShieldCheck size={17} style={{ color: "var(--accent-denim)" }} />
           {sessionBusy
             ? labels.loggingOutOtherSessions
             : labels.logoutOtherSessionsButton}
@@ -1122,12 +1332,12 @@ function LanguageToggle({
     <div
       className={`inline-flex shrink-0 items-center ${
         compact
-          ? "h-10 w-[7.25rem] rounded-md border border-zinc-300 bg-white px-1.5"
+          ? "surface-muted h-10 w-[7.25rem] px-1.5"
           : ""
       }`}
       aria-label={label}
     >
-      <div className="inline-flex w-full rounded-md border border-zinc-200 bg-zinc-50 p-0.5">
+      <div className="segmented-control inline-flex w-full p-0.5">
         <button
           className={languageButtonClassName(locale === "ko", compact)}
           type="button"
@@ -1152,20 +1362,57 @@ function LanguageToggle({
 }
 
 function authModeClassName(active: boolean) {
-  const base =
-    "h-9 rounded-md px-3 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+  const base = "segmented-button h-9 rounded-md px-3 text-sm";
   return active
-    ? `${base} bg-white text-teal-800 shadow-sm`
-    : `${base} text-zinc-600 hover:text-zinc-950`;
+    ? `${base} segmented-button-active`
+    : `${base} segmented-button-inactive`;
 }
 
 function languageButtonClassName(active: boolean, compact: boolean) {
-  const base =
-    "h-8 whitespace-nowrap rounded px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-teal-100";
+  const base = "segmented-button h-8 whitespace-nowrap rounded px-2 text-xs";
   const width = compact ? "w-12" : "min-w-[4rem]";
   return active
-    ? `${base} ${width} bg-white text-teal-800 shadow-sm`
-    : `${base} ${width} text-zinc-600 hover:text-zinc-950`;
+    ? `${base} ${width} segmented-button-active`
+    : `${base} ${width} segmented-button-inactive`;
+}
+
+function readStoredThemePreference(): ThemePreference {
+  try {
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
+    return storedTheme === "light" ||
+      storedTheme === "dark" ||
+      storedTheme === "system"
+      ? storedTheme
+      : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function storeThemePreference(preference: ThemePreference) {
+  try {
+    window.localStorage.setItem(themeStorageKey, preference);
+  } catch {
+    // Theme preference is optional; system mode remains the fallback.
+  }
+}
+
+function resolveThemePreference(preference: ThemePreference): ResolvedTheme {
+  if (preference === "light" || preference === "dark") {
+    return preference;
+  }
+
+  return preferredSystemTheme();
+}
+
+function preferredSystemTheme(): ResolvedTheme {
+  if (typeof window.matchMedia !== "function") {
+    return "light";
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 function readStoredLocale(): AppLocale | null {

@@ -40,6 +40,10 @@ export type MonthView = {
 
 export type AppLocale = "ko" | "en";
 
+export type ThemePreference = "system" | "light" | "dark";
+
+export type ResolvedTheme = "light" | "dark";
+
 export type UserSession = {
   id: number;
   email: string;

@@ -84,9 +84,29 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("API walk");
     expect(hasInputValue("api memo")).toBe(true);
-    expect(getInput("05.01 메모").className).toContain("w-56");
-    expect(getInput("05.01 메모").className).toContain("max-w-full");
+    const firstDay = shortFirstDayLabel(monthFromRequest(fetchMock.mock.calls[0][0]));
+    expect(getInput(`${firstDay} 메모`).className).toContain("w-56");
+    expect(getInput(`${firstDay} 메모`).className).toContain("max-w-full");
     expect(document.body.textContent).toContain("chart points: 2");
+  });
+
+  it("stores and applies the selected theme preference", async () => {
+    stubFetch(createMonthViewApiHandler());
+
+    renderApp(<App />);
+
+    await waitForText("계정 데이터");
+    await clickButton("화면 모드 다크");
+
+    await waitFor(() => document.documentElement.dataset.theme === "dark");
+
+    expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("dark");
+
+    await clickButton("화면 모드 라이트");
+
+    await waitFor(() => document.documentElement.dataset.theme === "light");
+
+    expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("light");
   });
 
   it("opens a no-save preview for unauthenticated visitors", async () => {
@@ -111,8 +131,9 @@ describe("App", () => {
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
       .toBe(true);
 
-    await setInputValue("05.01 메모", "preview memo");
-    await blurInput("05.01 메모");
+    const firstDay = shortFirstDayLabel(currentMonth());
+    await setInputValue(`${firstDay} 메모`, "preview memo");
+    await blurInput(`${firstDay} 메모`);
 
     await waitForText("저장하려면 로그인해 주세요.");
     expect(queryButton("로그인하고 저장하기")).toBeNull();
@@ -663,23 +684,14 @@ describe("App", () => {
     );
   });
 
-  it("reserves five daily goal columns when no goals exist", async () => {
+  it("hides empty daily goal columns when no goals exist", async () => {
     stubFetch(createMonthViewApiHandler({ goalCount: 0 }));
 
     renderApp(<App />);
     await waitForText("계정 데이터");
 
-    expect(tableHeaders()).toEqual([
-      "날짜",
-      "메모",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "완료",
-    ]);
-    expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
+    expect(tableHeaders()).toEqual(["날짜", "메모", "완료"]);
+    expect(getDailyRecordTable().className).toContain("min-w-[34rem]");
   });
 
   it("does not expand past five daily goal columns", async () => {
@@ -723,6 +735,8 @@ describe("App", () => {
 
     renderApp(<App />);
     await waitForText("계정 데이터");
+    const firstDay = shortFirstDayLabel(currentMonth());
+    const secondDay = shortDate(`${currentMonth()}-02`);
 
     expect(tableHeaders()).toEqual([
       "날짜",
@@ -734,8 +748,8 @@ describe("App", () => {
       "API journal",
       "완료",
     ]);
-    expect(getButton("05.01 API walk 완료")).toBeTruthy();
-    expect(getButton("05.02 API journal 완료")).toBeTruthy();
+    expect(getButton(`${firstDay} API walk 완료`)).toBeTruthy();
+    expect(getButton(`${secondDay} API journal 완료`)).toBeTruthy();
   });
 
   it("loads the previous month from the navigation control", async () => {
@@ -846,15 +860,16 @@ describe("App", () => {
 
     renderApp(<App />);
     await waitForText("계정 데이터");
+    const firstDay = shortFirstDayLabel(currentMonth());
 
-    await setInputValue("05.01 메모", "saving memo");
-    await blurInput("05.01 메모");
+    await setInputValue(`${firstDay} 메모`, "saving memo");
+    await blurInput(`${firstDay} 메모`);
 
-    await waitFor(() => getInput("05.01 메모").disabled);
+    await waitFor(() => getInput(`${firstDay} 메모`).disabled);
 
     await resolvePending(resolveMemoSave);
 
-    await waitFor(() => !getInput("05.01 메모").disabled);
+    await waitFor(() => !getInput(`${firstDay} 메모`).disabled);
   });
 
   it("shows pending affordances while goal mutations are saving", async () => {
@@ -1009,11 +1024,9 @@ describe("App", () => {
       "API read",
       "완료",
     ]);
-    expect(getHeading("날짜별 기록").parentElement?.textContent?.trim()).toBe(
-      "날짜별 기록",
-    );
+    expect(getHeading("날짜별 기록").textContent?.trim()).toBe("날짜별 기록");
     expect(getDashboardLayout().className).toContain(
-      "xl:grid-cols-[minmax(0,1fr)_20.5rem]",
+      "xl:grid-cols-[minmax(0,1fr)_26rem]",
     );
     expect(getDailyRecordTable().className).toContain("table-fixed");
     expect(getDailyRecordTable().className).toContain("min-w-[48rem]");

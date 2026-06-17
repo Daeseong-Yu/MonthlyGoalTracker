@@ -28,6 +28,7 @@ export async function cleanupAppTest() {
   });
   roots.length = 0;
   document.body.innerHTML = "";
+  delete document.documentElement.dataset.theme;
   window.localStorage.clear();
   vi.unstubAllGlobals();
 }

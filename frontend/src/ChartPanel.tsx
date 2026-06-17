@@ -35,12 +35,15 @@ export default function ChartPanel({
   month,
 }: ChartPanelProps) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-soft">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold text-zinc-950">
-          {labels.heading}
-        </h2>
-        <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">
+    <section className="panel-card panel-card-padded">
+      <div className="panel-header panel-header--flush">
+        <div>
+          <p className="panel-kicker">Trend</p>
+          <h2 className="panel-heading">
+            {labels.heading}
+          </h2>
+        </div>
+        <span className="accent-pill">
           {labels.goalCount(goalCount)}
         </span>
       </div>

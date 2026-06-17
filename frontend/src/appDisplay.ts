@@ -30,14 +30,14 @@ export function weekday(date: string, locale = "ko") {
 
 export function weekdayClassName(date: string) {
   const day = new Date(`${date}T00:00:00`).getDay();
-  const base = "text-xs font-normal";
+  const base = "weekday-label text-xs font-normal";
 
   if (day === 6) {
-    return `${base} text-blue-600`;
+    return `${base} weekend-sat text-blue-600`;
   }
 
   if (day === 0) {
-    return `${base} text-rose-600`;
+    return `${base} weekend-sun text-rose-600`;
   }
 
   return `${base} text-zinc-500`;
@@ -45,13 +45,13 @@ export function weekdayClassName(date: string) {
 
 export function memoInputClassName(saving: boolean) {
   const base =
-    "h-8 w-56 max-w-full rounded-md border bg-white px-2 text-xs outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+    "field-control h-8 w-56 max-w-full rounded-md px-2 text-xs disabled:cursor-not-allowed";
 
   if (saving) {
-    return `${base} border-amber-300`;
+    return `${base} border-[color:var(--warning-text)]`;
   }
 
-  return `${base} border-zinc-200`;
+  return base;
 }
 
 export function statusLabel(
@@ -62,20 +62,20 @@ export function statusLabel(
 }
 
 export function statusClassName(status: LoadStatus) {
-  const base = "rounded-full px-2 py-0.5 text-xs font-semibold";
+  const base = "status-pill";
   if (status === "api") {
-    return `${base} bg-teal-50 text-teal-800`;
+    return `${base} status-pill--api`;
   }
 
   if (status === "loading") {
-    return `${base} bg-zinc-100 text-zinc-600`;
+    return `${base} status-pill--loading`;
   }
 
   if (status === "local") {
-    return `${base} bg-emerald-50 text-emerald-800`;
+    return `${base} status-pill--local`;
   }
 
-  return `${base} bg-amber-50 text-amber-800`;
+  return `${base} status-pill--fallback`;
 }
 
 function intlLocale(locale: string) {

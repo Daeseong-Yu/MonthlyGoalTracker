@@ -32,7 +32,7 @@ export default class ChartErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <div
-          className="flex h-72 min-h-72 items-center justify-center bg-zinc-50 text-sm font-medium text-zinc-500"
+          className="empty-panel h-72 min-h-72"
           role="status"
         >
           {this.props.failedLabel ?? "차트를 불러오지 못했습니다."}
