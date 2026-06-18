@@ -51,7 +51,7 @@ import {
   waitFor,
   waitForText,
 } from "./App.testHelpers";
-import { offsetMonth } from "./monthLogic";
+import { currentMonth, monthStartDate, offsetMonth } from "./monthLogic";
 import type { Goal, MonthView } from "./types";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -84,9 +84,29 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).toContain("API walk");
     expect(hasInputValue("api memo")).toBe(true);
-    expect(getInput("05.01 메모").className).toContain("w-56");
-    expect(getInput("05.01 메모").className).toContain("max-w-full");
+    const firstDay = shortFirstDayLabel(monthFromRequest(fetchMock.mock.calls[0][0]));
+    expect(getInput(`${firstDay} 메모`).className).toContain("w-56");
+    expect(getInput(`${firstDay} 메모`).className).toContain("max-w-full");
     expect(document.body.textContent).toContain("chart points: 2");
+  });
+
+  it("stores and applies the selected theme preference", async () => {
+    stubFetch(createMonthViewApiHandler());
+
+    renderApp(<App />);
+
+    await waitForText("계정 데이터");
+    await clickButton("화면 모드 다크");
+
+    await waitFor(() => document.documentElement.dataset.theme === "dark");
+
+    expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("dark");
+
+    await clickButton("화면 모드 라이트");
+
+    await waitFor(() => document.documentElement.dataset.theme === "light");
+
+    expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("light");
   });
 
   it("opens a no-save preview for unauthenticated visitors", async () => {
@@ -99,9 +119,7 @@ describe("App", () => {
     await waitForText("체험 모드");
 
     expect(document.body.textContent).toContain("체험 모드");
-    expect(document.body.textContent).toContain(
-      "둘러보기는 바로 가능하며, 변경사항 저장과 개인 기능은 로그인 후 사용할 수 있습니다.",
-    );
+    expect(document.body.textContent).toContain("저장하려면 로그인해야 합니다.");
     expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
     expect(document.body.textContent).not.toContain("아침 산책");
     expect(document.body.textContent).not.toContain(
@@ -113,20 +131,19 @@ describe("App", () => {
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
       .toBe(true);
 
-    await setInputValue("05.01 메모", "preview memo");
-    await blurInput("05.01 메모");
+    const firstDay = shortFirstDayLabel(currentMonth());
+    await setInputValue(`${firstDay} 메모`, "preview memo");
+    await blurInput(`${firstDay} 메모`);
 
-    await waitForText(
-      "저장하려면 로그인해 주세요. 지금 변경사항은 이 브라우저 세션에만 남습니다.",
-    );
-    expect(getButton("로그인하고 저장하기")).toBeTruthy();
+    await waitForText("저장하려면 로그인해 주세요.");
+    expect(queryButton("로그인하고 저장하기")).toBeNull();
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/memos/")))
       .toBe(true);
 
-    await clickButton("로그인하고 저장하기");
+    await clickButton("로그인");
     await waitFor(() => document.querySelector("[role='dialog']") !== null);
     expect(document.body.textContent).toContain(
-      "개인 목표를 계정별로 저장합니다.",
+      "목표를 저장하려면 로그인해 주세요.",
     );
     await pressKey("Escape");
     await waitFor(() => document.querySelector("[role='dialog']") === null);
@@ -201,7 +218,10 @@ describe("App", () => {
     await waitForText("Guest mode");
 
     expect(document.body.textContent).toContain("Guest mode");
-    expect(document.body.textContent).toContain("Korean");
+    expect(document.body.textContent?.match(/Guest mode/g) ?? []).toHaveLength(
+      1,
+    );
+    expect(document.body.textContent).toContain("KO");
     expect(document.body.textContent).toContain("No active goals.");
     expect(document.body.textContent).not.toContain("아침 산책");
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
@@ -211,9 +231,7 @@ describe("App", () => {
 
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
     expect(document.body.textContent).toContain("No active goals.");
-    expect(document.body.textContent).toContain(
-      "Save personal goals under your own account.",
-    );
+    expect(document.body.textContent).toContain("Log in to save your goals.");
 
     await setInputValue("Email", "person@example.com");
     await setInputValue("Password", "secret123");
@@ -253,7 +271,7 @@ describe("App", () => {
 
     await waitForText("체험 모드");
     await clickButton("로그인");
-    await waitForText("개인 목표를 계정별로 저장합니다.");
+    await waitForText("목표를 저장하려면 로그인해 주세요.");
     await setInputValue("이메일", "person@example.com");
     await setInputValue("비밀번호", "secret123");
     await submitForm();
@@ -307,7 +325,7 @@ describe("App", () => {
 
       await waitForText("체험 모드");
       await clickButton("로그인");
-      await waitForText("개인 목표를 계정별로 저장합니다.");
+      await waitForText("목표를 저장하려면 로그인해 주세요.");
       await clickButton("회원가입 tab");
       await setInputValue("이메일", "person@example.com");
       await setInputValue("비밀번호", "secret123");
@@ -347,13 +365,13 @@ describe("App", () => {
 
     await waitForText("체험 모드");
     await clickButton("로그인");
-    await waitForText("개인 목표를 계정별로 저장합니다.");
+    await waitForText("목표를 저장하려면 로그인해 주세요.");
     await clickButton("회원가입 tab");
     await setInputValue("이메일", "person@example.com");
     await setInputValue("비밀번호", "secret123");
     await submitForm();
 
-    await waitForText("가입 요청을 받았습니다. 인증 메일을 확인해 주세요.");
+    await waitForText("인증 메일을 확인해 주세요.");
 
     expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/signup")).toBe(
       true,
@@ -462,14 +480,12 @@ describe("App", () => {
 
     await waitForText("체험 모드");
     await clickButton("로그인");
-    await waitForText("개인 목표를 계정별로 저장합니다.");
+    await waitForText("목표를 저장하려면 로그인해 주세요.");
     await clickButton("비밀번호 재설정");
     await setInputValue("이메일", "person@example.com");
     await submitForm();
 
-    await waitForText(
-      "비밀번호 재설정 메일을 보냈습니다. 받은 편지함을 확인해 주세요.",
-    );
+    await waitForText("재설정 메일을 확인해 주세요.");
 
     expect(hasFetchedJsonBody<{ email: string; locale: string }>(
       fetchMock,
@@ -668,23 +684,14 @@ describe("App", () => {
     );
   });
 
-  it("reserves five daily goal columns when no goals exist", async () => {
+  it("hides empty daily goal columns when no goals exist", async () => {
     stubFetch(createMonthViewApiHandler({ goalCount: 0 }));
 
     renderApp(<App />);
     await waitForText("계정 데이터");
 
-    expect(tableHeaders()).toEqual([
-      "날짜",
-      "메모",
-      "",
-      "",
-      "",
-      "",
-      "",
-      "완료",
-    ]);
-    expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
+    expect(tableHeaders()).toEqual(["날짜", "메모", "완료"]);
+    expect(getDailyRecordTable().className).toContain("min-w-[34rem]");
   });
 
   it("does not expand past five daily goal columns", async () => {
@@ -728,6 +735,8 @@ describe("App", () => {
 
     renderApp(<App />);
     await waitForText("계정 데이터");
+    const firstDay = shortFirstDayLabel(currentMonth());
+    const secondDay = shortDate(`${currentMonth()}-02`);
 
     expect(tableHeaders()).toEqual([
       "날짜",
@@ -739,8 +748,8 @@ describe("App", () => {
       "API journal",
       "완료",
     ]);
-    expect(getButton("05.01 API walk 완료")).toBeTruthy();
-    expect(getButton("05.02 API journal 완료")).toBeTruthy();
+    expect(getButton(`${firstDay} API walk 완료`)).toBeTruthy();
+    expect(getButton(`${secondDay} API journal 완료`)).toBeTruthy();
   });
 
   it("loads the previous month from the navigation control", async () => {
@@ -757,6 +766,45 @@ describe("App", () => {
 
     expect(monthFromRequest(fetchMock.mock.calls[1][0])).toBe(
       offsetMonth(initialMonth, -1),
+    );
+  });
+
+  it("keeps future goal completion disabled until the date arrives", async () => {
+    const initialMonth = currentMonth();
+    const futureMonth = offsetMonth(initialMonth, 1);
+    const futureDate = monthStartDate(futureMonth);
+    const fetchMock = stubFetch((input) => {
+      const month = monthFromRequest(input);
+      const goals: Goal[] =
+        month === futureMonth
+          ? [
+              {
+                id: 7,
+                title: "Future completion",
+                startDate: futureDate,
+                endDate: null,
+              },
+            ]
+          : [];
+
+      return jsonResponse(buildMonthViewFromGoals(month, goals));
+    });
+
+    renderApp(<App />);
+    await waitForText("계정 데이터");
+
+    await clickButton("다음 달");
+    await waitForText("Future completion");
+
+    const completeButton = getButton(
+      `${shortDate(futureDate)} Future completion 완료`,
+    );
+    expect(completeButton.disabled).toBe(true);
+
+    await clickButton(`${shortDate(futureDate)} Future completion 완료`);
+
+    expect(hasNoFetchedPath(fetchMock, (path) => path === "/api/checks")).toBe(
+      true,
     );
   });
 
@@ -812,15 +860,16 @@ describe("App", () => {
 
     renderApp(<App />);
     await waitForText("계정 데이터");
+    const firstDay = shortFirstDayLabel(currentMonth());
 
-    await setInputValue("05.01 메모", "saving memo");
-    await blurInput("05.01 메모");
+    await setInputValue(`${firstDay} 메모`, "saving memo");
+    await blurInput(`${firstDay} 메모`);
 
-    await waitFor(() => getInput("05.01 메모").disabled);
+    await waitFor(() => getInput(`${firstDay} 메모`).disabled);
 
     await resolvePending(resolveMemoSave);
 
-    await waitFor(() => !getInput("05.01 메모").disabled);
+    await waitFor(() => !getInput(`${firstDay} 메모`).disabled);
   });
 
   it("shows pending affordances while goal mutations are saving", async () => {
@@ -919,6 +968,8 @@ describe("App", () => {
       path.includes("/api/goals/1/deactivate"),
     )).toBe(true);
     expect(queryButton("API walk 종료")).toBeNull();
+    expect(getButton("API walk 이미 종료됨").disabled).toBe(true);
+    expect(document.body.textContent).toContain("종료됨");
     expect(getButton(`${shortFirstDayLabel(loadedMonth)} API walk 완료`))
       .toBeTruthy();
 
@@ -973,11 +1024,9 @@ describe("App", () => {
       "API read",
       "완료",
     ]);
-    expect(getHeading("날짜별 기록").parentElement?.textContent?.trim()).toBe(
-      "날짜별 기록",
-    );
+    expect(getHeading("날짜별 기록").textContent?.trim()).toBe("날짜별 기록");
     expect(getDashboardLayout().className).toContain(
-      "xl:grid-cols-[minmax(0,1fr)_20.5rem]",
+      "xl:grid-cols-[minmax(0,1fr)_26rem]",
     );
     expect(getDailyRecordTable().className).toContain("table-fixed");
     expect(getDailyRecordTable().className).toContain("min-w-[48rem]");
@@ -996,10 +1045,14 @@ describe("App", () => {
     await waitForText("계정 데이터");
 
     await clickButton("목표 추가");
+    expect(getButton("목표 저장").textContent).toContain("목표 저장");
     await setInputValue("새 목표 제목", "API overflow");
     await clickButton("목표 저장");
 
     await waitForText("할일은 날짜별로 최대 5개까지 등록할 수 있습니다.");
+    expect(getInput("새 목표 제목").closest("form")?.textContent).toContain(
+      "할일은 날짜별로 최대 5개까지 등록할 수 있습니다.",
+    );
     expect(hasNoFetchedPath(fetchMock, (path) => path.endsWith("/goals"))).toBe(
       true,
     );
@@ -1041,6 +1094,18 @@ describe("App", () => {
       (path) => path.endsWith("/goals"),
       (body) =>
         body.title === "API plan" && body.startDate === `${loadedMonth}-01`,
+    )).toBe(true);
+
+    await clickButton("API plan 수정");
+    await setInputValue("API plan 제목 수정", "API plan revised");
+    await clickButton("API plan 저장");
+
+    await waitForText("API plan revised");
+    expect(document.body.textContent).toContain("API walk");
+    expect(hasFetchedJsonBody<{ title: string }>(
+      fetchMock,
+      (path) => path === "/api/goals/3",
+      (body) => body.title === "API plan revised",
     )).toBe(true);
 
     await clickButton("API walk 수정");

@@ -142,6 +142,10 @@ export function currentDate(referenceDate = new Date()) {
   ).padStart(2, "0")}`;
 }
 
+export function isDateCheckable(date: string, referenceDate = new Date()) {
+  return date <= currentDate(referenceDate);
+}
+
 export function deactivationDateForGoal(
   goal: Goal,
   month: string,

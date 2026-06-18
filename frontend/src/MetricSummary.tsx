@@ -1,4 +1,7 @@
-type MetricTone = "teal" | "amber" | "rose";
+import { CheckCircle2, Gauge, Target } from "lucide-react";
+import type { JSX } from "react";
+
+type MetricTone = "sage" | "denim" | "mauve";
 
 type MetricSummaryProps = {
   activeGoalCount: number;
@@ -32,13 +35,20 @@ export default function MetricSummary({
       <Metric
         label={labels.totalCompleted}
         value={labels.completedValue(totalCompleted)}
-        tone="teal"
+        tone="sage"
+        icon={<CheckCircle2 size={18} />}
       />
-      <Metric label={labels.averageRate} value={`${averageRate}%`} tone="amber" />
       <Metric
+        icon={<Gauge size={18} />}
+        label={labels.averageRate}
+        value={`${averageRate}%`}
+        tone="denim"
+      />
+      <Metric
+        icon={<Target size={18} />}
         label={activeMetricLabel}
         value={labels.goalValue(activeGoalCount)}
-        tone="rose"
+        tone="mauve"
       />
     </section>
   );
@@ -46,25 +56,32 @@ export default function MetricSummary({
 
 function Metric({
   label,
+  icon,
   value,
   tone,
 }: {
   label: string;
+  icon: JSX.Element;
   value: string;
   tone: MetricTone;
 }) {
   const toneClass = {
-    teal: "border-teal-200 bg-teal-50 text-teal-900",
-    amber: "border-amber-200 bg-amber-50 text-amber-900",
-    rose: "border-rose-200 bg-rose-50 text-rose-900",
+    sage: "metric-card--sage",
+    denim: "metric-card--denim",
+    mauve: "metric-card--mauve",
   }[tone];
 
   return (
-    <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
-      <p className="text-[0.7rem] font-medium leading-4 opacity-80">{label}</p>
-      <p className="mt-0.5 text-xl font-semibold leading-6 tracking-normal">
-        {value}
-      </p>
+    <div className={`metric-card ${toneClass}`}>
+      <div className="flex items-center gap-4">
+        <span className="metric-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <p className="metric-label">{label}</p>
+          <p className="metric-value mt-1 tracking-normal">{value}</p>
+        </div>
+      </div>
     </div>
   );
 }

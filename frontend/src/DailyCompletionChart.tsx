@@ -1,7 +1,8 @@
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
-  Line,
-  LineChart,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -27,32 +28,51 @@ export default function DailyCompletionChart({
   data,
   labels = defaultLabels,
 }: DailyCompletionChartProps) {
+  const partialLabel = labels.completed === "완료" ? "부분 완료" : "Partial";
+  const chartData = data.map((point) => ({
+    ...point,
+    partialCount:
+      point.completedCount > 0 && point.completedCount < point.activeGoalCount
+        ? point.activeGoalCount - point.completedCount
+        : 0,
+  }));
+
   return (
     <div className="h-72 min-h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ left: -20, right: 12 }}>
-          <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+        <BarChart data={chartData} margin={{ top: 10, left: -20, right: 12, bottom: 0 }}>
+          <CartesianGrid
+            stroke="var(--chart-grid)"
+            strokeDasharray="3 3"
+            vertical={false}
+          />
           <XAxis
             dataKey="dayLabel"
             interval={3}
-            tick={{ fontSize: 12, fill: "#52525b" }}
+            tick={{ fontSize: 12, fill: "var(--chart-axis)" }}
           />
           <YAxis
             allowDecimals={false}
             domain={[0, 5]}
-            tick={{ fontSize: 12, fill: "#52525b" }}
+            tick={{ fontSize: 12, fill: "var(--chart-axis)" }}
           />
           <Tooltip
             contentStyle={{
               borderRadius: 8,
-              borderColor: "#d4d4d8",
-              boxShadow: "0 12px 28px rgba(39, 39, 42, 0.12)",
+              backgroundColor: "var(--panel-bg)",
+              borderColor: "var(--border-subtle)",
+              boxShadow: "var(--shadow-popover)",
+              color: "var(--text-primary)",
             }}
             formatter={(value, name) => [
-              name === "completedCount"
+              name === "completedCount" || name === "partialCount"
                 ? labels.completedValue(formatTooltipValue(value))
                 : value,
-              name === "completedCount" ? labels.completed : name,
+              name === "completedCount"
+                ? labels.completed
+                : name === "partialCount"
+                ? partialLabel
+                : name,
             ]}
             labelFormatter={(_, payload) => {
               const point = payload?.[0]?.payload as
@@ -60,18 +80,31 @@ export default function DailyCompletionChart({
                 | undefined;
               return point
                 ? `${point.date} · ${Math.round(point.completionRate * 100)}%`
-                : "";
+              : "";
             }}
           />
-          <Line
-            type="monotone"
-            dataKey="completedCount"
-            stroke="#0f766e"
-            strokeWidth={3}
-            dot={{ r: 3, strokeWidth: 2, fill: "#ffffff" }}
-            activeDot={{ r: 5 }}
+          <Legend
+            iconType="rect"
+            wrapperStyle={{
+              color: "var(--text-secondary)",
+              fontSize: 12,
+              fontWeight: 700,
+              paddingTop: 10,
+            }}
           />
-        </LineChart>
+          <Bar
+            dataKey="completedCount"
+            fill="var(--accent-sage)"
+            name={labels.completed}
+            radius={[3, 3, 0, 0]}
+          />
+          <Bar
+            dataKey="partialCount"
+            fill="var(--accent-denim)"
+            name={partialLabel}
+            radius={[3, 3, 0, 0]}
+          />
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );

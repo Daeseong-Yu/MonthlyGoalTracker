@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 import {
   memoInputClassName,
@@ -23,6 +23,7 @@ import type {
 type DailyRecordTableProps = {
   canSaveChanges: boolean;
   chartData: ChartPointWithLabel[];
+  checkableThroughDate: string;
   checks: GoalCheck[];
   dailyRecordGoalSlots: Goal[][];
   days: DayEntry[];
@@ -57,6 +58,7 @@ const defaultLabels: DailyRecordLabels = {
 export default function DailyRecordTable({
   canSaveChanges,
   chartData,
+  checkableThroughDate,
   checks,
   dailyRecordGoalSlots,
   days,
@@ -69,28 +71,38 @@ export default function DailyRecordTable({
   onMemoChange,
   onToggleCheck,
 }: DailyRecordTableProps) {
+  const visibleGoalSlots = dailyRecordGoalSlots.filter(
+    (slotGoals) => slotGoals.length > 0,
+  );
+  const tableWidthClass =
+    visibleGoalSlots.length > 0 ? "min-w-[48rem]" : "min-w-[34rem]";
+
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white shadow-soft">
-      <div className="border-b border-zinc-200 px-4 py-3">
-        <h2 className="text-base font-semibold text-zinc-950">
-          {labels.heading}
-        </h2>
+    <section className="panel-card overflow-hidden">
+      <div className="panel-header">
+        <div>
+          <p className="panel-kicker">Daily log</p>
+          <h2 className="panel-heading">
+            {labels.heading}
+          </h2>
+        </div>
+        <span className="panel-count">{days.length}</span>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[48rem] table-fixed border-collapse text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+      <div className="table-frame overflow-x-auto">
+        <table className={`record-table w-full ${tableWidthClass} table-fixed border-collapse text-left text-sm`}>
+          <thead className="text-xs uppercase" style={{ background: "var(--panel-muted)", color: "var(--text-muted)" }}>
             <tr>
-              <th className="sticky left-0 z-10 w-20 bg-zinc-50 px-3 py-2 font-semibold">
+              <th className="sticky left-0 z-10 w-20 px-3 py-2 font-semibold" style={{ background: "var(--panel-muted)" }}>
                 {labels.dateHeader}
               </th>
               <th className="w-56 px-2 py-2 font-semibold normal-case">
                 {labels.memoHeader}
               </th>
-              {dailyRecordGoalSlots.map((slotGoals, slotIndex) => (
+              {visibleGoalSlots.map((slotGoals, slotIndex) => (
                 <th
                   key={`goal-slot-${slotIndex}`}
-                  className={`w-20 py-2 font-semibold normal-case text-zinc-600 ${
+                  className={`w-20 py-2 font-semibold normal-case ${
                     slotIndex === 0 ? "pl-4 pr-2" : "px-2"
                   }`}
                   title={goalSlotTitle(slotGoals)}
@@ -107,13 +119,13 @@ export default function DailyRecordTable({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-[color:var(--border-subtle)]">
             {days.map((day) => {
               const point = chartData.find((item) => item.date === day.date);
 
               return (
-                <tr key={day.date} className="hover:bg-[#f6fbf8]">
-                  <th className="sticky left-0 z-10 bg-white px-3 py-2 font-medium text-zinc-800">
+                <tr key={day.date}>
+                  <th className="record-date-cell sticky left-0 z-10 px-3 py-2 font-semibold">
                     <span className="block">{shortDate(day.date)}</span>
                     <span className={weekdayClassName(day.date)}>
                       {weekday(day.date, locale)}
@@ -139,7 +151,7 @@ export default function DailyRecordTable({
                       }
                     />
                   </td>
-                  {dailyRecordGoalSlots.map((slotGoals, slotIndex) => {
+                  {visibleGoalSlots.map((slotGoals, slotIndex) => {
                     const goal = activeGoalInSlot(slotGoals, day.date);
 
                     if (!goal) {
@@ -154,6 +166,8 @@ export default function DailyRecordTable({
                     }
 
                     const active = isGoalActiveOnDate(goal, day.date);
+                    const checkable =
+                      active && day.date <= checkableThroughDate;
                     const checked =
                       active &&
                       checks.some(
@@ -173,7 +187,7 @@ export default function DailyRecordTable({
                       >
                         <button
                           className={
-                            active
+                            checkable
                               ? checked
                                 ? "check-button checked"
                                 : "check-button"
@@ -186,7 +200,10 @@ export default function DailyRecordTable({
                           )}
                           aria-pressed={checked}
                           disabled={
-                            !active || !canSaveChanges || saving || isMutatingMonth
+                            !checkable ||
+                            !canSaveChanges ||
+                            saving ||
+                            isMutatingMonth
                           }
                           title={goal.title}
                           onClick={() => onToggleCheck(goal.id, day.date)}
@@ -196,7 +213,7 @@ export default function DailyRecordTable({
                       </td>
                     );
                   })}
-                  <td className="py-2 pl-2 pr-4 text-right text-xs font-semibold text-zinc-800">
+                  <td className="py-2 pl-2 pr-4 text-right text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                     {point?.completedCount ?? 0}/{point?.activeGoalCount ?? 0}
                   </td>
                 </tr>
@@ -204,6 +221,21 @@ export default function DailyRecordTable({
             })}
           </tbody>
         </table>
+      </div>
+      <div className="record-more-footer">
+        <button
+          className="record-more-button"
+          type="button"
+          onClick={(event) => {
+            event.currentTarget
+              .closest("section")
+              ?.querySelector(".table-frame")
+              ?.scrollBy({ behavior: "smooth", top: 360 });
+          }}
+        >
+          {locale === "ko" ? "더 보기" : "Show more"}
+          <ChevronDown size={15} />
+        </button>
       </div>
     </section>
   );

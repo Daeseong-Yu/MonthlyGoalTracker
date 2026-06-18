@@ -251,10 +251,16 @@ jobs:
             --output text)"
 
           if ! aws ssm wait command-executed --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"; then
-            aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}" || true
+            echo "Backend SSM deploy failed. Invocation summary:" >&2
+            aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${EC2_INSTANCE_ID}" \
+              --region "${AWS_REGION}" \
+              --query '{Status:Status,ResponseCode:ResponseCode}' \
+              --output json >&2 || true
             exit 1
           fi
-          aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"
+          echo "Backend deploy completed."
 
   deploy-frontend:
     name: Deploy frontend
@@ -320,7 +326,13 @@ jobs:
             --output text)"
 
           if ! aws ssm wait command-executed --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"; then
-            aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}" || true
+            echo "Frontend SSM deploy failed. Invocation summary:" >&2
+            aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${EC2_INSTANCE_ID}" \
+              --region "${AWS_REGION}" \
+              --query '{Status:Status,ResponseCode:ResponseCode}' \
+              --output json >&2 || true
             exit 1
           fi
-          aws ssm get-command-invocation --command-id "${command_id}" --instance-id "${EC2_INSTANCE_ID}" --region "${AWS_REGION}"
+          echo "Frontend deploy completed."

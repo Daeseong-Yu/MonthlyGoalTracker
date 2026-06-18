@@ -107,6 +107,13 @@ Expected build artifacts:
    APP_AUTH_RATE_LIMIT_MAX_BUCKETS=10000
    APP_TRUSTED_PROXIES=127.0.0.1
    APP_LEGACY_CLAIM_TOKEN=replace-with-owner-claim-token-32-chars
+   APP_EMAIL_FROM=no-reply@example.com
+   APP_SMTP_HOST=smtp.example.com
+   APP_SMTP_PORT=587
+   APP_SMTP_USERNAME=
+   APP_SMTP_PASSWORD=
+   APP_EMAIL_VERIFICATION_BASE_URL=https://example.com
+   APP_PASSWORD_RESET_BASE_URL=https://example.com
    ```
 
    Leave both `APP_BASIC_AUTH_*` values blank to disable app-level Basic Auth.
@@ -125,6 +132,13 @@ Expected build artifacts:
    original `X-Forwarded-For` client IP. Leave it blank to ignore forwarded
    client IP headers. `APP_AUTH_RATE_LIMIT_MAX_BUCKETS` caps the in-memory
    login and signup throttling key count.
+
+   Email verification and password reset are enabled when the email settings
+   are present. Set `APP_EMAIL_FROM`, `APP_SMTP_HOST`, and
+   `APP_EMAIL_VERIFICATION_BASE_URL` together. If the SMTP provider requires
+   authentication, set both `APP_SMTP_USERNAME` and `APP_SMTP_PASSWORD`.
+   `APP_PASSWORD_RESET_BASE_URL` defaults to `APP_EMAIL_VERIFICATION_BASE_URL`
+   when omitted.
 
    Install the systemd unit from `monthly-goal-api.service.example`, then run:
 
