@@ -2,9 +2,11 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/principal"
@@ -17,6 +19,12 @@ var (
 	ErrDatabaseURLRequired        = errors.New("database URL is required")
 	ErrDatabaseRequired           = errors.New("database is required")
 	ErrGoalCheckOwnershipMismatch = errors.New("goal check ownership mismatch")
+)
+
+const (
+	defaultMaxOpenConnections = 5
+	defaultMaxIdleConnections = 2
+	defaultConnectionLifetime = 30 * time.Minute
 )
 
 func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
@@ -36,12 +44,19 @@ func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	configureConnectionPool(sqlDB)
 	if err := sqlDB.PingContext(ctx); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
 	}
 
 	return database, nil
+}
+
+func configureConnectionPool(database *sql.DB) {
+	database.SetMaxOpenConns(defaultMaxOpenConnections)
+	database.SetMaxIdleConns(defaultMaxIdleConnections)
+	database.SetConnMaxLifetime(defaultConnectionLifetime)
 }
 
 func Migrate(ctx context.Context, database *gorm.DB) error {

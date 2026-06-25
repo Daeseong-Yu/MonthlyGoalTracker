@@ -1,0 +1,470 @@
+name: Serverless Staging Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_migration:
+        description: Run the private migration Lambda after infra deploy
+        required: false
+        default: false
+        type: boolean
+      run_audit:
+        description: Run the private audit Lambda after restore or migration
+        required: false
+        default: false
+        type: boolean
+      audit_expected_counts_json:
+        description: Optional JSON object of expected row counts for audit Lambda
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: serverless-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy serverless staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: serverless-staging
+    env:
+      SERVERLESS_STAGE: staging
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+      SERVERLESS_EMAIL_FROM: ${{ vars.SERVERLESS_EMAIL_FROM }}
+      SERVERLESS_SITE_BASE_URL: ${{ vars.SERVERLESS_SITE_BASE_URL }}
+      SERVERLESS_DOMAIN_NAME: ${{ vars.SERVERLESS_DOMAIN_NAME }}
+      SERVERLESS_CERTIFICATE_ARN: ${{ secrets.SERVERLESS_CERTIFICATE_ARN }}
+      AWS_PAGER: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test backend
+        working-directory: backend
+        run: go test ./...
+
+      - name: Verify Lambda container images
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          for app_command in lambda migrate audit; do
+            image_name="monthly-goal-tracker-${app_command}:staging"
+            docker build \
+              --platform linux/arm64 \
+              --build-arg "APP_COMMAND=${app_command}" \
+              -f Dockerfile.lambda \
+              -t "${image_name}" \
+              .
+            image_platform="$(docker image inspect "${image_name}" --format '{{.Os}}/{{.Architecture}}')"
+            if [ "${image_platform}" != "linux/arm64" ]; then
+              echo "Unexpected Lambda image platform for ${app_command}: ${image_platform}" >&2
+              exit 1
+            fi
+            image_command="$(docker image inspect "${image_name}" --format '{{json .Config.Cmd}}')"
+            if [ "${image_command}" != '["bootstrap"]' ]; then
+              echo "Unexpected Lambda image command for ${app_command}." >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        working-directory: frontend
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Test frontend
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Check frontend artifact
+        run: scripts/check-frontend-dist.sh
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Smoke test frontend artifact
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
+          PLAYWRIGHT_WEB_SERVER_COMMAND: pnpm preview --host 127.0.0.1 --port 4173
+        run: pnpm exec playwright test e2e/smoke-preview.spec.ts
+
+      - name: Install infra dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Check deploy tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in aws jq npx pnpm; do
+            if ! command -v "${tool}" >/dev/null 2>&1; then
+              echo "Missing required deploy tool: ${tool}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Resolve serverless deploy context
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?AWS_REGION variable is required}"
+          : "${AWS_ROLE_TO_ASSUME:?AWS_ROLE_TO_ASSUME variable is required}"
+          : "${SERVERLESS_EMAIL_FROM:?SERVERLESS_EMAIL_FROM variable is required}"
+          if [[ ! "${SERVERLESS_EMAIL_FROM}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+            echo "SERVERLESS_EMAIL_FROM must be a valid email address." >&2
+            exit 1
+          fi
+
+          site_base_url="${SERVERLESS_SITE_BASE_URL:-}"
+          domain_name="${SERVERLESS_DOMAIN_NAME:-}"
+          certificate_arn="${SERVERLESS_CERTIFICATE_ARN:-}"
+
+          if [ -n "${domain_name}" ] || [ -n "${certificate_arn}" ]; then
+            if [ -z "${domain_name}" ] || [ -z "${certificate_arn}" ]; then
+              echo "SERVERLESS_DOMAIN_NAME and SERVERLESS_CERTIFICATE_ARN must be configured together." >&2
+              exit 1
+            fi
+            if [[ "${certificate_arn}" != arn:*:acm:us-east-1:*:certificate/* ]]; then
+              echo "SERVERLESS_CERTIFICATE_ARN must reference an ACM certificate in us-east-1 for CloudFront." >&2
+              exit 1
+            fi
+            if [[ "${domain_name}" == *"://"* || "${domain_name}" == *"/"* ]]; then
+              echo "SERVERLESS_DOMAIN_NAME must be a DNS host name without scheme or path." >&2
+              exit 1
+            fi
+            if [ -z "${site_base_url}" ]; then
+              site_base_url="https://${domain_name}"
+            fi
+            echo "::add-mask::${certificate_arn}"
+            {
+              echo "SERVERLESS_DOMAIN_NAME_RESOLVED=${domain_name}"
+              echo "SERVERLESS_CERTIFICATE_ARN_RESOLVED=${certificate_arn}"
+            } >> "${GITHUB_ENV}"
+          fi
+
+          if [ -z "${site_base_url}" ]; then
+            if [ "${SERVERLESS_STAGE}" != "staging" ]; then
+              echo "SERVERLESS_SITE_BASE_URL or custom domain context is required outside staging." >&2
+              exit 1
+            fi
+            site_base_url="https://monthly-goal-tracker-staging.example.invalid"
+            echo "Using staging placeholder site base URL for first-pass generated CloudFront deployment."
+          fi
+
+          site_base_url="${site_base_url%/}"
+          if [[ "${site_base_url}" =~ ^https://([^/?#]+)$ ]]; then
+            site_host="${BASH_REMATCH[1]}"
+          else
+            echo "SERVERLESS_SITE_BASE_URL must be an absolute HTTPS origin without path, query, or fragment." >&2
+            exit 1
+          fi
+          if [ -n "${domain_name}" ] && [ "${site_host,,}" != "${domain_name,,}" ]; then
+            echo "SERVERLESS_SITE_BASE_URL host must match SERVERLESS_DOMAIN_NAME when custom domain is configured." >&2
+            exit 1
+          fi
+
+          echo "SERVERLESS_SITE_BASE_URL_RESOLVED=${site_base_url}" >> "${GITHUB_ENV}"
+
+      - name: Validate authenticated smoke secret pair
+        shell: bash
+        env:
+          PLAYWRIGHT_AUTH_EMAIL: ${{ secrets.SERVERLESS_SMOKE_EMAIL }}
+          PLAYWRIGHT_AUTH_PASSWORD: ${{ secrets.SERVERLESS_SMOKE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          auth_email_set=false
+          auth_password_set=false
+          if [ -n "${PLAYWRIGHT_AUTH_EMAIL:-}" ]; then
+            auth_email_set=true
+          fi
+          if [ -n "${PLAYWRIGHT_AUTH_PASSWORD:-}" ]; then
+            auth_password_set=true
+          fi
+          if [ "${auth_email_set}" != "${auth_password_set}" ]; then
+            echo "SERVERLESS_SMOKE_EMAIL and SERVERLESS_SMOKE_PASSWORD must be configured together." >&2
+            exit 1
+          fi
+
+      - name: Test infra
+        working-directory: infra
+        run: npm test
+
+      - name: Synthesize infra
+        working-directory: infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?AWS_REGION variable is required}"
+          : "${SERVERLESS_EMAIL_FROM:?SERVERLESS_EMAIL_FROM variable is required}"
+          : "${SERVERLESS_SITE_BASE_URL_RESOLVED:?SERVERLESS_SITE_BASE_URL_RESOLVED variable is required}"
+          context_args=(
+            -c "stage=${SERVERLESS_STAGE}"
+            -c "awsRegion=${AWS_REGION}"
+            -c "emailFrom=${SERVERLESS_EMAIL_FROM}"
+            -c "siteBaseUrl=${SERVERLESS_SITE_BASE_URL_RESOLVED}"
+          )
+          if [ -n "${SERVERLESS_DOMAIN_NAME_RESOLVED:-}" ]; then
+            context_args+=(
+              -c "domainName=${SERVERLESS_DOMAIN_NAME_RESOLVED}"
+              -c "certificateArn=${SERVERLESS_CERTIFICATE_ARN_RESOLVED}"
+            )
+          fi
+          npx cdk synth "${context_args[@]}" > /tmp/monthly-goal-tracker-serverless-synth.yaml
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check CDK bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! aws ssm get-parameter \
+            --name /cdk-bootstrap/hnb659fds/version \
+            --query 'Parameter.Name' \
+            --output text > /dev/null; then
+            echo "CDK bootstrap is required in the target AWS account and region before serverless deploy." >&2
+            exit 1
+          fi
+          echo "CDK bootstrap is available."
+
+      - name: Deploy infra
+        working-directory: infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?AWS_REGION variable is required}"
+          : "${SERVERLESS_EMAIL_FROM:?SERVERLESS_EMAIL_FROM variable is required}"
+          : "${SERVERLESS_SITE_BASE_URL_RESOLVED:?SERVERLESS_SITE_BASE_URL_RESOLVED variable is required}"
+          context_args=(
+            -c "stage=${SERVERLESS_STAGE}"
+            -c "awsRegion=${AWS_REGION}"
+            -c "emailFrom=${SERVERLESS_EMAIL_FROM}"
+            -c "siteBaseUrl=${SERVERLESS_SITE_BASE_URL_RESOLVED}"
+          )
+          if [ -n "${SERVERLESS_DOMAIN_NAME_RESOLVED:-}" ]; then
+            context_args+=(
+              -c "domainName=${SERVERLESS_DOMAIN_NAME_RESOLVED}"
+              -c "certificateArn=${SERVERLESS_CERTIFICATE_ARN_RESOLVED}"
+            )
+          fi
+          deploy_log="/tmp/monthly-goal-tracker-cdk-deploy.log"
+          if ! npx cdk deploy "MonthlyGoalTracker-${SERVERLESS_STAGE}" \
+            "${context_args[@]}" \
+            --ci \
+            --no-color \
+            --progress bar \
+            --require-approval never \
+            --outputs-file /tmp/monthly-goal-tracker-serverless-outputs.json \
+            > "${deploy_log}" 2>&1; then
+            echo "CDK deploy failed. Review the workflow step context and AWS CloudFormation events without copying identifiers into logs or docs." >&2
+            exit 1
+          fi
+          echo "CDK deploy completed."
+
+      - name: Run migration Lambda
+        if: ${{ github.event.inputs.run_migration == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          stack_name="MonthlyGoalTracker-${SERVERLESS_STAGE}"
+          migration_function="$(aws cloudformation describe-stack-resource \
+            --stack-name "${stack_name}" \
+            --logical-resource-id MigrationFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [ -z "${migration_function}" ] || [ "${migration_function}" = "None" ]; then
+            echo "Migration Lambda lookup failed." >&2
+            exit 1
+          fi
+
+          aws lambda invoke \
+            --function-name "${migration_function}" \
+            --payload '{"confirm":"run-migrations"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/monthly-goal-tracker-migration-response.json > /tmp/monthly-goal-tracker-migration-invoke.json
+
+          function_error="$(jq -r '.FunctionError // empty' /tmp/monthly-goal-tracker-migration-invoke.json)"
+          migration_status="$(jq -r '.status // empty' /tmp/monthly-goal-tracker-migration-response.json)"
+          if [ -n "${function_error}" ] || [ "${migration_status}" != "completed" ]; then
+            echo "Migration Lambda did not complete successfully." >&2
+            exit 1
+          fi
+          echo "Migration Lambda completed."
+
+      - name: Run migration audit Lambda
+        if: ${{ github.event.inputs.run_audit == 'true' }}
+        shell: bash
+        env:
+          AUDIT_EXPECTED_COUNTS_JSON: ${{ github.event.inputs.audit_expected_counts_json }}
+        run: |
+          set -euo pipefail
+          stack_name="MonthlyGoalTracker-${SERVERLESS_STAGE}"
+          audit_function="$(aws cloudformation describe-stack-resource \
+            --stack-name "${stack_name}" \
+            --logical-resource-id AuditFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [ -z "${audit_function}" ] || [ "${audit_function}" = "None" ]; then
+            echo "Audit Lambda lookup failed." >&2
+            exit 1
+          fi
+
+          if [ -n "${AUDIT_EXPECTED_COUNTS_JSON}" ]; then
+            printf '%s' "${AUDIT_EXPECTED_COUNTS_JSON}" > /tmp/monthly-goal-tracker-audit-expected.json
+            jq -e 'type == "object" and all(.[]; type == "number")' \
+              /tmp/monthly-goal-tracker-audit-expected.json > /dev/null
+            audit_payload="$(jq -cn \
+              --slurpfile expected /tmp/monthly-goal-tracker-audit-expected.json \
+              '{confirm:"audit-migration", expected:$expected[0]}')"
+          else
+            audit_payload='{"confirm":"audit-migration"}'
+          fi
+          printf '%s' "${audit_payload}" > /tmp/monthly-goal-tracker-audit-payload.json
+
+          aws lambda invoke \
+            --function-name "${audit_function}" \
+            --payload file:///tmp/monthly-goal-tracker-audit-payload.json \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/monthly-goal-tracker-audit-response.json > /tmp/monthly-goal-tracker-audit-invoke.json
+
+          function_error="$(jq -r '.FunctionError // empty' /tmp/monthly-goal-tracker-audit-invoke.json)"
+          audit_status="$(jq -r '.status // empty' /tmp/monthly-goal-tracker-audit-response.json)"
+          if [ -n "${function_error}" ] || [ "${audit_status}" != "completed" ]; then
+            echo "Migration audit Lambda did not complete successfully." >&2
+            exit 1
+          fi
+          echo "Migration audit Lambda completed."
+
+      - name: Upload frontend to S3
+        shell: bash
+        run: |
+          set -euo pipefail
+          stack_name="MonthlyGoalTracker-${SERVERLESS_STAGE}"
+          frontend_bucket="$(aws cloudformation describe-stack-resource \
+            --stack-name "${stack_name}" \
+            --logical-resource-id FrontendBucket \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [ -z "${frontend_bucket}" ] || [ "${frontend_bucket}" = "None" ]; then
+            echo "Frontend bucket lookup failed." >&2
+            exit 1
+          fi
+
+          aws s3 sync frontend/dist "s3://${frontend_bucket}/" \
+            --delete \
+            --exclude "index.html" \
+            --cache-control "public,max-age=31536000,immutable" \
+            --only-show-errors
+
+          aws s3 cp frontend/dist/index.html "s3://${frontend_bucket}/index.html" \
+            --cache-control "no-cache,no-store,must-revalidate" \
+            --content-type "text/html" \
+            --only-show-errors
+
+      - name: Invalidate CloudFront
+        shell: bash
+        run: |
+          set -euo pipefail
+          stack_name="MonthlyGoalTracker-${SERVERLESS_STAGE}"
+          distribution_id="$(aws cloudformation describe-stack-resource \
+            --stack-name "${stack_name}" \
+            --logical-resource-id FrontendDistribution \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [ -z "${distribution_id}" ] || [ "${distribution_id}" = "None" ]; then
+            echo "CloudFront distribution lookup failed." >&2
+            exit 1
+          fi
+
+          invalidation_id="$(aws cloudfront create-invalidation \
+            --distribution-id "${distribution_id}" \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text)"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "${distribution_id}" \
+            --id "${invalidation_id}"
+          echo "CloudFront invalidation completed."
+
+      - name: Smoke test deployed serverless site
+        working-directory: frontend
+        shell: bash
+        env:
+          PLAYWRIGHT_AUTH_EMAIL: ${{ secrets.SERVERLESS_SMOKE_EMAIL }}
+          PLAYWRIGHT_AUTH_PASSWORD: ${{ secrets.SERVERLESS_SMOKE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          stack_name="MonthlyGoalTracker-${SERVERLESS_STAGE}"
+          distribution_id="$(aws cloudformation describe-stack-resource \
+            --stack-name "${stack_name}" \
+            --logical-resource-id FrontendDistribution \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [ -z "${distribution_id}" ] || [ "${distribution_id}" = "None" ]; then
+            echo "CloudFront distribution lookup failed." >&2
+            exit 1
+          fi
+          distribution_domain="$(aws cloudfront get-distribution \
+            --id "${distribution_id}" \
+            --query 'Distribution.DomainName' \
+            --output text)"
+          if [ -z "${distribution_domain}" ] || [ "${distribution_domain}" = "None" ]; then
+            echo "CloudFront distribution domain lookup failed." >&2
+            exit 1
+          fi
+
+          smoke_base_url="https://${distribution_domain}"
+          if [ -n "${SERVERLESS_DOMAIN_NAME_RESOLVED:-}" ]; then
+            smoke_base_url="https://${SERVERLESS_DOMAIN_NAME_RESOLVED}"
+          fi
+
+          export PLAYWRIGHT_BASE_URL="${smoke_base_url}"
+          export PLAYWRIGHT_SERVERLESS_SMOKE=1
+          auth_email_set=false
+          auth_password_set=false
+          if [ -n "${PLAYWRIGHT_AUTH_EMAIL:-}" ]; then
+            auth_email_set=true
+          fi
+          if [ -n "${PLAYWRIGHT_AUTH_PASSWORD:-}" ]; then
+            auth_password_set=true
+          fi
+          if [ "${auth_email_set}" != "${auth_password_set}" ]; then
+            echo "SERVERLESS_SMOKE_EMAIL and SERVERLESS_SMOKE_PASSWORD must be configured together." >&2
+            exit 1
+          fi
+          if [ "${auth_email_set}" = "true" ]; then
+            export PLAYWRIGHT_SERVERLESS_AUTH_SMOKE=1
+          fi
+
+          pnpm exec playwright test --grep "serverless"

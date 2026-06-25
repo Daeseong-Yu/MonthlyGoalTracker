@@ -27,7 +27,7 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     defaults:
       run:
@@ -47,6 +47,35 @@ jobs:
         run: go test ./...
 
       - name: Build Linux binaries
+        shell: bash
         run: |
+          set -euo pipefail
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-api-linux-amd64 ./cmd/api
           GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-api-linux-arm64 ./cmd/api
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-lambda-linux-arm64 ./cmd/lambda
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-migrate-linux-arm64 ./cmd/migrate
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o /tmp/monthly-goal-audit-linux-arm64 ./cmd/audit
+
+      - name: Build Lambda container images
+        shell: bash
+        run: |
+          set -euo pipefail
+          for app_command in lambda migrate audit; do
+            image_name="monthly-goal-tracker-${app_command}:ci"
+            docker build \
+              --platform linux/arm64 \
+              --build-arg "APP_COMMAND=${app_command}" \
+              -f Dockerfile.lambda \
+              -t "${image_name}" \
+              .
+            image_platform="$(docker image inspect "${image_name}" --format '{{.Os}}/{{.Architecture}}')"
+            if [ "${image_platform}" != "linux/arm64" ]; then
+              echo "Unexpected Lambda image platform for ${app_command}: ${image_platform}" >&2
+              exit 1
+            fi
+            image_command="$(docker image inspect "${image_name}" --format '{{json .Config.Cmd}}')"
+            if [ "${image_command}" != '["bootstrap"]' ]; then
+              echo "Unexpected Lambda image command for ${app_command}." >&2
+              exit 1
+            fi
+          done

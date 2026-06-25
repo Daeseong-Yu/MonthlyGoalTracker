@@ -11,6 +11,11 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 	t.Setenv("APP_HOST", "")
 	t.Setenv("APP_PORT", "")
 	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_SECRET_ARN", "")
+	t.Setenv("DATABASE_HOST", "")
+	t.Setenv("DATABASE_PORT", "")
+	t.Setenv("DATABASE_NAME", "")
+	t.Setenv("DATABASE_SSLMODE", "")
 
 	cfg := Load()
 
@@ -28,6 +33,15 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 
 	if cfg.DatabaseURL != "" {
 		t.Fatalf("expected empty default database URL, got %q", cfg.DatabaseURL)
+	}
+	if cfg.Database.URL != "" {
+		t.Fatalf("expected empty default database config URL, got %q", cfg.Database.URL)
+	}
+	if cfg.Database.WithDefaults().Port != "5432" {
+		t.Fatalf("expected default database port 5432, got %q", cfg.Database.WithDefaults().Port)
+	}
+	if cfg.Database.WithDefaults().SSLMode != "require" {
+		t.Fatalf("expected default database sslmode require, got %q", cfg.Database.WithDefaults().SSLMode)
 	}
 
 	if cfg.Auth.Enabled() {
@@ -64,6 +78,9 @@ func TestLoadUsesDefaultValues(t *testing.T) {
 	if cfg.Email.Enabled() {
 		t.Fatal("expected email config to be disabled by default")
 	}
+	if cfg.Email.WithDefaults().Provider != EmailProviderSMTP {
+		t.Fatalf("expected default email provider %q, got %q", EmailProviderSMTP, cfg.Email.WithDefaults().Provider)
+	}
 	if cfg.Email.SMTPPort != defaultSMTPPort {
 		t.Fatalf("expected default SMTP port %d, got %d", defaultSMTPPort, cfg.Email.SMTPPort)
 	}
@@ -78,6 +95,11 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	t.Setenv("APP_HOST", "localhost")
 	t.Setenv("APP_PORT", "9000")
 	t.Setenv("DATABASE_URL", "test-database-url")
+	t.Setenv("DATABASE_SECRET_ARN", "test-database-secret-arn")
+	t.Setenv("DATABASE_HOST", "db.example.internal")
+	t.Setenv("DATABASE_PORT", "6543")
+	t.Setenv("DATABASE_NAME", "monthly_goal_tracker")
+	t.Setenv("DATABASE_SSLMODE", "verify-full")
 	t.Setenv("APP_BASIC_AUTH_USERNAME", "app-user")
 	t.Setenv("APP_BASIC_AUTH_PASSWORD_HASH", passwordHash)
 	t.Setenv("APP_SESSION_COOKIE_NAME", "session_cookie")
@@ -91,11 +113,13 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	t.Setenv("APP_AUTH_RATE_LIMIT_MAX_BUCKETS", "1234")
 	t.Setenv("APP_EMAIL_VERIFICATION_TTL_HOURS", "48")
 	t.Setenv("APP_PASSWORD_RESET_TTL_HOURS", "2")
+	t.Setenv("APP_EMAIL_PROVIDER", "ses")
 	t.Setenv("APP_EMAIL_FROM", "no-reply@example.com")
 	t.Setenv("APP_SMTP_HOST", "smtp.example.com")
 	t.Setenv("APP_SMTP_PORT", "2525")
 	t.Setenv("APP_SMTP_USERNAME", "smtp-user")
 	t.Setenv("APP_SMTP_PASSWORD", "smtp-password")
+	t.Setenv("APP_SES_REGION", "us-east-1")
 	t.Setenv("APP_EMAIL_VERIFICATION_BASE_URL", "https://app.example.com/verify")
 	t.Setenv("APP_PASSWORD_RESET_BASE_URL", "https://app.example.com/reset-password")
 	t.Setenv("APP_TRUSTED_PROXIES", "127.0.0.1, 10.0.0.0/8")
@@ -116,6 +140,24 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 
 	if cfg.DatabaseURL != "test-database-url" {
 		t.Fatalf("expected database URL from environment, got %q", cfg.DatabaseURL)
+	}
+	if cfg.Database.URL != "test-database-url" {
+		t.Fatalf("expected database config URL from environment, got %q", cfg.Database.URL)
+	}
+	if cfg.Database.SecretARN != "test-database-secret-arn" {
+		t.Fatalf("expected database secret ARN from environment, got %q", cfg.Database.SecretARN)
+	}
+	if cfg.Database.Host != "db.example.internal" {
+		t.Fatalf("expected database host from environment, got %q", cfg.Database.Host)
+	}
+	if cfg.Database.Port != "6543" {
+		t.Fatalf("expected database port from environment, got %q", cfg.Database.Port)
+	}
+	if cfg.Database.Name != "monthly_goal_tracker" {
+		t.Fatalf("expected database name from environment, got %q", cfg.Database.Name)
+	}
+	if cfg.Database.SSLMode != "verify-full" {
+		t.Fatalf("expected database sslmode from environment, got %q", cfg.Database.SSLMode)
 	}
 
 	if cfg.Auth.Username != "app-user" {
@@ -159,6 +201,9 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	if cfg.AuthFlow.PasswordResetTTLHours != 2 {
 		t.Fatalf("expected password reset TTL from environment, got %d", cfg.AuthFlow.PasswordResetTTLHours)
 	}
+	if cfg.Email.Provider != EmailProviderSES {
+		t.Fatalf("expected email provider from environment, got %q", cfg.Email.Provider)
+	}
 	if cfg.Email.From != "no-reply@example.com" {
 		t.Fatalf("expected email from from environment, got %q", cfg.Email.From)
 	}
@@ -173,6 +218,9 @@ func TestLoadUsesEnvironmentValues(t *testing.T) {
 	}
 	if cfg.Email.SMTPPassword != "smtp-password" {
 		t.Fatal("expected SMTP password from environment")
+	}
+	if cfg.Email.SESRegion != "us-east-1" {
+		t.Fatalf("expected SES region from environment, got %q", cfg.Email.SESRegion)
 	}
 	if cfg.Email.VerificationBaseURL != "https://app.example.com/verify" {
 		t.Fatalf("expected verification base URL from environment, got %q", cfg.Email.VerificationBaseURL)
@@ -372,6 +420,20 @@ func TestValidateAllowsCompleteEmailConfig(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsCompleteSESEmailConfig(t *testing.T) {
+	cfg := testConfig()
+	cfg.Email = EmailConfig{
+		Provider:            EmailProviderSES,
+		From:                "no-reply@example.com",
+		SESRegion:           "us-east-1",
+		VerificationBaseURL: "https://app.example.com/verify",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected complete SES email config to be allowed, got %v", err)
+	}
+}
+
 func TestEmailConfigWithDefaultsUsesVerificationURLForPasswordReset(t *testing.T) {
 	cfg := EmailConfig{VerificationBaseURL: "https://app.example.com/verify"}.WithDefaults()
 
@@ -408,6 +470,15 @@ func TestValidateRejectsInvalidEmailConfig(t *testing.T) {
 		name  string
 		email EmailConfig
 	}{
+		{
+			name: "unsupported provider",
+			email: EmailConfig{
+				Provider:            "mailgun",
+				From:                "no-reply@example.com",
+				SESRegion:           "us-east-1",
+				VerificationBaseURL: "https://app.example.com/verify",
+			},
+		},
 		{
 			name: "missing SMTP host",
 			email: EmailConfig{
@@ -481,6 +552,14 @@ func TestValidateRejectsInvalidEmailConfig(t *testing.T) {
 				SMTPHost:             "smtp.example.com",
 				VerificationBaseURL:  "https://app.example.com/verify",
 				PasswordResetBaseURL: "http://app.example.com/reset-password",
+			},
+		},
+		{
+			name: "missing SES region",
+			email: EmailConfig{
+				Provider:            EmailProviderSES,
+				From:                "no-reply@example.com",
+				VerificationBaseURL: "https://app.example.com/verify",
 			},
 		},
 	}

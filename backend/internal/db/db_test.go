@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"gorm.io/gorm"
 )
@@ -76,6 +77,20 @@ func TestConnectUsesContextForPing(t *testing.T) {
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestConfigureConnectionPoolUsesConservativeDefaults(t *testing.T) {
+	database, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("expected sql mock database, got %v", err)
+	}
+	defer database.Close()
+
+	configureConnectionPool(database)
+
+	if got := database.Stats().MaxOpenConnections; got != defaultMaxOpenConnections {
+		t.Fatalf("expected max open connections %d, got %d", defaultMaxOpenConnections, got)
 	}
 }
 
