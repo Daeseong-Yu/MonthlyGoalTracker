@@ -15,6 +15,7 @@ Thumbs.db
 
 # AI agentic workflow
 .ai/
+.agents/
 
 # Logs
 *.log
