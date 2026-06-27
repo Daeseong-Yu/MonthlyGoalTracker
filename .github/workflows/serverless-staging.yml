@@ -245,18 +245,9 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Check CDK bootstrap
+      - name: Check AWS readiness
         shell: bash
-        run: |
-          set -euo pipefail
-          if ! aws ssm get-parameter \
-            --name /cdk-bootstrap/hnb659fds/version \
-            --query 'Parameter.Name' \
-            --output text > /dev/null; then
-            echo "CDK bootstrap is required in the target AWS account and region before serverless deploy." >&2
-            exit 1
-          fi
-          echo "CDK bootstrap is available."
+        run: scripts/check-serverless-aws-readiness.sh
 
       - name: Deploy infra
         working-directory: infra

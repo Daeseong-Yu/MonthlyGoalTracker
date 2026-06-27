@@ -115,6 +115,7 @@ bash -n \
   scripts/verify-serverless-local.sh \
   scripts/check-frontend-dist.sh \
   scripts/check-serverless-aws-readiness.sh \
+  scripts/test-serverless-aws-readiness.sh \
   scripts/check-serverless-staging-readiness.sh \
   scripts/run-serverless-staging-workflow.sh \
   scripts/setup-serverless-staging-environment.sh
@@ -134,9 +135,12 @@ scripts/run-serverless-staging-workflow.sh \
   --run-migration \
   --audit-expected-counts-file "${AUDIT_COUNTS_DRY_RUN_FILE}" >/dev/null
 AWS_REGION=us-east-1 \
+AWS_ROLE_TO_ASSUME=arn:aws:iam::000000000000:role/monthly-goal-tracker-serverless-staging \
 SERVERLESS_EMAIL_FROM=no-reply@example.invalid \
+SERVERLESS_DOMAIN_NAME=serverless.example.invalid \
 SERVERLESS_CERTIFICATE_ARN=arn:aws:acm:us-east-1:000000000000:certificate/example \
   scripts/check-serverless-aws-readiness.sh --dry-run >/dev/null
+scripts/test-serverless-aws-readiness.sh >/dev/null
 
 if command -v actionlint >/dev/null 2>&1; then
   actionlint .github/workflows/*.yml
