@@ -9,3 +9,4 @@ go test ./...
 cd "$ROOT_DIR/frontend"
 pnpm test
 pnpm build
+"$ROOT_DIR/scripts/check-frontend-dist.sh" "$ROOT_DIR/frontend/dist"

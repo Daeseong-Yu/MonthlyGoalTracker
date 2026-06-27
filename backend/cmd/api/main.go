@@ -74,8 +74,13 @@ func runWithDeps(cfg config.Config, deps appDeps, opts runOptions) error {
 	}
 
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), dbConnectTimeout)
+	databaseURL, err := cfg.ResolveDatabaseURL(connectCtx)
+	if err != nil {
+		cancelConnect()
+		return err
+	}
 
-	database, err := deps.connect(connectCtx, cfg.DatabaseURL)
+	database, err := deps.connect(connectCtx, databaseURL)
 	cancelConnect()
 	if err != nil {
 		return err

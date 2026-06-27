@@ -71,6 +71,14 @@ Non-trivial implementation 전에는 다음을 수행한다.
 - 운영 환경 파일은 key 존재 여부만 확인하고 값 전체를 출력하지 않는다.
 - 문서는 한국어를 기본으로 작성하되 code name, API path, command, env var는 영어 원문을 유지한다.
 
+## 커밋 단위 규칙
+
+- Step/task 구현과 검증이 완료되면 다음 작업으로 넘어가기 전에 `git status`, 변경 파일 목록, 필요한 diff 범위를 기준으로 커밋 단위를 빠르게 판단한다.
+- 이 커밋 단위 판단은 full precommit review가 아니라 변경 범위 분류이다.
+- 현재 변경사항이 하나의 커밋 단위라면 자동 커밋하지 말고 다음 작업 시작 전에 사용자에게 커밋 여부를 제안한다.
+- 실제 `git commit` 직전에는 `precommit-security-review` 기준의 보안/운영 리뷰를 수행한다.
+- 이전 step/task 변경사항을 워킹트리에 남긴 채 다음 변경과 섞지 않는다. 한 파일에 여러 step/task 변경이 섞이면 hunk 단위 staging 또는 분리 커밋 필요성을 사용자에게 알린다.
+
 ## 보안 규칙
 
 - Secret을 절대 출력, 기록, commit, 노출하지 않는다.
@@ -112,6 +120,20 @@ git diff --check
 ```
 
 배포 검증은 `.ai/docs/PRODUCTION_DEPLOYMENT_RUNBOOK.md`와 `.ai/docs/SMOKE_TEST_CHECKLIST.md`를 따른다.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default triage label vocabulary is used: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo for engineering skill domain docs. See `docs/agents/domain.md`.
 
 ## Notes
 

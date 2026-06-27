@@ -32,7 +32,7 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	)
 	emailConfig := cfg.Email.WithDefaults()
 	if emailConfig.Enabled() {
-		emailSender := service.NewSMTPVerificationEmailSender(emailConfig)
+		emailSender := newVerificationEmailSender(emailConfig)
 		authService.EnableEmailVerification(
 			repository.NewEmailVerificationRepository(database),
 			emailSender,
@@ -102,6 +102,19 @@ func SetupRouter(database *gorm.DB, cfg config.Config) *gin.Engine {
 	api.PUT("/checks", checkHandler.Set)
 
 	return r
+}
+
+type verificationEmailSender interface {
+	service.VerificationEmailSender
+	service.PasswordResetEmailSender
+}
+
+func newVerificationEmailSender(emailConfig config.EmailConfig) verificationEmailSender {
+	if emailConfig.Provider == config.EmailProviderSES {
+		return service.NewSESVerificationEmailSender(emailConfig)
+	}
+
+	return service.NewSMTPVerificationEmailSender(emailConfig)
 }
 
 func configureTrustedProxies(engine *gin.Engine, trustedProxies []string) {

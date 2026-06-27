@@ -1,0 +1,9 @@
+.env
+.env.*
+*.log
+*.out
+*.test
+coverage.out
+coverage.html
+tmp/
+temp/

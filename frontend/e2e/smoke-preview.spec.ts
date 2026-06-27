@@ -31,10 +31,14 @@ test("anonymous preview keeps changes local and opens login flow", async ({
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: "월간 목표 트래커" }).first(),
+    page.getByText("Monthly Goal Tracker").first(),
   ).toBeVisible();
-  await expect(page.getByText("체험 모드")).toBeVisible();
-  await expect(page.getByText("저장하려면 로그인해야 합니다.")).toBeVisible();
+  await expect(
+    page.getByText(/체험 모드|미리보기 모드|Guest mode|Preview mode/).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/저장하려면 로그인해야 합니다\.|Log in to save\./),
+  ).toBeVisible();
 
   const monthValue = await page.getByLabel("기록할 월").inputValue();
   const firstDayMemoLabel = `${monthValue.slice(5, 7)}.01 메모`;
@@ -42,21 +46,39 @@ test("anonymous preview keeps changes local and opens login flow", async ({
   await memoInput.fill("자동 smoke preview 메모");
   await memoInput.blur();
 
-  await expect(page.getByText("저장하려면 로그인해 주세요")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "로그인하고 저장하기" }),
+    page.getByText(/저장하려면 로그인해 주세요|Log in to save/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /로그인하고 저장하기|Log in to save/ }),
   ).toHaveCount(0);
 
-  await page.getByRole("button", { name: "목표 추가" }).click();
-  await page.getByLabel("새 목표 제목").fill("자동 smoke 목표");
-  await page.getByRole("button", { name: "목표 저장" }).click();
+  const firstGoalTitle = "자동 smoke 목표";
+  await page.getByRole("button", { name: /목표 추가|Add goal/ }).click();
+  const firstGoalStartDate = await page
+    .getByLabel(/새 목표 시작일|New goal start date/)
+    .inputValue();
+  await page.getByLabel(/새 목표 제목|New goal title/).fill(firstGoalTitle);
+  await page.getByRole("button", { name: /목표 저장|Save goal/ }).click();
   await expect(
-    page.getByRole("complementary").getByText("자동 smoke 목표"),
+    page.getByRole("complementary").getByText(firstGoalTitle),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "목표 추가" }).click();
-  await page.getByLabel("새 목표 제목").fill("자동 smoke 두번째 목표");
-  await page.getByRole("button", { name: "목표 저장" }).click();
+  const firstGoalCheckButton = page.getByRole("button", {
+    name: new RegExp(
+      `${escapeRegExp(shortDateLabel(firstGoalStartDate))} ${escapeRegExp(
+        firstGoalTitle,
+      )} (완료|completed)`,
+      "i",
+    ),
+  });
+  await expect(firstGoalCheckButton).toBeEnabled();
+  await firstGoalCheckButton.click();
+  await expect(firstGoalCheckButton).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: /목표 추가|Add goal/ }).click();
+  await page.getByLabel(/새 목표 제목|New goal title/).fill("자동 smoke 두번째 목표");
+  await page.getByRole("button", { name: /목표 저장|Save goal/ }).click();
   await expect(
     page.getByRole("complementary").getByText("자동 smoke 두번째 목표"),
   ).toBeVisible();
@@ -76,12 +98,20 @@ test("anonymous preview keeps changes local and opens login flow", async ({
     page.getByRole("complementary").getByText("자동 smoke 두번째 목표 수정됨"),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "로그인" }).click();
+  await page.getByRole("button", { name: /^로그인$|^Log in$/ }).click();
   await expect(
-    page.getByRole("dialog", { name: "월간 목표 트래커" }),
+    page.getByRole("dialog", { name: /월간 목표 트래커|Monthly Goal Tracker/ }),
   ).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeHidden();
   expect(protectedDataCalls).toEqual([]);
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function shortDateLabel(value: string): string {
+  return value.slice(5).replace("-", ".");
+}

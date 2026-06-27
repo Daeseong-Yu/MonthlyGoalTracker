@@ -21,6 +21,7 @@ var (
 	ErrInvalidAuthFlow    = errors.New("invalid auth flow config")
 	ErrInvalidEmailConfig = errors.New("invalid email config")
 	ErrInvalidProxy       = errors.New("invalid proxy config")
+	ErrInvalidDatabase    = errors.New("invalid database config")
 )
 
 const (
@@ -35,15 +36,47 @@ const (
 	minimumLegacyClaimTokenCharacters = 16
 )
 
+const (
+	EmailProviderSMTP = "smtp"
+	EmailProviderSES  = "ses"
+)
+
 type Config struct {
 	Host           string
 	Port           string
 	DatabaseURL    string
+	Database       DatabaseConfig
 	Auth           BasicAuthConfig
 	Session        SessionConfig
 	AuthFlow       AuthFlowConfig
 	Email          EmailConfig
 	TrustedProxies []string
+}
+
+type DatabaseConfig struct {
+	URL       string
+	SecretARN string
+	Host      string
+	Port      string
+	Name      string
+	SSLMode   string
+}
+
+func (c DatabaseConfig) WithDefaults() DatabaseConfig {
+	c.URL = strings.TrimSpace(c.URL)
+	c.SecretARN = strings.TrimSpace(c.SecretARN)
+	c.Host = strings.TrimSpace(c.Host)
+	c.Port = strings.TrimSpace(c.Port)
+	c.Name = strings.TrimSpace(c.Name)
+	c.SSLMode = strings.TrimSpace(c.SSLMode)
+	if c.Port == "" {
+		c.Port = "5432"
+	}
+	if c.SSLMode == "" {
+		c.SSLMode = "require"
+	}
+
+	return c
 }
 
 type BasicAuthConfig struct {
@@ -111,20 +144,27 @@ func (c AuthFlowConfig) WithDefaults() AuthFlowConfig {
 }
 
 type EmailConfig struct {
+	Provider             string
 	From                 string
 	SMTPHost             string
 	SMTPPort             int
 	SMTPUsername         string
 	SMTPPassword         string
+	SESRegion            string
 	VerificationBaseURL  string
 	PasswordResetBaseURL string
 }
 
 func (c EmailConfig) WithDefaults() EmailConfig {
+	c.Provider = strings.ToLower(strings.TrimSpace(c.Provider))
+	if c.Provider == "" {
+		c.Provider = EmailProviderSMTP
+	}
 	c.From = strings.TrimSpace(c.From)
 	c.SMTPHost = strings.TrimSpace(c.SMTPHost)
 	c.SMTPUsername = strings.TrimSpace(c.SMTPUsername)
 	c.SMTPPassword = strings.TrimSpace(c.SMTPPassword)
+	c.SESRegion = strings.TrimSpace(c.SESRegion)
 	c.VerificationBaseURL = strings.TrimSpace(c.VerificationBaseURL)
 	c.PasswordResetBaseURL = strings.TrimSpace(c.PasswordResetBaseURL)
 	if c.SMTPPort == 0 {
@@ -139,14 +179,30 @@ func (c EmailConfig) WithDefaults() EmailConfig {
 
 func (c EmailConfig) Enabled() bool {
 	cfg := c.WithDefaults()
-	return cfg.From != "" || cfg.SMTPHost != "" || cfg.VerificationBaseURL != "" || cfg.PasswordResetBaseURL != ""
+	return cfg.Provider == EmailProviderSES ||
+		cfg.From != "" ||
+		cfg.SMTPHost != "" ||
+		cfg.SMTPUsername != "" ||
+		cfg.SMTPPassword != "" ||
+		cfg.SESRegion != "" ||
+		cfg.VerificationBaseURL != "" ||
+		cfg.PasswordResetBaseURL != ""
 }
 
 func Load() Config {
+	databaseURL := getEnv("DATABASE_URL", "")
 	return Config{
 		Host:        getEnv("APP_HOST", "127.0.0.1"),
 		Port:        getEnv("APP_PORT", "8080"),
-		DatabaseURL: getEnv("DATABASE_URL", ""),
+		DatabaseURL: databaseURL,
+		Database: DatabaseConfig{
+			URL:       databaseURL,
+			SecretARN: getEnv("DATABASE_SECRET_ARN", ""),
+			Host:      getEnv("DATABASE_HOST", ""),
+			Port:      getEnv("DATABASE_PORT", ""),
+			Name:      getEnv("DATABASE_NAME", ""),
+			SSLMode:   getEnv("DATABASE_SSLMODE", ""),
+		},
 		Auth: BasicAuthConfig{
 			Username:     getEnv("APP_BASIC_AUTH_USERNAME", ""),
 			PasswordHash: getEnv("APP_BASIC_AUTH_PASSWORD_HASH", ""),
@@ -167,11 +223,13 @@ func Load() Config {
 			PasswordResetTTLHours:     getEnvInt("APP_PASSWORD_RESET_TTL_HOURS", defaultPasswordResetTTLHours),
 		},
 		Email: EmailConfig{
+			Provider:             getEnv("APP_EMAIL_PROVIDER", ""),
 			From:                 getEnv("APP_EMAIL_FROM", ""),
 			SMTPHost:             getEnv("APP_SMTP_HOST", ""),
 			SMTPPort:             getEnvInt("APP_SMTP_PORT", defaultSMTPPort),
 			SMTPUsername:         getEnv("APP_SMTP_USERNAME", ""),
 			SMTPPassword:         getEnv("APP_SMTP_PASSWORD", ""),
+			SESRegion:            getEnv("APP_SES_REGION", ""),
 			VerificationBaseURL:  getEnv("APP_EMAIL_VERIFICATION_BASE_URL", ""),
 			PasswordResetBaseURL: getEnv("APP_PASSWORD_RESET_BASE_URL", ""),
 		},
@@ -279,22 +337,21 @@ func (c AuthFlowConfig) Validate() error {
 
 func (c EmailConfig) Validate() error {
 	cfg := c.WithDefaults()
-	configured := cfg.Enabled() || cfg.SMTPUsername != "" || cfg.SMTPPassword != ""
-	if !configured {
+	if !cfg.Enabled() {
 		return nil
 	}
 
-	if cfg.From == "" || cfg.SMTPHost == "" || cfg.VerificationBaseURL == "" {
-		return fmt.Errorf("%w: APP_EMAIL_FROM, APP_SMTP_HOST, and APP_EMAIL_VERIFICATION_BASE_URL must be set together", ErrInvalidEmailConfig)
+	switch cfg.Provider {
+	case EmailProviderSMTP, EmailProviderSES:
+	default:
+		return fmt.Errorf("%w: APP_EMAIL_PROVIDER must be smtp or ses", ErrInvalidEmailConfig)
+	}
+
+	if cfg.From == "" || cfg.VerificationBaseURL == "" {
+		return fmt.Errorf("%w: APP_EMAIL_FROM and APP_EMAIL_VERIFICATION_BASE_URL must be set together", ErrInvalidEmailConfig)
 	}
 	if _, err := mail.ParseAddress(cfg.From); err != nil {
 		return fmt.Errorf("%w: APP_EMAIL_FROM must be a valid email address", ErrInvalidEmailConfig)
-	}
-	if cfg.SMTPPort <= 0 {
-		return fmt.Errorf("%w: APP_SMTP_PORT must be positive", ErrInvalidEmailConfig)
-	}
-	if (cfg.SMTPUsername == "") != (cfg.SMTPPassword == "") {
-		return fmt.Errorf("%w: APP_SMTP_USERNAME and APP_SMTP_PASSWORD must be set together", ErrInvalidEmailConfig)
 	}
 
 	if err := validateEmailActionBaseURL("APP_EMAIL_VERIFICATION_BASE_URL", cfg.VerificationBaseURL); err != nil {
@@ -302,6 +359,23 @@ func (c EmailConfig) Validate() error {
 	}
 	if err := validateEmailActionBaseURL("APP_PASSWORD_RESET_BASE_URL", cfg.PasswordResetBaseURL); err != nil {
 		return err
+	}
+
+	if cfg.Provider == EmailProviderSES {
+		if cfg.SESRegion == "" {
+			return fmt.Errorf("%w: APP_SES_REGION is required when APP_EMAIL_PROVIDER=ses", ErrInvalidEmailConfig)
+		}
+		return nil
+	}
+
+	if cfg.SMTPHost == "" {
+		return fmt.Errorf("%w: APP_SMTP_HOST is required when APP_EMAIL_PROVIDER=smtp", ErrInvalidEmailConfig)
+	}
+	if cfg.SMTPPort <= 0 {
+		return fmt.Errorf("%w: APP_SMTP_PORT must be positive", ErrInvalidEmailConfig)
+	}
+	if (cfg.SMTPUsername == "") != (cfg.SMTPPassword == "") {
+		return fmt.Errorf("%w: APP_SMTP_USERNAME and APP_SMTP_PASSWORD must be set together", ErrInvalidEmailConfig)
 	}
 
 	return nil

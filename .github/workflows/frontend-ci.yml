@@ -13,6 +13,7 @@ on:
       - frontend/**
       - .github/workflows/frontend-ci.yml
       - .github/workflows/deploy.yml
+      - scripts/check-frontend-dist.sh
       - scripts/verify.sh
   workflow_dispatch:
 
@@ -27,7 +28,7 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -53,3 +54,15 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Check frontend artifact
+        run: ../scripts/check-frontend-dist.sh dist
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Smoke test frontend artifact
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
+          PLAYWRIGHT_WEB_SERVER_COMMAND: pnpm preview --host 127.0.0.1 --port 4173
+        run: pnpm exec playwright test e2e/smoke-preview.spec.ts
