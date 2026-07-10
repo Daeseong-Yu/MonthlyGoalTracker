@@ -9,6 +9,7 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
@@ -45,33 +46,25 @@ export class ServerlessAppStack extends Stack {
     const lambdaSecurityGroup = new ec2.SecurityGroup(this, "ApiLambdaSecurityGroup", {
       vpc,
       allowAllOutbound: false,
-      description: "Restricted outbound access for the Monthly Goal Tracker API Lambda.",
+      description: "Restricted outbound access for Monthly Goal Tracker Lambda workloads.",
     });
 
     const databaseSecurityGroup = new ec2.SecurityGroup(this, "DatabaseSecurityGroup", {
       vpc,
       allowAllOutbound: false,
-      description: "Inbound PostgreSQL access from RDS Proxy only.",
-    });
-
-    const proxySecurityGroup = new ec2.SecurityGroup(this, "DatabaseProxySecurityGroup", {
-      vpc,
-      allowAllOutbound: false,
-      description: "RDS Proxy access between API Lambda and PostgreSQL.",
+      description: "Inbound PostgreSQL access from private Lambda workloads only.",
     });
 
     const endpointSecurityGroup = new ec2.SecurityGroup(this, "EndpointSecurityGroup", {
       vpc,
       allowAllOutbound: false,
-      description: "Interface VPC endpoint access from API Lambda only.",
+      description: "Interface VPC endpoint access from private Lambda workloads only.",
     });
 
-    proxySecurityGroup.addIngressRule(lambdaSecurityGroup, ec2.Port.tcp(5432), "Allow API Lambda to connect to RDS Proxy.");
-    lambdaSecurityGroup.addEgressRule(proxySecurityGroup, ec2.Port.tcp(5432), "Allow API Lambda to connect to RDS Proxy.");
-    databaseSecurityGroup.addIngressRule(proxySecurityGroup, ec2.Port.tcp(5432), "Allow RDS Proxy to connect to PostgreSQL.");
-    proxySecurityGroup.addEgressRule(databaseSecurityGroup, ec2.Port.tcp(5432), "Allow RDS Proxy to connect to PostgreSQL.");
-    endpointSecurityGroup.addIngressRule(lambdaSecurityGroup, ec2.Port.tcp(443), "Allow API Lambda to call AWS APIs through VPC endpoints.");
-    lambdaSecurityGroup.addEgressRule(endpointSecurityGroup, ec2.Port.tcp(443), "Allow API Lambda to call AWS APIs through VPC endpoints.");
+    databaseSecurityGroup.addIngressRule(lambdaSecurityGroup, ec2.Port.tcp(5432), "Allow private Lambda workloads to connect to PostgreSQL.");
+    lambdaSecurityGroup.addEgressRule(databaseSecurityGroup, ec2.Port.tcp(5432), "Allow private Lambda workloads to connect to PostgreSQL.");
+    endpointSecurityGroup.addIngressRule(lambdaSecurityGroup, ec2.Port.tcp(443), "Allow private Lambda workloads to call AWS APIs through VPC endpoints.");
+    lambdaSecurityGroup.addEgressRule(endpointSecurityGroup, ec2.Port.tcp(443), "Allow private Lambda workloads to call AWS APIs through VPC endpoints.");
 
     vpc.addInterfaceEndpoint("SecretsManagerEndpoint", {
       service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
@@ -109,7 +102,6 @@ export class ServerlessAppStack extends Stack {
       credentials: rds.Credentials.fromSecret(databaseCredentials),
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
       allocatedStorage: 20,
-      maxAllocatedStorage: 100,
       backupRetention: Duration.days(stageConfig.backupRetentionDays),
       deletionProtection: stageConfig.deletionProtection,
       multiAz: false,
@@ -118,14 +110,17 @@ export class ServerlessAppStack extends Stack {
       removalPolicy: removalPolicyFor(stageConfig),
     });
 
-    const databaseProxy = new rds.DatabaseProxy(this, "DatabaseProxy", {
-      proxyTarget: rds.ProxyTarget.fromInstance(database),
-      secrets: [databaseCredentials],
-      vpc,
-      securityGroups: [proxySecurityGroup],
-      dbProxyName: `mgt-${stageConfig.stage}-postgres-proxy`,
-      requireTLS: true,
-      debugLogging: false,
+    const apiLogGroup = new logs.LogGroup(this, "ApiLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: removalPolicyFor(stageConfig),
+    });
+    const migrationLogGroup = new logs.LogGroup(this, "MigrationLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: removalPolicyFor(stageConfig),
+    });
+    const auditLogGroup = new logs.LogGroup(this, "AuditLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: removalPolicyFor(stageConfig),
     });
 
     const apiFunction = new lambda.DockerImageFunction(this, "ApiFunction", {
@@ -139,6 +134,8 @@ export class ServerlessAppStack extends Stack {
       architecture: lambda.Architecture.ARM_64,
       memorySize: 512,
       timeout: Duration.seconds(15),
+      reservedConcurrentExecutions: 4,
+      logGroup: apiLogGroup,
       vpc,
       vpcSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
@@ -159,7 +156,7 @@ export class ServerlessAppStack extends Stack {
         APP_SESSION_TTL_HOURS: "720",
         APP_SES_REGION: stageConfig.awsRegion,
         APP_SIGNUP_RATE_LIMIT_PER_MINUTE: "5",
-        DATABASE_HOST: databaseProxy.endpoint,
+        DATABASE_HOST: database.instanceEndpoint.hostname,
         DATABASE_NAME: "monthly_goal_tracker",
         DATABASE_SECRET_ARN: databaseCredentials.secretArn,
         DATABASE_SSLMODE: "require",
@@ -177,13 +174,15 @@ export class ServerlessAppStack extends Stack {
       architecture: lambda.Architecture.ARM_64,
       memorySize: 512,
       timeout: Duration.seconds(120),
+      reservedConcurrentExecutions: 1,
+      logGroup: migrationLogGroup,
       vpc,
       vpcSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
       securityGroups: [lambdaSecurityGroup],
       environment: {
-        DATABASE_HOST: databaseProxy.endpoint,
+        DATABASE_HOST: database.instanceEndpoint.hostname,
         DATABASE_NAME: "monthly_goal_tracker",
         DATABASE_SECRET_ARN: databaseCredentials.secretArn,
         DATABASE_SSLMODE: "require",
@@ -203,13 +202,15 @@ export class ServerlessAppStack extends Stack {
       architecture: lambda.Architecture.ARM_64,
       memorySize: 512,
       timeout: Duration.seconds(60),
+      reservedConcurrentExecutions: 1,
+      logGroup: auditLogGroup,
       vpc,
       vpcSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
       securityGroups: [lambdaSecurityGroup],
       environment: {
-        DATABASE_HOST: databaseProxy.endpoint,
+        DATABASE_HOST: database.instanceEndpoint.hostname,
         DATABASE_NAME: "monthly_goal_tracker",
         DATABASE_SECRET_ARN: databaseCredentials.secretArn,
         DATABASE_SSLMODE: "require",
@@ -244,8 +245,8 @@ export class ServerlessAppStack extends Stack {
       stageName: "$default",
       autoDeploy: true,
       throttle: {
-        burstLimit: 100,
-        rateLimit: 50,
+        burstLimit: 20,
+        rateLimit: 10,
       },
     });
 
@@ -320,7 +321,7 @@ function handler(event) {
     });
 
     new CfnOutput(this, "TargetArchitecture", {
-      value: "CloudFront/S3 frontend, API Gateway HTTP API, Go Lambda, RDS Proxy, RDS PostgreSQL, Secrets Manager, SES",
+      value: "CloudFront/S3 frontend, API Gateway HTTP API, Go Lambda, direct RDS PostgreSQL, Secrets Manager, SES",
       description: "Approved target architecture baseline.",
     });
 
@@ -344,9 +345,9 @@ function handler(event) {
       description: "PostgreSQL engine family used by the serverless migration.",
     });
 
-    new CfnOutput(this, "DatabaseProxyEnabled", {
-      value: "true",
-      description: "RDS Proxy logical deployment name for Lambda database access.",
+    new CfnOutput(this, "DatabaseConnectionMode", {
+      value: "direct-rds",
+      description: "Lambda connects directly to private RDS PostgreSQL with bounded concurrency.",
     });
 
     new CfnOutput(this, "HttpApiEnabled", {

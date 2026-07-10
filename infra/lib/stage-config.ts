@@ -18,7 +18,7 @@ const stageConfigs: Record<DeploymentStage, StageConfig> = {
   staging: {
     stage: "staging",
     awsRegion: "us-east-1",
-    backupRetentionDays: 3,
+    backupRetentionDays: 1,
     deletionProtection: false,
     removalPolicy: "destroy",
     emailFrom: "no-reply@example.invalid",
