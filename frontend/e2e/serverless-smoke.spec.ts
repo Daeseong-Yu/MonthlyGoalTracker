@@ -65,7 +65,9 @@ test.describe("serverless deployed smoke", () => {
     await memoInput.blur();
 
     await expect(
-      page.getByText(/저장하려면 로그인해 주세요|Log in to save/),
+      page
+        .getByRole("status")
+        .filter({ hasText: /저장하려면 로그인해 주세요|Log in to save/ }),
     ).toBeVisible();
 
     const goalTitle = "serverless smoke preview goal";
