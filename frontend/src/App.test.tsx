@@ -294,7 +294,11 @@ describe("App", () => {
       "email already exists",
       "회원가입에 실패했습니다. 이메일 또는 비밀번호를 확인해 주세요.",
     ],
-    [400, "weak password", "비밀번호는 8자 이상이어야 합니다."],
+    [
+      400,
+      "weak password",
+      "비밀번호는 8자 이상, UTF-8 기준 72바이트 이하여야 합니다.",
+    ],
     [
       409,
       "legacy claim required",
@@ -338,6 +342,44 @@ describe("App", () => {
       ).toBe(true);
     },
   );
+
+  it("reveals the legacy claim token only after the server requires it", async () => {
+    const monthViewApiHandler = createMonthViewApiHandler();
+    stubFetch(
+      (input) => {
+        if (requestPath(input) === "/api/auth/signup") {
+          return jsonErrorResponse(409, "legacy claim required");
+        }
+
+        return monthViewApiHandler(input);
+      },
+      {
+        bootstrap: {
+          authenticated: false,
+          locale: "en",
+          user: null,
+        },
+      },
+    );
+
+    renderApp(<App />);
+
+    await waitForText("Preview mode");
+    await clickButton("Log in");
+    await clickButton("Sign up tab");
+    expect(
+      document.querySelector('input[aria-label="Existing data claim token"]'),
+    ).toBeNull();
+
+    await setInputValue("Email", "person@example.com");
+    await setInputValue("Password", "secret123");
+    await submitForm();
+
+    await waitForText("Existing data needs a claim token.");
+    expect(
+      document.querySelector('input[aria-label="Existing data claim token"]'),
+    ).not.toBeNull();
+  });
 
   it("shows signup verification feedback without opening a session", async () => {
     const monthViewApiHandler = createMonthViewApiHandler();

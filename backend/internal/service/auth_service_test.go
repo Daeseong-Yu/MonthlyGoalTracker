@@ -3,12 +3,59 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"gorm.io/gorm"
 )
+
+func TestAuthServiceSignUpRejectsPasswordBeyondBcryptLimitAsInputError(t *testing.T) {
+	users := &fakeAuthUserRepository{}
+	authService := NewAuthService(users, &fakeAuthSessionRepository{}, time.Hour, "")
+
+	result, err := authService.SignUp(
+		context.Background(),
+		"owner@example.com",
+		strings.Repeat("a", 73),
+		"en",
+		"",
+	)
+
+	if result != nil {
+		t.Fatal("expected nil signup result")
+	}
+	if !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("expected ErrWeakPassword, got %v", err)
+	}
+	if users.findByEmailCalled || users.createCalled {
+		t.Fatal("expected invalid password to stop before repository access")
+	}
+}
+
+func TestAuthServiceSignUpRequiresEightPasswordCharacters(t *testing.T) {
+	users := &fakeAuthUserRepository{}
+	authService := NewAuthService(users, &fakeAuthSessionRepository{}, time.Hour, "")
+
+	result, err := authService.SignUp(
+		context.Background(),
+		"owner@example.com",
+		"가나다",
+		"ko",
+		"",
+	)
+
+	if result != nil {
+		t.Fatal("expected nil signup result")
+	}
+	if !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("expected ErrWeakPassword, got %v", err)
+	}
+	if users.findByEmailCalled || users.createCalled {
+		t.Fatal("expected invalid password to stop before repository access")
+	}
+}
 
 func TestAuthServiceSignUpDoesNotClaimLegacyDataWithoutToken(t *testing.T) {
 	users := &fakeAuthUserRepository{findByEmailErr: gorm.ErrRecordNotFound}
