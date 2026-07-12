@@ -329,6 +329,7 @@ function AuthScreen({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [legacyClaimToken, setLegacyClaimToken] = useState("");
+  const [legacyClaimRequired, setLegacyClaimRequired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -345,6 +346,7 @@ function AuthScreen({
     setEmail("");
     setPassword("");
     setLegacyClaimToken("");
+    setLegacyClaimRequired(false);
     setError(null);
     setStatus(null);
   }, [passwordResetToken]);
@@ -373,6 +375,7 @@ function AuthScreen({
     setStatus(null);
     setPassword("");
     setLegacyClaimToken("");
+    setLegacyClaimRequired(false);
   }
 
   function returnToLogin() {
@@ -432,7 +435,15 @@ function AuthScreen({
       setStatus(authMessages.signupAccepted);
       setPassword("");
       setLegacyClaimToken("");
+      setLegacyClaimRequired(false);
     } catch (error) {
+      if (
+        mode === "signup" &&
+        isAPIError(error) &&
+        error.code === "legacy claim required"
+      ) {
+        setLegacyClaimRequired(true);
+      }
       setError(authErrorMessage(error, mode, authMessages));
     } finally {
       setBusy(false);
@@ -553,7 +564,7 @@ function AuthScreen({
                 />
               </label>
             ) : null}
-            {mode === "signup" ? (
+            {mode === "signup" && legacyClaimRequired ? (
               <label className="block text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
                 <span>{authMessages.legacyClaimTokenLabel}</span>
                 <input

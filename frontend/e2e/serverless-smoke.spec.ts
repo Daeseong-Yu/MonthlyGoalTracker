@@ -47,13 +47,11 @@ test.describe("serverless deployed smoke", () => {
 
     await page.goto("/");
 
+    await expect(page.getByText("Monthly Goal Tracker").first()).toBeVisible();
     await expect(
-      page.getByRole("heading", {
-        name: /월간 목표 트래커|Monthly Goal Tracker/,
-      }).first(),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/체험 모드|미리보기 모드|Guest mode|Preview mode/),
+      page
+        .getByText(/체험 모드|미리보기 모드|Guest mode|Preview mode/)
+        .first(),
     ).toBeVisible();
 
     const monthValue = await page
@@ -67,7 +65,9 @@ test.describe("serverless deployed smoke", () => {
     await memoInput.blur();
 
     await expect(
-      page.getByText(/저장하려면 로그인해 주세요|Log in to save/),
+      page
+        .getByRole("status")
+        .filter({ hasText: /저장하려면 로그인해 주세요|Log in to save/ }),
     ).toBeVisible();
 
     const goalTitle = "serverless smoke preview goal";

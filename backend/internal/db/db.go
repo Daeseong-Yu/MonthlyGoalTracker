@@ -22,9 +22,10 @@ var (
 )
 
 const (
-	defaultMaxOpenConnections = 5
-	defaultMaxIdleConnections = 2
-	defaultConnectionLifetime = 30 * time.Minute
+	defaultMaxOpenConnections = 1
+	defaultMaxIdleConnections = 1
+	defaultConnectionIdleTime = time.Minute
+	defaultConnectionLifetime = 5 * time.Minute
 )
 
 func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
@@ -56,6 +57,7 @@ func Connect(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 func configureConnectionPool(database *sql.DB) {
 	database.SetMaxOpenConns(defaultMaxOpenConnections)
 	database.SetMaxIdleConns(defaultMaxIdleConnections)
+	database.SetConnMaxIdleTime(defaultConnectionIdleTime)
 	database.SetConnMaxLifetime(defaultConnectionLifetime)
 }
 

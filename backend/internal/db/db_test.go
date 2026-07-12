@@ -80,7 +80,7 @@ func TestConnectUsesContextForPing(t *testing.T) {
 	}
 }
 
-func TestConfigureConnectionPoolUsesConservativeDefaults(t *testing.T) {
+func TestConfigureConnectionPoolLimitsDirectRDSConnections(t *testing.T) {
 	database, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("expected sql mock database, got %v", err)
@@ -89,8 +89,17 @@ func TestConfigureConnectionPoolUsesConservativeDefaults(t *testing.T) {
 
 	configureConnectionPool(database)
 
-	if got := database.Stats().MaxOpenConnections; got != defaultMaxOpenConnections {
-		t.Fatalf("expected max open connections %d, got %d", defaultMaxOpenConnections, got)
+	if got := database.Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("expected max open connections 1, got %d", got)
+	}
+	if got := defaultMaxIdleConnections; got != 1 {
+		t.Fatalf("expected max idle connections 1, got %d", got)
+	}
+	if got := defaultConnectionIdleTime; got != time.Minute {
+		t.Fatalf("expected connection idle time %s, got %s", time.Minute, got)
+	}
+	if got := defaultConnectionLifetime; got != 5*time.Minute {
+		t.Fatalf("expected connection lifetime %s, got %s", 5*time.Minute, got)
 	}
 }
 

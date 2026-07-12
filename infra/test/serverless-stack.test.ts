@@ -22,7 +22,7 @@ type CloudFormationTemplate = {
 const stagingConfig: StageConfig = {
   stage: "staging",
   awsRegion: "us-east-1",
-  backupRetentionDays: 3,
+  backupRetentionDays: 1,
   deletionProtection: false,
   removalPolicy: "destroy",
   emailFrom: "no-reply@example.invalid",
@@ -50,9 +50,11 @@ run("staging template preserves serverless routing and runtime boundaries", () =
 
   assertExplicitApiContractRoutes(template);
   assertLambdaDatabaseSecretResolution(template);
+  assertDirectRdsConnectionBoundary(template);
   assertApiLambdaApplicationConfiguration(template, stagingConfig);
   assertLambdaIamPermissions(template, stagingConfig);
   assertPrivateMigrationAndAuditFunctions(template);
+  assertStagingRequestAndLogLimits(template);
   assertCloudFrontSiteBoundary(template);
   assertVpcAwsApiEndpoints(template);
   assertPrivateNetworkBoundary(template);
@@ -66,11 +68,13 @@ run("stage lifecycle policies separate staging and production", () => {
     deletionProtection: false,
     deletionPolicy: "Delete",
     updateReplacePolicy: "Delete",
+    backupRetentionDays: 1,
   });
   assertDatabaseLifecycle(productionTemplate, {
     deletionProtection: true,
     deletionPolicy: "Retain",
     updateReplacePolicy: "Retain",
+    backupRetentionDays: 7,
   });
 });
 
@@ -187,7 +191,28 @@ function assertLambdaDatabaseSecretResolution(template: CloudFormationTemplate):
     assert.ok(Object.hasOwn(variables, "DATABASE_HOST"));
     assert.ok(Object.hasOwn(variables, "DATABASE_NAME"));
     assert.equal(variables.DATABASE_SSLMODE, "require");
+    assert.ok(JSON.stringify(variables.DATABASE_HOST).includes("Database"));
+    assert.ok(!JSON.stringify(variables.DATABASE_HOST).includes("Proxy"));
   }
+}
+
+function assertDirectRdsConnectionBoundary(template: CloudFormationTemplate): void {
+  assert.equal(resourcesOfType(template, "AWS::RDS::DBProxy").length, 0);
+  assert.ok(!JSON.stringify(template).includes("DatabaseProxy"));
+
+  const databases = resourcesOfType(template, "AWS::RDS::DBInstance");
+  assert.equal(databases.length, 1);
+  assert.equal(databases[0].Properties?.AllocatedStorage, "20");
+  assert.ok(!Object.hasOwn(databases[0].Properties ?? {}, "MaxAllocatedStorage"));
+
+  const postgresIngress = resourcesOfType(template, "AWS::EC2::SecurityGroupIngress").filter((rule) => {
+    return rule.Properties?.FromPort === 5432 && rule.Properties?.ToPort === 5432;
+  });
+  assert.equal(postgresIngress.length, 1);
+
+  const directDatabaseRule = JSON.stringify(postgresIngress[0].Properties);
+  assert.ok(directDatabaseRule.includes("ApiLambdaSecurityGroup"));
+  assert.ok(directDatabaseRule.includes("DatabaseSecurityGroup"));
 }
 
 function assertApiLambdaApplicationConfiguration(template: CloudFormationTemplate, stageConfig: StageConfig): void {
@@ -215,7 +240,6 @@ function assertLambdaIamPermissions(template: CloudFormationTemplate, stageConfi
   assertSecretReadPolicy(policies, "ApiFunctionServiceRoleDefaultPolicy");
   assertSecretReadPolicy(policies, "MigrationFunctionServiceRoleDefaultPolicy");
   assertSecretReadPolicy(policies, "AuditFunctionServiceRoleDefaultPolicy");
-  assertSecretReadPolicy(policies, "DatabaseProxyIAMRoleDefaultPolicy");
 
   const apiPolicy = policyByLogicalIdPrefix(policies, "ApiFunctionServiceRoleDefaultPolicy");
   const sesStatement = policyStatements(apiPolicy).find((statement) =>
@@ -230,6 +254,33 @@ function assertLambdaIamPermissions(template: CloudFormationTemplate, stageConfi
   const sesResource = JSON.stringify(propertyValue(sesStatement, "Resource"));
   assert.ok(sesResource.includes(`:ses:${stageConfig.awsRegion}:`));
   assert.ok(sesResource.includes(":identity/*"));
+}
+
+function assertStagingRequestAndLogLimits(template: CloudFormationTemplate): void {
+  const apiFunction = resourcesOfType(template, "AWS::Lambda::Function").find((lambdaFunction) => {
+    return environmentVariables(lambdaFunction).APP_EMAIL_PROVIDER === "ses";
+  });
+  assert.ok(apiFunction);
+  assert.equal(apiFunction.Properties?.ReservedConcurrentExecutions, 4);
+  assert.equal(template.Resources?.MigrationFunction?.Properties?.ReservedConcurrentExecutions, 1);
+  assert.equal(template.Resources?.AuditFunction?.Properties?.ReservedConcurrentExecutions, 1);
+  for (const lambdaFunction of resourcesOfType(template, "AWS::Lambda::Function")) {
+    assert.ok(objectProperty(lambdaFunction, "LoggingConfig").LogGroup);
+  }
+
+  const apiStage = resourcesOfType(template, "AWS::ApiGatewayV2::Stage").find((stage) => {
+    return stage.Properties?.StageName === "$default";
+  });
+  assert.ok(apiStage);
+  const routeSettings = objectProperty(apiStage, "DefaultRouteSettings");
+  assert.equal(routeSettings.ThrottlingBurstLimit, 20);
+  assert.equal(routeSettings.ThrottlingRateLimit, 10);
+
+  const logGroups = resourcesOfType(template, "AWS::Logs::LogGroup");
+  assert.equal(logGroups.length, 3);
+  for (const logGroup of logGroups) {
+    assert.equal(logGroup.Properties?.RetentionInDays, 7);
+  }
 }
 
 function assertSecretReadPolicy(
@@ -393,6 +444,7 @@ function assertDatabaseLifecycle(
     readonly deletionProtection: boolean;
     readonly deletionPolicy: string;
     readonly updateReplacePolicy: string;
+    readonly backupRetentionDays: number;
   },
 ): void {
   const databases = resourcesOfType(template, "AWS::RDS::DBInstance");
@@ -402,6 +454,7 @@ function assertDatabaseLifecycle(
   assert.equal(database.Properties?.DeletionProtection, expected.deletionProtection);
   assert.equal(database.DeletionPolicy, expected.deletionPolicy);
   assert.equal(database.UpdateReplacePolicy, expected.updateReplacePolicy);
+  assert.equal(database.Properties?.BackupRetentionPeriod, expected.backupRetentionDays);
 }
 
 function environmentVariables(lambdaFunction: CloudFormationResource): Record<string, unknown> {

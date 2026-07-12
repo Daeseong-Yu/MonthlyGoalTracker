@@ -11,6 +11,7 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Daeseong-Yu/MonthlyGoalTracker/backend/internal/domain"
 	"golang.org/x/crypto/bcrypt"
@@ -31,7 +32,10 @@ var (
 	ErrLegacyClaimRequired       = domain.ErrLegacyClaimRequired
 )
 
-const minPasswordLength = 8
+const (
+	minPasswordCharacters = 8
+	maxPasswordBytes      = 72
+)
 
 type AuthUserRepository interface {
 	CreateWithPassword(ctx context.Context, email, passwordHash, locale string, claimLegacy bool, emailVerifiedAt *time.Time) (*domain.User, error)
@@ -140,8 +144,8 @@ func (s *AuthService) SignUp(ctx context.Context, email, password, locale, legac
 	if err != nil {
 		return nil, err
 	}
-	if len(password) < minPasswordLength {
-		return nil, ErrWeakPassword
+	if err := validatePassword(password); err != nil {
+		return nil, err
 	}
 	normalizedLocale, err := NormalizeLocale(locale)
 	if err != nil {
@@ -217,6 +221,14 @@ func bcryptHashPassword(password string) (string, error) {
 	}
 
 	return string(passwordHash), nil
+}
+
+func validatePassword(password string) error {
+	if utf8.RuneCountInString(password) < minPasswordCharacters || len(password) > maxPasswordBytes {
+		return ErrWeakPassword
+	}
+
+	return nil
 }
 
 func (s *AuthService) shouldClaimLegacy(legacyClaimToken string) (bool, error) {
@@ -299,8 +311,8 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, password string)
 	if !s.passwordResetEnabled() || strings.TrimSpace(token) == "" {
 		return nil, ErrInvalidPasswordResetToken
 	}
-	if len(password) < minPasswordLength {
-		return nil, ErrWeakPassword
+	if err := validatePassword(password); err != nil {
+		return nil, err
 	}
 
 	passwordHash, err := s.hashPassword(password)
@@ -323,8 +335,8 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, password string)
 }
 
 func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPassword, newPassword string) (*AuthResult, error) {
-	if len(newPassword) < minPasswordLength {
-		return nil, ErrWeakPassword
+	if err := validatePassword(newPassword); err != nil {
+		return nil, err
 	}
 
 	user, err := s.users.FindByID(ctx, userID)
