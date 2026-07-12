@@ -16,7 +16,8 @@ developer
   -> Backend CI / Frontend CI
   -> Pull Request: develop -> main
   -> main merge
-  -> Deploy workflow
+  -> explicit deployment approval
+  -> manual Deploy workflow
   -> GitHub OIDC role
   -> S3 release artifacts
   -> SSM Run Command
@@ -151,14 +152,19 @@ gh pr merge <PR_NUMBER> --merge
 `main` 직접 push는 repository rule로 막혀 있어야 합니다. 이 제약은 의도된
 운영 정책입니다.
 
-### 3. production Deploy workflow 확인
+### 3. production Deploy workflow 수동 실행 및 확인
 
-PR merge 후 `main` push event로 `Deploy` workflow가 실행됩니다.
+PR merge는 `Deploy` workflow를 자동 실행하지 않습니다. Legacy EC2 배포가
+명시적으로 승인된 경우에만 `main`에서 component를 선택해 수동 실행합니다.
 
 ```bash
+gh workflow run Deploy --ref main -f component=<all|backend|frontend>
 gh run list --branch main --limit 8
 gh run watch <DEPLOY_RUN_ID> --exit-status
 ```
+
+이 workflow는 serverless production launch 경로가 아니며, serverless launch의
+fallback으로 자동 실행하지 않습니다.
 
 기대 job 순서:
 

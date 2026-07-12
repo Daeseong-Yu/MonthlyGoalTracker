@@ -184,15 +184,20 @@ production deployment.
   `frontend/**`, the frontend workflow, the deploy workflow, or
   `scripts/verify.sh` changes on `feature/**` or `develop`, and on PRs to
   `develop` or `main`.
-- `deploy.yml`: runs on `main` pushes and deploys only the changed component.
-  Manual dispatch can deploy `all`, `backend`, or `frontend`. Deploy script
-  changes and deploy workflow changes also trigger production deployment.
+- `deploy.yml`: retains the legacy EC2/SSM deployment path for explicit manual
+  dispatch from `main`. It does not run automatically after a merge. Manual
+  dispatch can deploy `all`, `backend`, or `frontend` and requires separate
+  deployment approval and a production-scoped OIDC role.
 
 Recommended branch flow:
 
 ```text
-feature/* -> develop -> main -> production deploy
+feature/* -> develop -> main -> separately approved manual deployment
 ```
+
+The legacy EC2 workflow is not the serverless production launch path. Do not
+enable or run it as a fallback for the serverless launch without a separate
+operational decision.
 
 Configure GitHub Actions variables before enabling production deployment:
 
