@@ -8,6 +8,7 @@ on:
     paths:
       - infra/**
       - .github/workflows/infra-ci.yml
+      - .github/workflows/deploy.yml
       - .github/workflows/serverless-staging.yml
   push:
     branches:
@@ -16,6 +17,7 @@ on:
     paths:
       - infra/**
       - .github/workflows/infra-ci.yml
+      - .github/workflows/deploy.yml
       - .github/workflows/serverless-staging.yml
   workflow_dispatch:
 
