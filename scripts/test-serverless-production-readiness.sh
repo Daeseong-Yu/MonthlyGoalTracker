@@ -7,6 +7,18 @@ valid_prepare_role="arn:aws:iam::000000000000:role/monthly-goal-tracker-serverle
 valid_migrate_role="arn:aws:iam::000000000000:role/monthly-goal-tracker-serverless-production-migrate"
 valid_certificate="arn:aws:acm:us-east-1:000000000000:certificate/example"
 
+# Deployment workflows define these at job scope; each test case supplies its own values.
+unset \
+  AWS_REGION \
+  AWS_ROLE_TO_ASSUME \
+  SERVERLESS_EMAIL_FROM \
+  SERVERLESS_SITE_BASE_URL \
+  SERVERLESS_DOMAIN_NAME \
+  SERVERLESS_SIGNUP_DISABLED \
+  SERVERLESS_CERTIFICATE_ARN \
+  SERVERLESS_SMOKE_EMAIL \
+  SERVERLESS_SMOKE_PASSWORD
+
 run_success() {
   local name="$1"
   shift
