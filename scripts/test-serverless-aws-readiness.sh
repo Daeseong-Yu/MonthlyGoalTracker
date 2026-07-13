@@ -70,6 +70,15 @@ run_failure_without_leak() {
 
 valid_role="arn:aws:iam::000000000000:role/monthly-goal-tracker-serverless-staging"
 valid_cert="arn:aws:acm:us-east-1:000000000000:certificate/example"
+
+# Deployment workflows define these at job scope; each test case supplies its own values.
+unset \
+  AWS_REGION \
+  AWS_ROLE_TO_ASSUME \
+  SERVERLESS_EMAIL_FROM \
+  SERVERLESS_DOMAIN_NAME \
+  SERVERLESS_CERTIFICATE_ARN
+
 fake_aws_dir="$(mktemp -d "${TMPDIR:-/tmp}/monthly-goal-tracker-fake-aws.XXXXXX")"
 
 cleanup() {
