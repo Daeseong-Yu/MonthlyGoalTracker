@@ -155,6 +155,7 @@ export class ServerlessAppStack extends Stack {
         APP_SESSION_COOKIE_NAME: "mgt_session",
         APP_SESSION_TTL_HOURS: "720",
         APP_SES_REGION: stageConfig.awsRegion,
+        APP_SIGNUP_DISABLED: String(stageConfig.signupDisabled),
         APP_SIGNUP_RATE_LIMIT_PER_MINUTE: "5",
         DATABASE_HOST: database.instanceEndpoint.hostname,
         DATABASE_NAME: "monthly_goal_tracker",

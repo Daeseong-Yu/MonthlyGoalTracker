@@ -27,6 +27,7 @@ const stagingConfig: StageConfig = {
   removalPolicy: "destroy",
   emailFrom: "no-reply@example.invalid",
   siteBaseUrl: "https://monthly-goal-tracker-staging.example.invalid",
+  signupDisabled: false,
 };
 
 const productionConfig: StageConfig = {
@@ -135,6 +136,22 @@ run("stage config keeps custom domain and app base URL in the same site boundary
   );
 });
 
+run("signup emergency switch is an explicit stage context", () => {
+  const defaultConfig = stageConfigFromContext(new App({ context: { stage: "production" } }));
+  assert.equal(defaultConfig.signupDisabled, false);
+
+  const disabledConfig = stageConfigFromContext(
+    new App({ context: { stage: "production", signupDisabled: "true" } }),
+  );
+  assert.equal(disabledConfig.signupDisabled, true);
+
+  assert.throws(() =>
+    stageConfigFromContext(
+      new App({ context: { stage: "production", signupDisabled: "yes" } }),
+    ),
+  );
+});
+
 console.log("infra template invariant tests passed");
 
 function run(name: string, test: () => void): void {
@@ -232,6 +249,7 @@ function assertApiLambdaApplicationConfiguration(template: CloudFormationTemplat
   assert.equal(variables.APP_EMAIL_VERIFICATION_BASE_URL, `${stageConfig.siteBaseUrl}/`);
   assert.equal(variables.APP_PASSWORD_RESET_BASE_URL, `${stageConfig.siteBaseUrl}/`);
   assert.equal(variables.APP_SES_REGION, stageConfig.awsRegion);
+  assert.equal(variables.APP_SIGNUP_DISABLED, String(stageConfig.signupDisabled));
 }
 
 function assertLambdaIamPermissions(template: CloudFormationTemplate, stageConfig: StageConfig): void {

@@ -1,0 +1,122 @@
+name: Serverless Production Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type run-production-migration to invoke migration and audit
+        required: true
+        type: string
+      audit_expected_counts_json:
+        description: Optional JSON object of expected row counts
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: serverless-production-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate and audit serverless production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: serverless-production-migrate
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+      PRODUCTION_MIGRATION_CONFIRMATION: ${{ github.event.inputs.confirmation }}
+      AUDIT_EXPECTED_COUNTS_JSON: ${{ github.event.inputs.audit_expected_counts_json }}
+      AWS_PAGER: ""
+    steps:
+      - name: Validate migration confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${PRODUCTION_MIGRATION_CONFIRMATION}" != "run-production-migration" ]]; then
+            echo "Production migration confirmation did not match." >&2
+            exit 1
+          fi
+          : "${AWS_REGION:?AWS_REGION variable is required}"
+          : "${AWS_ROLE_TO_ASSUME:?AWS_ROLE_TO_ASSUME variable is required}"
+          if [[ "${AWS_ROLE_TO_ASSUME}" != arn:*:iam::*:role/* || "${AWS_ROLE_TO_ASSUME}" =~ [[:space:]] ]]; then
+            echo "AWS_ROLE_TO_ASSUME must be an IAM role ARN." >&2
+            exit 1
+          fi
+          if [[ -n "${AUDIT_EXPECTED_COUNTS_JSON}" ]]; then
+            jq -e 'type == "object" and all(.[]; type == "number")' \
+              <<<"${AUDIT_EXPECTED_COUNTS_JSON}" >/dev/null
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run migration Lambda
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration_function="$(aws cloudformation describe-stack-resource \
+            --stack-name MonthlyGoalTracker-production \
+            --logical-resource-id MigrationFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [[ -z "${migration_function}" || "${migration_function}" == "None" ]]; then
+            echo "Production migration Lambda lookup failed." >&2
+            exit 1
+          fi
+          aws lambda invoke \
+            --function-name "${migration_function}" \
+            --payload '{"confirm":"run-migrations"}' \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/production-migration-response.json \
+            > /tmp/production-migration-invoke.json
+          function_error="$(jq -r '.FunctionError // empty' /tmp/production-migration-invoke.json)"
+          migration_status="$(jq -r '.status // empty' /tmp/production-migration-response.json)"
+          if [[ -n "${function_error}" || "${migration_status}" != "completed" ]]; then
+            echo "Production migration Lambda did not complete successfully." >&2
+            exit 1
+          fi
+          echo "Production migration Lambda completed."
+
+      - name: Run audit Lambda
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_function="$(aws cloudformation describe-stack-resource \
+            --stack-name MonthlyGoalTracker-production \
+            --logical-resource-id AuditFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [[ -z "${audit_function}" || "${audit_function}" == "None" ]]; then
+            echo "Production audit Lambda lookup failed." >&2
+            exit 1
+          fi
+          if [[ -n "${AUDIT_EXPECTED_COUNTS_JSON}" ]]; then
+            audit_payload="$(jq -cn \
+              --argjson expected "${AUDIT_EXPECTED_COUNTS_JSON}" \
+              '{confirm:"audit-migration", expected:$expected}')"
+          else
+            audit_payload='{"confirm":"audit-migration"}'
+          fi
+          printf '%s' "${audit_payload}" > /tmp/production-audit-payload.json
+          aws lambda invoke \
+            --function-name "${audit_function}" \
+            --payload file:///tmp/production-audit-payload.json \
+            --cli-binary-format raw-in-base64-out \
+            /tmp/production-audit-response.json \
+            > /tmp/production-audit-invoke.json
+          function_error="$(jq -r '.FunctionError // empty' /tmp/production-audit-invoke.json)"
+          audit_status="$(jq -r '.status // empty' /tmp/production-audit-response.json)"
+          if [[ -n "${function_error}" || "${audit_status}" != "completed" ]]; then
+            echo "Production audit Lambda did not complete successfully." >&2
+            exit 1
+          fi
+          echo "Production audit Lambda completed."

@@ -1,0 +1,241 @@
+name: Serverless Production Prepare
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Prepare the production stack only, or continue with frontend upload and generated-origin smoke
+        required: true
+        default: infra-only
+        type: choice
+        options:
+          - infra-only
+          - full
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: serverless-production-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare serverless production
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: serverless-production-prepare
+    env:
+      SERVERLESS_STAGE: production
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+      SERVERLESS_EMAIL_FROM: ${{ vars.SERVERLESS_EMAIL_FROM }}
+      SERVERLESS_SITE_BASE_URL: ${{ vars.SERVERLESS_SITE_BASE_URL }}
+      SERVERLESS_DOMAIN_NAME: ${{ vars.SERVERLESS_DOMAIN_NAME }}
+      SERVERLESS_SIGNUP_DISABLED: ${{ vars.SERVERLESS_SIGNUP_DISABLED }}
+      SERVERLESS_CERTIFICATE_ARN: ${{ secrets.SERVERLESS_CERTIFICATE_ARN }}
+      AWS_PAGER: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Install infra dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Verify local serverless baseline
+        run: scripts/verify-serverless-local.sh
+
+      - name: Resolve production deploy context
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AWS_REGION:?AWS_REGION variable is required}"
+          : "${AWS_ROLE_TO_ASSUME:?AWS_ROLE_TO_ASSUME variable is required}"
+          : "${SERVERLESS_EMAIL_FROM:?SERVERLESS_EMAIL_FROM variable is required}"
+          : "${SERVERLESS_SITE_BASE_URL:?SERVERLESS_SITE_BASE_URL variable is required}"
+          : "${SERVERLESS_DOMAIN_NAME:?SERVERLESS_DOMAIN_NAME variable is required}"
+          : "${SERVERLESS_SIGNUP_DISABLED:?SERVERLESS_SIGNUP_DISABLED variable is required}"
+          : "${SERVERLESS_CERTIFICATE_ARN:?SERVERLESS_CERTIFICATE_ARN secret is required}"
+
+          if [[ ! "${AWS_REGION}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
+            echo "AWS_REGION must be an AWS region name." >&2
+            exit 1
+          fi
+          if [[ "${AWS_ROLE_TO_ASSUME}" != arn:*:iam::*:role/* || "${AWS_ROLE_TO_ASSUME}" =~ [[:space:]] ]]; then
+            echo "AWS_ROLE_TO_ASSUME must be an IAM role ARN." >&2
+            exit 1
+          fi
+          if [[ ! "${SERVERLESS_EMAIL_FROM}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+            echo "SERVERLESS_EMAIL_FROM must be a valid email address." >&2
+            exit 1
+          fi
+          if [[ "${SERVERLESS_DOMAIN_NAME}" == *"://"* || "${SERVERLESS_DOMAIN_NAME}" == *"/"* || "${SERVERLESS_DOMAIN_NAME}" =~ [[:space:]] ]]; then
+            echo "SERVERLESS_DOMAIN_NAME must be a DNS host name without scheme or path." >&2
+            exit 1
+          fi
+          if [[ "${SERVERLESS_CERTIFICATE_ARN}" != arn:*:acm:us-east-1:*:certificate/* ]]; then
+            echo "SERVERLESS_CERTIFICATE_ARN must reference an ACM certificate in us-east-1." >&2
+            exit 1
+          fi
+          site_base_url="${SERVERLESS_SITE_BASE_URL%/}"
+          if [[ "${site_base_url}" =~ ^https://([^/?#]+)$ ]]; then
+            site_host="${BASH_REMATCH[1]}"
+          else
+            echo "SERVERLESS_SITE_BASE_URL must be an absolute HTTPS origin without path, query, or fragment." >&2
+            exit 1
+          fi
+          if [[ "${site_host,,}" != "${SERVERLESS_DOMAIN_NAME,,}" ]]; then
+            echo "SERVERLESS_SITE_BASE_URL host must match SERVERLESS_DOMAIN_NAME." >&2
+            exit 1
+          fi
+          if [[ "${SERVERLESS_SIGNUP_DISABLED}" != "true" && "${SERVERLESS_SIGNUP_DISABLED}" != "false" ]]; then
+            echo "SERVERLESS_SIGNUP_DISABLED must be true or false." >&2
+            exit 1
+          fi
+
+          echo "SERVERLESS_SITE_BASE_URL_RESOLVED=${site_base_url}" >> "${GITHUB_ENV}"
+          echo "::add-mask::${SERVERLESS_CERTIFICATE_ARN}"
+
+      - name: Test and synthesize production infra
+        working-directory: infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test
+          npx cdk synth \
+            -c "stage=${SERVERLESS_STAGE}" \
+            -c "awsRegion=${AWS_REGION}" \
+            -c "emailFrom=${SERVERLESS_EMAIL_FROM}" \
+            -c "siteBaseUrl=${SERVERLESS_SITE_BASE_URL_RESOLVED}" \
+            -c "domainName=${SERVERLESS_DOMAIN_NAME}" \
+            -c "certificateArn=${SERVERLESS_CERTIFICATE_ARN}" \
+            -c "signupDisabled=${SERVERLESS_SIGNUP_DISABLED}" \
+            > /tmp/monthly-goal-tracker-production-synth.yaml
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check AWS readiness
+        run: scripts/check-serverless-aws-readiness.sh --require-ses-production-access
+
+      - name: Deploy production infra
+        working-directory: infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy_log="/tmp/monthly-goal-tracker-production-cdk-deploy.log"
+          if ! npx cdk deploy "MonthlyGoalTracker-${SERVERLESS_STAGE}" \
+            -c "stage=${SERVERLESS_STAGE}" \
+            -c "awsRegion=${AWS_REGION}" \
+            -c "emailFrom=${SERVERLESS_EMAIL_FROM}" \
+            -c "siteBaseUrl=${SERVERLESS_SITE_BASE_URL_RESOLVED}" \
+            -c "domainName=${SERVERLESS_DOMAIN_NAME}" \
+            -c "certificateArn=${SERVERLESS_CERTIFICATE_ARN}" \
+            -c "signupDisabled=${SERVERLESS_SIGNUP_DISABLED}" \
+            --ci \
+            --no-color \
+            --progress bar \
+            --require-approval never \
+            > "${deploy_log}" 2>&1; then
+            echo "Production CDK deploy failed. Review the failure category without copying identifiers into logs or docs." >&2
+            exit 1
+          fi
+          echo "Production CDK deploy completed."
+
+      - name: Upload frontend to S3
+        if: ${{ github.event.inputs.mode == 'full' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          frontend_bucket="$(aws cloudformation describe-stack-resource \
+            --stack-name "MonthlyGoalTracker-${SERVERLESS_STAGE}" \
+            --logical-resource-id FrontendBucket \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [[ -z "${frontend_bucket}" || "${frontend_bucket}" == "None" ]]; then
+            echo "Production frontend bucket lookup failed." >&2
+            exit 1
+          fi
+          aws s3 sync frontend/dist "s3://${frontend_bucket}/" \
+            --delete \
+            --exclude "index.html" \
+            --cache-control "public,max-age=31536000,immutable" \
+            --only-show-errors
+          aws s3 cp frontend/dist/index.html "s3://${frontend_bucket}/index.html" \
+            --cache-control "no-cache,no-store,must-revalidate" \
+            --content-type "text/html" \
+            --only-show-errors
+
+      - name: Invalidate CloudFront
+        if: ${{ github.event.inputs.mode == 'full' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          distribution_id="$(aws cloudformation describe-stack-resource \
+            --stack-name "MonthlyGoalTracker-${SERVERLESS_STAGE}" \
+            --logical-resource-id FrontendDistribution \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          if [[ -z "${distribution_id}" || "${distribution_id}" == "None" ]]; then
+            echo "Production CloudFront distribution lookup failed." >&2
+            exit 1
+          fi
+          invalidation_id="$(aws cloudfront create-invalidation \
+            --distribution-id "${distribution_id}" \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text)"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "${distribution_id}" \
+            --id "${invalidation_id}"
+          echo "Production CloudFront invalidation completed."
+
+      - name: Install Playwright browser
+        if: ${{ github.event.inputs.mode == 'full' }}
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Smoke test generated production origin
+        if: ${{ github.event.inputs.mode == 'full' }}
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          distribution_id="$(aws cloudformation describe-stack-resource \
+            --stack-name "MonthlyGoalTracker-${SERVERLESS_STAGE}" \
+            --logical-resource-id FrontendDistribution \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text)"
+          distribution_domain="$(aws cloudfront get-distribution \
+            --id "${distribution_id}" \
+            --query 'Distribution.DomainName' \
+            --output text)"
+          if [[ -z "${distribution_domain}" || "${distribution_domain}" == "None" ]]; then
+            echo "Production generated origin lookup failed." >&2
+            exit 1
+          fi
+          PLAYWRIGHT_BASE_URL="https://${distribution_domain}" \
+          PLAYWRIGHT_SERVERLESS_SMOKE=1 \
+            pnpm exec playwright test --grep "serverless"
