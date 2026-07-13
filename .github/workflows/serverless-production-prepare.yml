@@ -159,7 +159,16 @@ jobs:
             --progress bar \
             --require-approval never \
             > "${deploy_log}" 2>&1; then
-            echo "Production CDK deploy failed. Review the failure category without copying identifiers into logs or docs." >&2
+            bash ../scripts/classify-serverless-cdk-failure.sh "${deploy_log}" >&2
+            stack_status="$(aws cloudformation describe-stacks \
+              --stack-name "MonthlyGoalTracker-${SERVERLESS_STAGE}" \
+              --query 'Stacks[0].StackStatus' \
+              --output text 2>/dev/null || true)"
+            if [[ "${stack_status}" =~ ^(CREATE|UPDATE|DELETE|ROLLBACK|IMPORT|REVIEW)_[A-Z_]+$ ]]; then
+              echo "Production stack status: ${stack_status}." >&2
+            else
+              echo "Production stack status: unavailable." >&2
+            fi
             exit 1
           fi
           echo "Production CDK deploy completed."

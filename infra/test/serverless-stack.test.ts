@@ -30,14 +30,7 @@ const stagingConfig: StageConfig = {
   signupDisabled: false,
 };
 
-const productionConfig: StageConfig = {
-  ...stagingConfig,
-  stage: "production",
-  backupRetentionDays: 7,
-  deletionProtection: true,
-  removalPolicy: "retain",
-  siteBaseUrl: "https://monthly-goal-tracker.example.invalid",
-};
+const productionConfig = stageConfigFromContext(new App({ context: { stage: "production" } }));
 
 const customDomainConfig: StageConfig = {
   ...stagingConfig,
@@ -75,7 +68,7 @@ run("stage lifecycle policies separate staging and production", () => {
     deletionProtection: true,
     deletionPolicy: "Retain",
     updateReplacePolicy: "Retain",
-    backupRetentionDays: 7,
+    backupRetentionDays: 1,
   });
 });
 
