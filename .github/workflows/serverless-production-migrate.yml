@@ -59,6 +59,43 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Preflight migration permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! migration_function="$(aws cloudformation describe-stack-resource \
+            --stack-name MonthlyGoalTracker-production \
+            --logical-resource-id MigrationFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text 2>/dev/null)"; then
+            echo "Production migration permission preflight failed." >&2
+            exit 1
+          fi
+          if ! audit_function="$(aws cloudformation describe-stack-resource \
+            --stack-name MonthlyGoalTracker-production \
+            --logical-resource-id AuditFunction \
+            --query 'StackResourceDetail.PhysicalResourceId' \
+            --output text 2>/dev/null)"; then
+            echo "Production audit permission preflight failed." >&2
+            exit 1
+          fi
+          if [[ -z "${migration_function}" || "${migration_function}" == "None" ||
+            -z "${audit_function}" || "${audit_function}" == "None" ]]; then
+            echo "Production migration permission targets are unavailable." >&2
+            exit 1
+          fi
+          for function_name in "${migration_function}" "${audit_function}"; do
+            if ! aws lambda invoke \
+              --function-name "${function_name}" \
+              --invocation-type DryRun \
+              /tmp/production-migration-permission-preflight.json \
+              >/dev/null 2>&1; then
+              echo "Production Lambda invoke permission preflight failed." >&2
+              exit 1
+            fi
+          done
+          echo "Production migration permissions preflight passed."
+
       - name: Run migration Lambda
         shell: bash
         run: |
