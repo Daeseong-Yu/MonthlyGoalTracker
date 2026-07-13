@@ -10,6 +10,7 @@ export type StageConfig = {
   readonly removalPolicy: "destroy" | "retain";
   readonly emailFrom: string;
   readonly siteBaseUrl: string;
+  readonly signupDisabled: boolean;
   readonly domainName?: string;
   readonly certificateArn?: string;
 };
@@ -23,6 +24,7 @@ const stageConfigs: Record<DeploymentStage, StageConfig> = {
     removalPolicy: "destroy",
     emailFrom: "no-reply@example.invalid",
     siteBaseUrl: "https://monthly-goal-tracker-staging.example.invalid",
+    signupDisabled: false,
   },
   production: {
     stage: "production",
@@ -32,6 +34,7 @@ const stageConfigs: Record<DeploymentStage, StageConfig> = {
     removalPolicy: "retain",
     emailFrom: "no-reply@example.invalid",
     siteBaseUrl: "https://monthly-goal-tracker.example.invalid",
+    signupDisabled: false,
   },
 };
 
@@ -55,6 +58,7 @@ export function stageConfigFromContext(app: App): StageConfig {
     awsRegion: stringContext(app, "awsRegion", baseConfig.awsRegion),
     emailFrom: validateEmailFrom(stringContext(app, "emailFrom", baseConfig.emailFrom)),
     siteBaseUrl,
+    signupDisabled: booleanContext(app, "signupDisabled", baseConfig.signupDisabled),
     domainName,
     certificateArn,
   };
@@ -76,6 +80,21 @@ function optionalStringContext(app: App, key: string): string | undefined {
   }
 
   return value;
+}
+
+function booleanContext(app: App, key: string, fallback: boolean): boolean {
+  const rawValue = app.node.tryGetContext(key);
+  if (rawValue === undefined || rawValue === null || rawValue === "") {
+    return fallback;
+  }
+  if (rawValue === true || rawValue === "true") {
+    return true;
+  }
+  if (rawValue === false || rawValue === "false") {
+    return false;
+  }
+
+  throw new Error(`${key} context must be true or false.`);
 }
 
 function validateCustomDomainConfig(domainName: string | undefined, certificateArn: string | undefined): void {

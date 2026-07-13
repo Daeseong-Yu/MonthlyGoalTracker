@@ -10,6 +10,11 @@ on:
       - .github/workflows/infra-ci.yml
       - .github/workflows/deploy.yml
       - .github/workflows/serverless-staging.yml
+      - .github/workflows/serverless-production-prepare.yml
+      - .github/workflows/serverless-production-migrate.yml
+      - .github/workflows/serverless-production-public-smoke.yml
+      - scripts/check-serverless-production-readiness.sh
+      - scripts/test-serverless-production-readiness.sh
   push:
     branches:
       - feature/**
@@ -19,6 +24,11 @@ on:
       - .github/workflows/infra-ci.yml
       - .github/workflows/deploy.yml
       - .github/workflows/serverless-staging.yml
+      - .github/workflows/serverless-production-prepare.yml
+      - .github/workflows/serverless-production-migrate.yml
+      - .github/workflows/serverless-production-public-smoke.yml
+      - scripts/check-serverless-production-readiness.sh
+      - scripts/test-serverless-production-readiness.sh
   workflow_dispatch:
 
 permissions:
