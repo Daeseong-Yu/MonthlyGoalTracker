@@ -121,6 +121,8 @@ bash -n \
   scripts/setup-serverless-staging-environment.sh \
   scripts/check-serverless-production-readiness.sh \
   scripts/test-serverless-production-readiness.sh \
+  scripts/setup-serverless-production-post-deploy-iam.sh \
+  scripts/test-serverless-production-post-deploy-iam.sh \
   scripts/classify-serverless-cdk-failure.sh \
   scripts/test-serverless-cdk-failure-classifier.sh
 
@@ -146,6 +148,7 @@ SERVERLESS_CERTIFICATE_ARN=arn:aws:acm:us-east-1:000000000000:certificate/exampl
   scripts/check-serverless-aws-readiness.sh --dry-run >/dev/null
 scripts/test-serverless-aws-readiness.sh >/dev/null
 scripts/test-serverless-production-readiness.sh >/dev/null
+scripts/test-serverless-production-post-deploy-iam.sh >/dev/null
 
 if command -v actionlint >/dev/null 2>&1; then
   actionlint .github/workflows/*.yml

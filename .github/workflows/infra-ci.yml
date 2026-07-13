@@ -15,6 +15,8 @@ on:
       - .github/workflows/serverless-production-public-smoke.yml
       - scripts/check-serverless-production-readiness.sh
       - scripts/test-serverless-production-readiness.sh
+      - scripts/setup-serverless-production-post-deploy-iam.sh
+      - scripts/test-serverless-production-post-deploy-iam.sh
   push:
     branches:
       - feature/**
@@ -29,6 +31,8 @@ on:
       - .github/workflows/serverless-production-public-smoke.yml
       - scripts/check-serverless-production-readiness.sh
       - scripts/test-serverless-production-readiness.sh
+      - scripts/setup-serverless-production-post-deploy-iam.sh
+      - scripts/test-serverless-production-post-deploy-iam.sh
   workflow_dispatch:
 
 permissions:

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "tsc --noEmit && node --loader ts-node/esm test/serverless-stack.test.ts && node --loader ts-node/esm test/deploy-workflow.test.ts && node --loader ts-node/esm test/production-workflows.test.ts && bash ../scripts/test-serverless-cdk-failure-classifier.sh",
+    "test": "tsc --noEmit && node --loader ts-node/esm test/serverless-stack.test.ts && node --loader ts-node/esm test/deploy-workflow.test.ts && node --loader ts-node/esm test/production-workflows.test.ts && bash ../scripts/test-serverless-cdk-failure-classifier.sh && bash ../scripts/test-serverless-production-post-deploy-iam.sh",
     "synth": "cdk synth"
   },
   "dependencies": {
