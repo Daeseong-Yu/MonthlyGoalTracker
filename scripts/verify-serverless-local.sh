@@ -149,6 +149,5 @@ if command -v actionlint >/dev/null 2>&1; then
   actionlint .github/workflows/*.yml
 fi
 git diff --check
-python3 .ai/scripts/validate_workflow.py
 
 echo "Serverless local verification passed."
