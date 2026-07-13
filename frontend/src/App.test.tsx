@@ -116,9 +116,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("체험 모드");
+    await waitForText("미리보기 모드");
 
-    expect(document.body.textContent).toContain("체험 모드");
+    expect(document.body.textContent).toContain("미리보기 모드");
     expect(document.body.textContent).toContain("저장하려면 로그인해야 합니다.");
     expect(document.body.textContent).toContain("진행 중인 목표가 없습니다.");
     expect(document.body.textContent).not.toContain("아침 산책");
@@ -128,15 +128,22 @@ describe("App", () => {
     expect(getButton("로그인")).toBeTruthy();
     expect(queryButton("로그아웃")).toBeNull();
     expect(document.body.textContent).not.toContain("계정 보안");
+    expect(document.querySelector('a[href="#account"]')).toBeNull();
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
       .toBe(true);
+    expect(getButton("로그인하고 저장하기")).toBeTruthy();
+
+    await clickButton("로그인하고 저장하기");
+    await waitFor(() => document.querySelector("[role='dialog']") !== null);
+    await pressKey("Escape");
+    await waitFor(() => document.querySelector("[role='dialog']") === null);
 
     const firstDay = shortFirstDayLabel(currentMonth());
     await setInputValue(`${firstDay} 메모`, "preview memo");
     await blurInput(`${firstDay} 메모`);
 
     await waitForText("저장하려면 로그인해 주세요.");
-    expect(queryButton("로그인하고 저장하기")).toBeNull();
+    expect(getButton("로그인하고 저장하기")).toBeTruthy();
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/memos/")))
       .toBe(true);
 
@@ -163,7 +170,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("체험 모드");
+    await waitForText("미리보기 모드");
     await clickButton("로그인");
     await waitFor(() => document.querySelector("[role='dialog']") !== null);
 
@@ -215,12 +222,9 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("Guest mode");
+    await waitForText("Preview mode");
 
-    expect(document.body.textContent).toContain("Guest mode");
-    expect(document.body.textContent?.match(/Guest mode/g) ?? []).toHaveLength(
-      1,
-    );
+    expect(document.body.textContent).toContain("Preview mode");
     expect(document.body.textContent).toContain("KO");
     expect(document.body.textContent).toContain("No active goals.");
     expect(document.body.textContent).not.toContain("아침 산책");
@@ -248,6 +252,67 @@ describe("App", () => {
     expect(document.body.textContent).toContain("Goals");
   });
 
+  it("shows public health and preview status independently", async () => {
+    stubFetch(createMonthViewApiHandler(), {
+      bootstrap: { authenticated: false, locale: "ko", user: null },
+    });
+
+    renderApp(<App />);
+
+    await waitForText("모든 시스템 정상");
+
+    expect(document.body.textContent).toContain("미리보기 모드");
+    expect(document.body.textContent).not.toContain("시스템 확인 필요");
+  });
+
+  it("navigates between dashboard sections with an active state", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    stubFetch(createMonthViewApiHandler());
+
+    renderApp(<App />);
+    await waitForText("계정 데이터");
+
+    const goalsLink = document.querySelector<HTMLAnchorElement>(
+      'a[href="#goals"]',
+    );
+
+    if (!goalsLink) {
+      throw new Error("expected goals navigation link");
+    }
+
+    await clickElement(goalsLink);
+
+    expect(goalsLink.getAttribute("aria-current")).toBe("location");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+  });
+
+  it("keeps month editing available when the public health check fails", async () => {
+    const fetchMock = stubFetch(createWorkflowApiHandler(), {
+      healthStatus: 503,
+    });
+
+    renderApp(<App />);
+
+    await waitForText("시스템 확인 필요");
+    await waitForText("계정 데이터");
+
+    const firstDay = shortFirstDayLabel(currentMonth());
+    await setInputValue(`${firstDay} 메모`, "health-independent memo");
+    await blurInput(`${firstDay} 메모`);
+
+    await waitFor(() =>
+      hasFetchedPath(fetchMock, (path) => path.includes("/api/memos/")),
+    );
+    expect(getInput(`${firstDay} 메모`).value).toBe("health-independent memo");
+  });
+
   it("shows rate limit feedback on login", async () => {
     const monthViewApiHandler = createMonthViewApiHandler();
     const fetchMock = stubFetch(
@@ -269,7 +334,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("체험 모드");
+    await waitForText("미리보기 모드");
     await clickButton("로그인");
     await waitForText("목표를 저장하려면 로그인해 주세요.");
     await setInputValue("이메일", "person@example.com");
@@ -327,7 +392,7 @@ describe("App", () => {
 
       renderApp(<App />);
 
-      await waitForText("체험 모드");
+      await waitForText("미리보기 모드");
       await clickButton("로그인");
       await waitForText("목표를 저장하려면 로그인해 주세요.");
       await clickButton("회원가입 tab");
@@ -405,7 +470,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("체험 모드");
+    await waitForText("미리보기 모드");
     await clickButton("로그인");
     await waitForText("목표를 저장하려면 로그인해 주세요.");
     await clickButton("회원가입 tab");
@@ -520,7 +585,7 @@ describe("App", () => {
 
     renderApp(<App />);
 
-    await waitForText("체험 모드");
+    await waitForText("미리보기 모드");
     await clickButton("로그인");
     await waitForText("목표를 저장하려면 로그인해 주세요.");
     await clickButton("비밀번호 재설정");

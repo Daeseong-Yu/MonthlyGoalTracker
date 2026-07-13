@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bootstrapSession,
   changePassword,
+  checkHealth,
   clearAuthCSRFToken,
   createGoal,
   deactivateGoal,
@@ -41,6 +42,19 @@ describe("api client", () => {
   afterEach(() => {
     clearAuthCSRFToken();
     vi.unstubAllGlobals();
+  });
+
+  it("checks the existing public health endpoint", async () => {
+    const fetchMock = stubFetch(okResponse());
+
+    await expect(checkHealth()).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/health", {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    });
   });
 
   it("loads a month view with an encoded month", async () => {

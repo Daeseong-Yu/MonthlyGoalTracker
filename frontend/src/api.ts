@@ -31,6 +31,10 @@ export function isAuthResponse(response: SignupResponse): response is AuthRespon
   return "csrfToken" in response && "user" in response;
 }
 
+export async function checkHealth(): Promise<void> {
+  await requestVoid("/api/health", "health request");
+}
+
 export async function bootstrapSession(): Promise<BootstrapResponse> {
   const response = await requestJSON<BootstrapResponse>(
     "/api/bootstrap",

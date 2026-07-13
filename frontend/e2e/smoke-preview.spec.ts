@@ -51,7 +51,7 @@ test("anonymous preview keeps changes local and opens login flow", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /로그인하고 저장하기|Log in to save/ }),
-  ).toHaveCount(0);
+  ).toBeVisible();
 
   const firstGoalTitle = "자동 smoke 목표";
   await page.getByRole("button", { name: /목표 추가|Add goal/ }).click();
@@ -98,7 +98,9 @@ test("anonymous preview keeps changes local and opens login flow", async ({
     page.getByRole("complementary").getByText("자동 smoke 두번째 목표 수정됨"),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: /^로그인$|^Log in$/ }).click();
+  await page
+    .getByRole("button", { name: /로그인하고 저장하기|Log in to save/ })
+    .click();
   await expect(
     page.getByRole("dialog", { name: /월간 목표 트래커|Monthly Goal Tracker/ }),
   ).toBeVisible();

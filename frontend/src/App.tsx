@@ -30,6 +30,7 @@ import {
 import {
   bootstrapSession,
   changePassword,
+  checkHealth,
   clearAuthCSRFToken,
   isAPIError,
   isAuthResponse,
@@ -42,7 +43,7 @@ import {
   updateUserLocale,
   verifyEmail,
 } from "./api";
-import { formatMonth, statusClassName, statusLabel } from "./appDisplay";
+import { formatMonth, statusLabel } from "./appDisplay";
 import ChartPanel from "./ChartPanel";
 import DailyRecordTable from "./DailyRecordTable";
 import GoalPanel from "./GoalPanel";
@@ -58,6 +59,8 @@ import type {
 } from "./types";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset";
+type DashboardSection = "dashboard" | "goals" | "records" | "account";
+type HealthStatus = "checking" | "healthy" | "unhealthy";
 const localeStorageKey = "monthlyGoalTracker.locale";
 const themeStorageKey = "monthlyGoalTracker.theme";
 
@@ -68,6 +71,7 @@ export default function App() {
   const [user, setUser] = useState<UserSession | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
+  const [healthStatus, setHealthStatus] = useState<HealthStatus>("checking");
   const [emailVerificationFailed, setEmailVerificationFailed] = useState(false);
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(
     () => readPasswordResetToken(),
@@ -99,6 +103,26 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void checkHealth()
+      .then(() => {
+        if (!cancelled) {
+          setHealthStatus("healthy");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHealthStatus("unhealthy");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,6 +281,7 @@ export default function App() {
     <>
       <Dashboard
         key={user ? "server" : "preview"}
+        healthStatus={healthStatus}
         locale={locale}
         messages={messages}
         user={user}
@@ -722,6 +747,7 @@ function authSubmitIcon(mode: AuthMode) {
 }
 
 function Dashboard({
+  healthStatus,
   locale,
   messages,
   themePreference,
@@ -732,6 +758,7 @@ function Dashboard({
   onOpenAuth,
   onLoggedOut,
 }: {
+  healthStatus: HealthStatus;
   locale: AppLocale;
   messages: AppMessages;
   themePreference: ThemePreference;
@@ -743,6 +770,8 @@ function Dashboard({
   onLoggedOut: () => void;
 }) {
   const previewMode = user === null;
+  const [activeSection, setActiveSection] =
+    useState<DashboardSection>("dashboard");
   const monthController = useMonthController({
     messages,
     mode: previewMode ? "preview" : "server",
@@ -750,6 +779,56 @@ function Dashboard({
   const monthLabel = messages.app.monthRecord(
     formatMonth(monthController.month, locale),
   );
+  const navigationItems = [
+    {
+      section: "dashboard" as const,
+      label: messages.app.navDashboard,
+      icon: <LayoutDashboard size={16} />,
+    },
+    {
+      section: "goals" as const,
+      label: messages.app.navGoals,
+      icon: <Target size={16} />,
+    },
+    {
+      section: "records" as const,
+      label: messages.app.navRecords,
+      icon: <ListChecks size={16} />,
+    },
+    ...(user
+      ? [
+          {
+            section: "account" as const,
+            label: messages.app.navAccount,
+            icon: <ShieldCheck size={16} />,
+          },
+        ]
+      : []),
+  ];
+  const healthLabel =
+    healthStatus === "healthy"
+      ? messages.app.healthHealthy
+      : healthStatus === "unhealthy"
+        ? messages.app.healthUnhealthy
+        : messages.app.healthChecking;
+  const healthClassName =
+    healthStatus === "healthy"
+      ? "status-pill status-pill--api"
+      : healthStatus === "unhealthy"
+        ? "status-pill status-pill--fallback"
+        : "status-pill status-pill--loading";
+
+  function handleSectionNavigation(
+    event: ReactMouseEvent<HTMLAnchorElement>,
+    section: DashboardSection,
+  ) {
+    event.preventDefault();
+    setActiveSection(section);
+    document.getElementById(section)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
 
   async function handleLogout() {
     if (!user) {
@@ -844,22 +923,24 @@ function Dashboard({
           </div>
 
           <nav className="space-y-1" aria-label={messages.app.navDashboard}>
-            <a className="sidebar-nav-link is-active" href="#dashboard">
-              <LayoutDashboard size={16} />
-              {messages.app.navDashboard}
-            </a>
-            <a className="sidebar-nav-link" href="#goals">
-              <Target size={16} />
-              {messages.app.navGoals}
-            </a>
-            <a className="sidebar-nav-link" href="#records">
-              <ListChecks size={16} />
-              {messages.app.navRecords}
-            </a>
-            <a className="sidebar-nav-link" href="#account">
-              <ShieldCheck size={16} />
-              {messages.app.navAccount}
-            </a>
+            {navigationItems.map((item) => (
+              <a
+                key={item.section}
+                className={`sidebar-nav-link ${
+                  activeSection === item.section ? "is-active" : ""
+                }`}
+                href={`#${item.section}`}
+                aria-current={
+                  activeSection === item.section ? "location" : undefined
+                }
+                onClick={(event) =>
+                  handleSectionNavigation(event, item.section)
+                }
+              >
+                {item.icon}
+                {item.label}
+              </a>
+            ))}
           </nav>
 
           <div className="sidebar-divider" />
@@ -878,7 +959,7 @@ function Dashboard({
             <div className="preview-card">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {locale === "ko" ? "미리보기 모드" : "Preview mode"}
+                  {messages.app.previewMode}
                 </p>
                 <span className="preview-info" aria-hidden="true">
                   i
@@ -890,10 +971,10 @@ function Dashboard({
               <button
                 className="secondary-action mt-4 h-10 w-full px-3 text-sm"
                 type="button"
-                aria-label={locale === "ko" ? "미리보기 종료" : "End preview"}
+                aria-label={messages.app.previewSaveLogin}
                 onClick={onOpenAuth}
               >
-                {locale === "ko" ? "미리보기 종료" : "End preview"}
+                {messages.app.previewSaveLogin}
               </button>
             </div>
           ) : null}
@@ -904,24 +985,21 @@ function Dashboard({
             <header className="app-topbar">
               <h1 className="sr-only">{monthLabel}</h1>
               <div className="topbar-status">
-                  {!previewMode ? (
-                    <span
-                      aria-live="polite"
-                      className={statusClassName(monthController.loadStatus)}
-                      role="status"
-                    >
-                      {locale === "ko" ? "모든 시스템 정상" : "All systems normal"}
-                      <span className="sr-only">
-                        {statusLabel(monthController.loadStatus, messages.status)}
-                      </span>
-                    </span>
-                  ) : null}
-                  {previewMode ? (
-                    <span className="status-pill status-pill--local">
-                      {locale === "ko" ? "모든 시스템 정상" : "All systems normal"}
-                      <span className="sr-only">{messages.app.previewMode}</span>
-                    </span>
-                  ) : null}
+                <span
+                  aria-live="polite"
+                  className={healthClassName}
+                  role="status"
+                >
+                  {healthLabel}
+                </span>
+                {previewMode ? (
+                  <span className="status-pill status-pill--preview">
+                    {messages.app.previewMode}
+                  </span>
+                ) : null}
+                <span className="sr-only">
+                  {statusLabel(monthController.loadStatus, messages.status)}
+                </span>
                 {monthController.loadError ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <p className="text-xs font-semibold feedback-warning" role="status">

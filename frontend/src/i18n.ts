@@ -15,6 +15,9 @@ export type AppMessages = {
     previewMode: string;
     previewNotice: string;
     previewSaveLogin: string;
+    healthChecking: string;
+    healthHealthy: string;
+    healthUnhealthy: string;
     signedInAs: (email: string) => string;
     logout: string;
     languageLabel: string;
@@ -176,9 +179,12 @@ export const messages: Record<AppLocale, AppMessages> = {
       monthInput: "기록할 월",
       prepareMonth: "목표 이월",
       login: "로그인",
-      previewMode: "체험 모드",
+      previewMode: "미리보기 모드",
       previewNotice: "저장하려면 로그인해야 합니다.",
       previewSaveLogin: "로그인하고 저장하기",
+      healthChecking: "시스템 확인 중",
+      healthHealthy: "모든 시스템 정상",
+      healthUnhealthy: "시스템 확인 필요",
       signedInAs: (email) => `${email}로 로그인됨`,
       logout: "로그아웃",
       languageLabel: "언어",
@@ -348,9 +354,12 @@ export const messages: Record<AppLocale, AppMessages> = {
       monthInput: "Month to track",
       prepareMonth: "Carry goals forward",
       login: "Log in",
-      previewMode: "Guest mode",
+      previewMode: "Preview mode",
       previewNotice: "Log in to save.",
       previewSaveLogin: "Log in to save",
+      healthChecking: "Checking system",
+      healthHealthy: "All systems normal",
+      healthUnhealthy: "System check needed",
       signedInAs: (email) => `Signed in as ${email}`,
       logout: "Log out",
       languageLabel: "Language",
