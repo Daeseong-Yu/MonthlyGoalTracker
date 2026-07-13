@@ -120,7 +120,9 @@ bash -n \
   scripts/run-serverless-staging-workflow.sh \
   scripts/setup-serverless-staging-environment.sh \
   scripts/check-serverless-production-readiness.sh \
-  scripts/test-serverless-production-readiness.sh
+  scripts/test-serverless-production-readiness.sh \
+  scripts/classify-serverless-cdk-failure.sh \
+  scripts/test-serverless-cdk-failure-classifier.sh
 
 AWS_REGION=us-east-1 \
 AWS_ROLE_TO_ASSUME=arn:aws:iam::000000000000:role/monthly-goal-tracker-serverless-staging \
