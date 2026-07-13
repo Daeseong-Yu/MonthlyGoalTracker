@@ -4,6 +4,10 @@ import { readFileSync } from "node:fs";
 const prepare = workflow("serverless-production-prepare.yml");
 const migrate = workflow("serverless-production-migrate.yml");
 const publicSmoke = workflow("serverless-production-public-smoke.yml");
+const localVerification = readFileSync(
+  new URL("../../scripts/verify-serverless-local.sh", import.meta.url),
+  "utf8",
+);
 
 assertManualOnly(prepare, "production prepare");
 assertManualOnly(migrate, "production migration");
@@ -37,6 +41,11 @@ assert.doesNotMatch(publicSmoke, /id-token: write/);
 assert.doesNotMatch(publicSmoke, /configure-aws-credentials/);
 assert.doesNotMatch(publicSmoke, /\baws\s/);
 assert.doesNotMatch(publicSmoke, /npx cdk deploy/);
+assert.doesNotMatch(
+  localVerification,
+  /\.ai\//,
+  "tracked deployment verification must not depend on local workflow state",
+);
 
 console.log("ok - production workflows preserve independent approval and credential boundaries");
 
