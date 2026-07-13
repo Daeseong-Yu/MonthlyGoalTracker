@@ -1080,6 +1080,40 @@ describe("App", () => {
     expect(getWeekdayLabel("05.03").className).toContain("text-rose-600");
   });
 
+  it("toggles the full daily record view and exposes the expanded state", async () => {
+    stubFetch(createMonthViewApiHandler());
+
+    renderApp(<App />);
+    await waitForText("계정 데이터");
+
+    const tableFrame = getDailyRecordTable().closest(".table-frame");
+
+    expect(tableFrame?.className).not.toContain("table-frame--expanded");
+    expect(getButton("전체 보기").getAttribute("aria-expanded")).toBe("false");
+
+    await clickButton("전체 보기");
+
+    expect(tableFrame?.className).toContain("table-frame--expanded");
+    expect(queryButton("전체 보기")).toBeNull();
+    expect(getButton("접기").getAttribute("aria-expanded")).toBe("true");
+
+    await clickButton("접기");
+
+    expect(tableFrame?.className).not.toContain("table-frame--expanded");
+    expect(getButton("전체 보기").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps only functional controls in goal card actions", async () => {
+    stubFetch(createMonthViewApiHandler());
+
+    renderApp(<App />);
+    await waitForText("계정 데이터");
+
+    expect(document.querySelector(".goal-card-actions > svg")).toBeNull();
+    expect(getButton("API walk 수정")).toBeTruthy();
+    expect(getButton("API walk 종료")).toBeTruthy();
+  });
+
   it("blocks adding a sixth active goal", async () => {
     const fetchMock = stubFetch(createMonthViewApiHandler({ goalCount: 5 }));
 

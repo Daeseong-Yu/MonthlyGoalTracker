@@ -3,7 +3,6 @@ import {
   Check,
   CheckCircle2,
   LoaderCircle,
-  MoreVertical,
   Pencil,
   Plus,
   X,
@@ -362,11 +361,6 @@ export default function GoalPanel({
                           <Ban size={15} />
                         )}
                       </button>
-                      <MoreVertical
-                        aria-hidden="true"
-                        size={16}
-                        style={{ color: "var(--text-muted)" }}
-                      />
                     </div>
                   </div>
                 </div>

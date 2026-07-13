@@ -715,6 +715,10 @@
     overflow-y: auto;
   }
 
+  .table-frame--expanded {
+    max-height: none;
+  }
+
   .table-frame .record-table {
     overflow: hidden;
     border-radius: 0.5rem;

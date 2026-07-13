@@ -122,6 +122,8 @@ export type AppMessages = {
     dateHeader: string;
     memoHeader: string;
     completedHeader: string;
+    expand: string;
+    collapse: string;
     memoAria: (date: string) => string;
     completeAria: (date: string, title: string) => string;
   };
@@ -293,6 +295,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       dateHeader: "날짜",
       memoHeader: "메모",
       completedHeader: "완료",
+      expand: "전체 보기",
+      collapse: "접기",
       memoAria: (date) => `${date} 메모`,
       completeAria: (date, title) => `${date} ${title} 완료`,
     },
@@ -463,6 +467,8 @@ export const messages: Record<AppLocale, AppMessages> = {
       dateHeader: "Date",
       memoHeader: "Memo",
       completedHeader: "Done",
+      expand: "View all",
+      collapse: "Collapse",
       memoAria: (date) => `${date} memo`,
       completeAria: (date, title) => `${date} ${title} completed`,
     },
