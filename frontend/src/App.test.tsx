@@ -252,6 +252,104 @@ describe("App", () => {
     expect(document.body.textContent).toContain("Goals");
   });
 
+  it("does not restore a signed-out user when a locale save finishes late", async () => {
+    let resolveLocaleSave: (() => void) | null = null;
+    const fetchMock = stubFetch((input) => {
+      const path = requestPath(input);
+      if (path === "/api/auth/me/locale") {
+        return pendingJsonResponse(
+          {
+            id: 1,
+            email: "tester@example.com",
+            locale: "en",
+            createdAt: "2026-05-01T00:00:00Z",
+          },
+          (resolve) => {
+            resolveLocaleSave = resolve;
+          },
+        );
+      }
+
+      if (path === "/api/auth/logout") {
+        return okResponse();
+      }
+
+      return createMonthViewApiHandler()(input);
+    });
+
+    renderApp(<App />);
+    await waitForText("계정 데이터");
+
+    await clickButton("언어 EN");
+    await waitFor(() => resolveLocaleSave !== null);
+    await clickButton("Log out");
+    await waitForText("Preview mode");
+
+    await resolvePending(resolveLocaleSave);
+
+    expect(document.body.textContent).toContain("Preview mode");
+    expect(document.body.textContent).not.toContain("Account data");
+    expect(queryButton("Log out")).toBeNull();
+    expect(hasFetchedPath(fetchMock, (path) => path === "/api/auth/logout"))
+      .toBe(true);
+  });
+
+  it("ignores an older locale save that finishes after a newer save", async () => {
+    let resolveFirstLocaleSave: (() => void) | null = null;
+    let resolveSecondLocaleSave: (() => void) | null = null;
+    let localeSaveCount = 0;
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/auth/me/locale") {
+        localeSaveCount += 1;
+        if (localeSaveCount === 1) {
+          return pendingJsonResponse(
+            {
+              id: 1,
+              email: "stale@example.com",
+              locale: "en",
+              createdAt: "2026-05-01T00:00:00Z",
+            },
+            (resolve) => {
+              resolveFirstLocaleSave = resolve;
+            },
+          );
+        }
+
+        return pendingJsonResponse(
+          {
+            id: 1,
+            email: "tester@example.com",
+            locale: "ko",
+            createdAt: "2026-05-01T00:00:00Z",
+          },
+          (resolve) => {
+            resolveSecondLocaleSave = resolve;
+          },
+        );
+      }
+
+      return createMonthViewApiHandler()(input);
+    });
+
+    renderApp(<App />);
+    await waitForText("계정 데이터");
+
+    await clickButton("언어 EN");
+    await waitFor(() => resolveFirstLocaleSave !== null);
+    await clickButton("Language KO");
+    await waitFor(() => resolveSecondLocaleSave !== null);
+
+    await resolvePending(resolveSecondLocaleSave);
+    await resolvePending(resolveFirstLocaleSave);
+
+    expect(document.body.textContent).toContain("tester@example.com");
+    expect(document.body.textContent).not.toContain("stale@example.com");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/me/locale",
+      expect.any(Object),
+    );
+  });
+
   it("shows public health and preview status independently", async () => {
     stubFetch(createMonthViewApiHandler(), {
       bootstrap: { authenticated: false, locale: "ko", user: null },
