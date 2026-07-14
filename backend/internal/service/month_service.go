@@ -8,8 +8,12 @@ import (
 )
 
 type MonthGoalRepository interface {
-	Create(ctx context.Context, goal *domain.Goal) error
-	SetEndDate(ctx context.Context, id uint, endDate *time.Time) (*domain.Goal, error)
+	ApplyMonthRollover(
+		ctx context.Context,
+		copiedGoals []domain.Goal,
+		previousGoalIDs []uint,
+		previousMonthEnd time.Time,
+	) error
 	ListOverlappingDateRange(ctx context.Context, startDate, endDate time.Time) ([]domain.Goal, error)
 }
 
@@ -77,25 +81,24 @@ func (s *MonthService) EnsureMonth(ctx context.Context, month string) (*MonthVie
 	}
 
 	replacementCounts := countMonthStartGoalsByTitle(currentGoals, monthStart)
+	copiedGoals := make([]domain.Goal, 0, len(previousGoals))
+	previousGoalIDsToEnd := make([]uint, 0, len(previousGoals))
 	for _, previousGoal := range previousGoals {
 		if replacementCounts[previousGoal.Title] > 0 {
 			replacementCounts[previousGoal.Title]--
 		} else {
-			copiedGoal := &domain.Goal{
+			copiedGoals = append(copiedGoals, domain.Goal{
 				Title:     previousGoal.Title,
 				StartDate: monthStart,
-			}
-			if err := s.goalRepo.Create(ctx, copiedGoal); err != nil {
-				return nil, err
-			}
+			})
 		}
 
 		if previousGoal.EndDate == nil || normalizeDateUTC(*previousGoal.EndDate).After(previousMonthEnd) {
-			endDate := previousMonthEnd
-			if _, err := s.goalRepo.SetEndDate(ctx, previousGoal.ID, &endDate); err != nil {
-				return nil, err
-			}
+			previousGoalIDsToEnd = append(previousGoalIDsToEnd, previousGoal.ID)
 		}
+	}
+	if err := s.goalRepo.ApplyMonthRollover(ctx, copiedGoals, previousGoalIDsToEnd, previousMonthEnd); err != nil {
+		return nil, err
 	}
 
 	return s.GetMonthView(ctx, month)
