@@ -109,7 +109,26 @@ describe("App", () => {
     expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("light");
   });
 
-  it("opens a no-save preview for unauthenticated visitors", async () => {
+  it("switches light and dark themes from the landing navigation", async () => {
+    stubFetch(createMonthViewApiHandler(), {
+      bootstrap: { authenticated: false, locale: "ko", user: null },
+    });
+
+    renderApp(<App />);
+
+    await waitForText("한 달의 목표를,");
+    await clickButton("라이트 테마로 전환");
+    await waitFor(() => document.documentElement.dataset.theme === "light");
+
+    expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("light");
+
+    await clickButton("다크 테마로 전환");
+    await waitFor(() => document.documentElement.dataset.theme === "dark");
+
+    expect(window.localStorage.getItem("monthlyGoalTracker.theme")).toBe("dark");
+  });
+
+  it("shows the landing page and opens a no-save preview for unauthenticated visitors", async () => {
     const fetchMock = stubFetch(createMonthViewApiHandler(), {
       bootstrap: { authenticated: false, locale: "ko", user: null },
     });
@@ -117,6 +136,14 @@ describe("App", () => {
     renderApp(<App />);
 
     await waitForText("미리보기 모드");
+
+    expect(document.body.textContent).toContain("한 달의 목표를,");
+    expect(document.body.textContent).toContain("매일의 실행으로.");
+    expect(getButton("미리 체험하기")).toBeTruthy();
+    expect(document.querySelector('input[aria-label="기록할 월"]')).toBeNull();
+
+    await clickButton("미리 체험하기");
+    await waitForText("진행 중인 목표가 없습니다.");
 
     expect(document.body.textContent).toContain("미리보기 모드");
     expect(document.body.textContent).toContain("저장하려면 로그인해야 합니다.");
@@ -171,6 +198,8 @@ describe("App", () => {
     renderApp(<App />);
 
     await waitForText("미리보기 모드");
+    await clickButton("미리 체험하기");
+    await waitForText("진행 중인 목표가 없습니다.");
     await clickButton("로그인");
     await waitFor(() => document.querySelector("[role='dialog']") !== null);
 
@@ -226,7 +255,7 @@ describe("App", () => {
 
     expect(document.body.textContent).toContain("Preview mode");
     expect(document.body.textContent).toContain("KO");
-    expect(document.body.textContent).toContain("No active goals.");
+    expect(document.body.textContent).toContain("Turn monthly goals");
     expect(document.body.textContent).not.toContain("아침 산책");
     expect(hasNoFetchedPath(fetchMock, (path) => path.includes("/api/months/")))
       .toBe(true);
@@ -234,7 +263,7 @@ describe("App", () => {
     await clickButton("Log in");
 
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
-    expect(document.body.textContent).toContain("No active goals.");
+    expect(document.body.textContent).toContain("Turn monthly goals");
     expect(document.body.textContent).toContain("Log in to save your goals.");
 
     await setInputValue("Email", "person@example.com");

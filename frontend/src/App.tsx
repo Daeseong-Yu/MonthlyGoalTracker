@@ -43,6 +43,7 @@ import ChartPanel from "./ChartPanel";
 import DailyRecordTable from "./DailyRecordTable";
 import GoalPanel from "./GoalPanel";
 import { messagesForLocale, type AppMessages } from "./i18n";
+import LandingPage from "./LandingPage";
 import MetricSummary from "./MetricSummary";
 import { useAccountLifecycle } from "./useAccountLifecycle";
 import { useMonthController } from "./useMonthController";
@@ -63,6 +64,7 @@ export default function App() {
   const account = useAccountLifecycle();
   const { authFlow, bootstrapped, locale, user } = account.state;
   const [healthStatus, setHealthStatus] = useState<HealthStatus>("checking");
+  const [previewStarted, setPreviewStarted] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(
     () => readStoredThemePreference(),
   );
@@ -119,21 +121,51 @@ export default function App() {
     return <BootstrapScreen messages={messages} />;
   }
 
+  const showDashboard = user !== null || previewStarted;
+  const healthLabel =
+    healthStatus === "healthy"
+      ? messages.app.healthHealthy
+      : healthStatus === "unhealthy"
+        ? messages.app.healthUnhealthy
+        : messages.app.healthChecking;
+
   return (
     <>
-      <Dashboard
-        key={user ? "server" : "preview"}
-        healthStatus={healthStatus}
-        locale={locale}
-        messages={messages}
-        user={user}
-        onAuthenticated={account.applyAuthentication}
-        onLocaleChange={(nextLocale) => void account.changeLocale(nextLocale)}
-        themePreference={themePreference}
-        onThemePreferenceChange={handleThemePreferenceChange}
-        onOpenAuth={account.openAuthFlow}
-        onLogout={account.logout}
-      />
+      {showDashboard ? (
+        <Dashboard
+          key={user ? "server" : "preview"}
+          healthStatus={healthStatus}
+          locale={locale}
+          messages={messages}
+          user={user}
+          onAuthenticated={account.applyAuthentication}
+          onExitPreview={() => setPreviewStarted(false)}
+          onLocaleChange={(nextLocale) => void account.changeLocale(nextLocale)}
+          themePreference={themePreference}
+          onThemePreferenceChange={handleThemePreferenceChange}
+          onOpenAuth={account.openAuthFlow}
+          onLogout={async () => {
+            await account.logout();
+            setPreviewStarted(false);
+          }}
+        />
+      ) : (
+        <LandingPage
+          healthLabel={healthLabel}
+          healthTone={healthStatus}
+          locale={locale}
+          messages={messages}
+          resolvedTheme={resolvedTheme}
+          onLocaleChange={(nextLocale) => void account.changeLocale(nextLocale)}
+          onOpenAuth={account.openAuthFlow}
+          onStartPreview={() => setPreviewStarted(true)}
+          onThemeToggle={() =>
+            handleThemePreferenceChange(
+              resolvedTheme === "light" ? "dark" : "light",
+            )
+          }
+        />
+      )}
       {authFlow.open ? (
         <AuthScreen
           bootstrapError={
@@ -596,6 +628,7 @@ function Dashboard({
   themePreference,
   user,
   onAuthenticated,
+  onExitPreview,
   onLocaleChange,
   onThemePreferenceChange,
   onOpenAuth,
@@ -607,6 +640,7 @@ function Dashboard({
   themePreference: ThemePreference;
   user: UserSession | null;
   onAuthenticated: (response: AuthResponse) => void;
+  onExitPreview: () => void;
   onLocaleChange: (locale: AppLocale) => void;
   onThemePreferenceChange: (preference: ThemePreference) => void;
   onOpenAuth: () => void;
@@ -761,7 +795,10 @@ function Dashboard({
             </button>
           </div>
 
-          <nav className="space-y-1" aria-label={messages.app.navDashboard}>
+          <nav
+            className="sidebar-navigation space-y-1"
+            aria-label={messages.app.navDashboard}
+          >
             {navigationItems.map((item) => (
               <a
                 key={item.section}
@@ -814,6 +851,15 @@ function Dashboard({
                 onClick={onOpenAuth}
               >
                 {messages.app.previewSaveLogin}
+              </button>
+              <button
+                className="preview-home-link mt-2 h-9 w-full text-xs"
+                type="button"
+                aria-label={messages.landing.returnHome}
+                onClick={onExitPreview}
+              >
+                <ArrowLeft size={14} />
+                {messages.landing.returnHome}
               </button>
             </div>
           ) : null}

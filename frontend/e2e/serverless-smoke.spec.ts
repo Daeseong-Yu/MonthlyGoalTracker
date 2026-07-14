@@ -54,6 +54,11 @@ test.describe("serverless deployed smoke", () => {
         .first(),
     ).toBeVisible();
 
+    await page
+      .getByRole("button", { name: /미리 체험하기|Try the preview/ })
+      .first()
+      .click();
+
     const monthValue = await page
       .getByLabel(/기록할 월|Month to track/)
       .inputValue();
