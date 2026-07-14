@@ -32,6 +32,37 @@ export type AppMessages = {
     bootstrapLoading: string;
     bootstrapError: string;
   };
+  landing: {
+    navigationLabel: string;
+    navFeatures: string;
+    navPreview: string;
+    navAccount: string;
+    navStart: string;
+    switchToDark: string;
+    switchToLight: string;
+    eyebrow: string;
+    headlineLead: string;
+    headlineEmphasis: string;
+    subtitle: string;
+    previewAction: string;
+    loginAction: string;
+    returnHome: string;
+    featureMonthly: string;
+    featureDaily: string;
+    featureInsight: string;
+    productPreviewLabel: string;
+    previewBadge: string;
+    previewMonth: string;
+    previewFocus: string;
+    previewOverline: string;
+    previewHeading: string;
+    previewToday: string;
+    previewOnTrack: string;
+    previewTrend: string;
+    previewWeek: string;
+    previewGoalLabels: [string, string, string];
+    footnote: string;
+  };
   auth: {
     title: string;
     subtitle: string;
@@ -198,6 +229,38 @@ export const messages: Record<AppLocale, AppMessages> = {
       themeDark: "다크",
       bootstrapLoading: "로그인 상태를 확인하는 중",
       bootstrapError: "로그인 상태를 확인하지 못했습니다.",
+    },
+    landing: {
+      navigationLabel: "시작 화면",
+      navFeatures: "기능",
+      navPreview: "미리보기",
+      navAccount: "계정",
+      navStart: "시작하기",
+      switchToDark: "다크 테마로 전환",
+      switchToLight: "라이트 테마로 전환",
+      eyebrow: "로그인 없이 바로 체험",
+      headlineLead: "한 달의 목표를,",
+      headlineEmphasis: "매일의 실행으로.",
+      subtitle:
+        "목표를 세우고, 오늘의 실천을 기록하고, 꾸준함의 흐름을 한눈에 확인하세요.",
+      previewAction: "미리 체험하기",
+      loginAction: "로그인하고 시작하기",
+      returnHome: "소개 화면으로",
+      featureMonthly: "월간 목표 설계",
+      featureDaily: "빠른 일별 기록",
+      featureInsight: "명확한 진행 인사이트",
+      productPreviewLabel: "Monthly Goal Tracker 제품 미리보기",
+      previewBadge: "미리보기 모드",
+      previewMonth: "이번 달",
+      previewFocus: "활성 목표",
+      previewOverline: "월간 진행 상황",
+      previewHeading: "꾸준함을 한눈에",
+      previewToday: "오늘",
+      previewOnTrack: "순조로움",
+      previewTrend: "최근 14일의 완료 흐름",
+      previewWeek: "2주",
+      previewGoalLabels: ["아침 루틴", "집중 독서", "저녁 산책"],
+      footnote: "Preview에서 입력한 내용은 서버에 저장되거나 계정에 자동 병합되지 않습니다.",
     },
     auth: {
       title: "월간 목표 트래커",
@@ -373,6 +436,39 @@ export const messages: Record<AppLocale, AppMessages> = {
       themeDark: "Dark",
       bootstrapLoading: "Checking your session",
       bootstrapError: "Could not check your session.",
+    },
+    landing: {
+      navigationLabel: "Start page",
+      navFeatures: "Features",
+      navPreview: "Preview",
+      navAccount: "Account",
+      navStart: "Get started",
+      switchToDark: "Switch to dark theme",
+      switchToLight: "Switch to light theme",
+      eyebrow: "Try it before you sign in",
+      headlineLead: "Turn monthly goals",
+      headlineEmphasis: "into daily momentum.",
+      subtitle:
+        "Set meaningful goals, capture today's progress, and see your consistency take shape at a glance.",
+      previewAction: "Try the preview",
+      loginAction: "Log in to get started",
+      returnHome: "Back to introduction",
+      featureMonthly: "Monthly goal planning",
+      featureDaily: "Fast daily records",
+      featureInsight: "Clear progress insights",
+      productPreviewLabel: "Monthly Goal Tracker product preview",
+      previewBadge: "Preview mode",
+      previewMonth: "This month",
+      previewFocus: "Active goals",
+      previewOverline: "Monthly progress",
+      previewHeading: "Consistency, in focus",
+      previewToday: "Today",
+      previewOnTrack: "On track",
+      previewTrend: "Completion trend over 14 days",
+      previewWeek: "2 weeks",
+      previewGoalLabels: ["Morning routine", "Focused reading", "Evening walk"],
+      footnote:
+        "Changes made in Preview stay in your browser and are never merged into an account automatically.",
     },
     auth: {
       title: "Monthly Goal Tracker",

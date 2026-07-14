@@ -37,6 +37,15 @@ test("anonymous preview keeps changes local and opens login flow", async ({
     page.getByText(/체험 모드|미리보기 모드|Guest mode|Preview mode/).first(),
   ).toBeVisible();
   await expect(
+    page.getByRole("button", { name: /미리 체험하기|Try the preview/ }).first(),
+  ).toBeVisible();
+
+  await page
+    .getByRole("button", { name: /미리 체험하기|Try the preview/ })
+    .first()
+    .click();
+
+  await expect(
     page.getByText(/저장하려면 로그인해야 합니다\.|Log in to save\./),
   ).toBeVisible();
 
