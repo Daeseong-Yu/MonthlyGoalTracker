@@ -11,6 +11,7 @@ on:
       - .github/workflows/deploy.yml
       - .github/workflows/serverless-staging.yml
       - .github/workflows/serverless-production-prepare.yml
+      - .github/workflows/serverless-production-frontend.yml
       - .github/workflows/serverless-production-migrate.yml
       - .github/workflows/serverless-production-public-smoke.yml
       - scripts/check-serverless-production-readiness.sh
@@ -27,6 +28,7 @@ on:
       - .github/workflows/deploy.yml
       - .github/workflows/serverless-staging.yml
       - .github/workflows/serverless-production-prepare.yml
+      - .github/workflows/serverless-production-frontend.yml
       - .github/workflows/serverless-production-migrate.yml
       - .github/workflows/serverless-production-public-smoke.yml
       - scripts/check-serverless-production-readiness.sh

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const prepare = workflow("serverless-production-prepare.yml");
+const frontendDeploy = workflow("serverless-production-frontend.yml");
 const migrate = workflow("serverless-production-migrate.yml");
 const publicSmoke = workflow("serverless-production-public-smoke.yml");
 const localVerification = readFileSync(
@@ -12,6 +13,7 @@ const localVerification = readFileSync(
 assertManualOnly(prepare, "production prepare");
 assertManualOnly(migrate, "production migration");
 assertManualOnly(publicSmoke, "production public smoke");
+assertAutomaticFrontendDeploy(frontendDeploy);
 
 assert.match(prepare, /^\s+environment: serverless-production-prepare$/m);
 assert.match(prepare, /SERVERLESS_STAGE: production/);
@@ -52,6 +54,37 @@ assert.doesNotMatch(publicSmoke, /id-token: write/);
 assert.doesNotMatch(publicSmoke, /configure-aws-credentials/);
 assert.doesNotMatch(publicSmoke, /\baws\s/);
 assert.doesNotMatch(publicSmoke, /npx cdk deploy/);
+assert.match(frontendDeploy, /^\s+environment: serverless-production-prepare$/m);
+assert.match(frontendDeploy, /permissions:\n\s+contents: read\n\s+id-token: write/);
+assert.match(frontendDeploy, /pnpm test/);
+assert.match(frontendDeploy, /pnpm build/);
+assert.match(frontendDeploy, /scripts\/check-frontend-dist\.sh/);
+assert.match(frontendDeploy, /e2e\/smoke-preview\.spec\.ts/);
+assert.match(frontendDeploy, /aws s3 sync frontend\/dist/);
+assert.match(frontendDeploy, /aws s3 cp frontend\/dist\/index\.html/);
+assert.match(frontendDeploy, /aws cloudfront create-invalidation/);
+assert.match(frontendDeploy, /aws cloudfront wait invalidation-completed/);
+assert.match(frontendDeploy, /e2e\/serverless-smoke\.spec\.ts/);
+assert.match(frontendDeploy, /SERVERLESS_SITE_BASE_URL/);
+assert.match(frontendDeploy, /::add-mask::/);
+assert.doesNotMatch(frontendDeploy, /npx cdk deploy/);
+assert.doesNotMatch(frontendDeploy, /aws lambda invoke/);
+assert.doesNotMatch(frontendDeploy, /change-resource-record-sets/);
+assert.doesNotMatch(frontendDeploy, /SERVERLESS_SMOKE_EMAIL/);
+assert.doesNotMatch(frontendDeploy, /SERVERLESS_SMOKE_PASSWORD/);
+const frontendBuildJob = readJobBlock(frontendDeploy, "build");
+const frontendDeployJob = readJobBlock(frontendDeploy, "deploy");
+const frontendPublicSmokeJob = readJobBlock(frontendDeploy, "public-smoke");
+assert.doesNotMatch(frontendBuildJob, /id-token: write/);
+assert.doesNotMatch(frontendBuildJob, /configure-aws-credentials/);
+assert.doesNotMatch(frontendBuildJob, /\baws\s/);
+assert.match(frontendDeployJob, /actions\/download-artifact/);
+assert.match(frontendDeployJob, /id-token: write/);
+assert.doesNotMatch(frontendDeployJob, /actions\/checkout/);
+assert.doesNotMatch(frontendDeployJob, /\b(?:pnpm|npm|node)\b/);
+assert.doesNotMatch(frontendPublicSmokeJob, /id-token: write/);
+assert.doesNotMatch(frontendPublicSmokeJob, /configure-aws-credentials/);
+assert.doesNotMatch(frontendPublicSmokeJob, /\baws\s/);
 assert.doesNotMatch(
   localVerification,
   /\.ai\//,
@@ -70,6 +103,37 @@ function assertManualOnly(source: string, label: string): void {
   assert.doesNotMatch(trigger, /^  push:/m, `${label} must not run on push`);
   assert.doesNotMatch(trigger, /^  pull_request:/m, `${label} must not run on pull request`);
   assert.doesNotMatch(trigger, /^  schedule:/m, `${label} must not run on a schedule`);
+}
+
+function assertAutomaticFrontendDeploy(source: string): void {
+  const trigger = readTopLevelBlock(source, "on");
+  assert.match(trigger, /^  push:/m, "frontend deploy must run on push");
+  assert.match(trigger, /^      - main$/m, "frontend deploy must target main only");
+  assert.match(trigger, /^      - frontend\/\*\*$/m);
+  assert.match(
+    trigger,
+    /^      - \.github\/workflows\/serverless-production-frontend\.yml$/m,
+  );
+  assert.match(trigger, /^      - scripts\/check-frontend-dist\.sh$/m);
+  assert.match(trigger, /^  workflow_dispatch:/m, "frontend deploy must support manual retry");
+  assert.doesNotMatch(trigger, /^  pull_request:/m);
+  assert.doesNotMatch(trigger, /^  schedule:/m);
+  assert.doesNotMatch(trigger, /^      - (?:backend|infra)\/\*\*$/m);
+}
+
+function readJobBlock(source: string, name: string): string {
+  const lines = source.split(/\r?\n/);
+  const start = lines.findIndex((line) => line === `  ${name}:`);
+  assert.notEqual(start, -1, `missing ${name} job`);
+
+  const block: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^  [a-zA-Z0-9_-]+:$/.test(line)) {
+      break;
+    }
+    block.push(line);
+  }
+  return block.join("\n");
 }
 
 function readTopLevelBlock(source: string, key: string): string {
