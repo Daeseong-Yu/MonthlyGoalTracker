@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildMonthView,
+  errorResponse,
   jsonResponse,
   monthFromRequest,
+  okResponse,
   pendingErrorResponse,
   pendingJsonResponse,
   pendingResponse,
@@ -51,25 +53,30 @@ describe("useMonthController", () => {
     await waitForText("preview memo");
     await clickButton("첫 메모 저장");
     await waitForText("저장하려면 로그인해 주세요.");
+    await waitForText("first memo idle");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await setInputValue("새 목표 제목", "Preview goal");
     await clickButton("새 목표 제출");
     await waitForText("Preview goal");
+    await waitForText("month mutation idle");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("첫 체크 토글");
     await waitForText("first check completed");
+    await waitForText("first check idle");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("목표 제목 수정 시작");
     await setInputValue("목표 수정 제목", "Preview walk");
     await clickButton("목표 제목 수정 제출");
     await waitForText("Preview walk");
+    await waitForText("month mutation idle");
     expect(fetchMock).not.toHaveBeenCalled();
 
     await clickButton("첫 목표 종료");
     await waitForText("저장하려면 로그인해 주세요.");
+    await waitForText("month mutation idle");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -463,6 +470,160 @@ describe("useMonthController", () => {
     );
   });
 
+  it("clears a completed goal create while the server refresh is pending", async () => {
+    let goalCreated = false;
+    let resolveRefresh: (() => void) | null = null;
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input).endsWith("/goals")) {
+        goalCreated = true;
+        return okResponse();
+      }
+
+      const month = monthFromRequest(input);
+      if (goalCreated) {
+        return pendingJsonResponse(buildLabeledMonthView(month), (resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+
+      return jsonResponse(buildLabeledMonthView(month));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+    await waitForText(`API ${monthFromRequest(fetchMock.mock.calls[0][0])}`);
+
+    await setInputValue("새 목표 제목", "Pending refresh goal");
+    await clickButton("새 목표 제출");
+    await waitFor(() => resolveRefresh !== null);
+
+    await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[aria-label="새 목표 제목"]',
+      );
+      return input?.value === "";
+    });
+    await resolvePending(resolveRefresh);
+    await waitForText("month mutation idle");
+  });
+
+  it("applies a completed goal edit while the server refresh is pending", async () => {
+    let goalUpdated = false;
+    let resolveWrite: (() => void) | null = null;
+    let resolveRefresh: (() => void) | null = null;
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/goals/1") {
+        goalUpdated = true;
+        return pendingResponse((resolve) => {
+          resolveWrite = resolve;
+        });
+      }
+
+      const month = monthFromRequest(input);
+      if (goalUpdated) {
+        return pendingJsonResponse(buildLabeledMonthView(month), (resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+
+      return jsonResponse(buildLabeledMonthView(month));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+    await waitForText(`API ${monthFromRequest(fetchMock.mock.calls[0][0])}`);
+
+    await clickButton("목표 제목 수정 시작");
+    await setInputValue("목표 수정 제목", "Pending refresh edit");
+    await clickButton("목표 제목 수정 제출");
+    await waitFor(() => resolveWrite !== null);
+
+    await clickButton("첫 메모 변경");
+    await waitForText("preview memo");
+    await resolvePending(resolveWrite);
+    await waitFor(() => resolveRefresh !== null);
+
+    await waitForText("Pending refresh edit");
+    expect(document.body.textContent).toContain("preview memo");
+    expect(
+      document.querySelector('input[aria-label="목표 수정 제목"]'),
+    ).toBeNull();
+    await resolvePending(resolveRefresh);
+    await waitForText("month mutation idle");
+  });
+
+  it("applies a completed goal deactivation while refresh is pending", async () => {
+    let goalDeactivated = false;
+    let resolveRefresh: (() => void) | null = null;
+    const fetchMock = stubFetch((input) => {
+      if (requestPath(input) === "/api/goals/1/deactivate") {
+        goalDeactivated = true;
+        return okResponse();
+      }
+
+      const month = monthFromRequest(input);
+      if (goalDeactivated) {
+        const refreshedView = buildLabeledMonthView(month);
+        return pendingJsonResponse(
+          {
+            ...refreshedView,
+            goals: refreshedView.goals.map((goal, index) =>
+              index === 0 ? { ...goal, endDate: `${month}-10` } : goal,
+            ),
+          },
+          (resolve) => {
+            resolveRefresh = resolve;
+          },
+        );
+      }
+
+      return jsonResponse(buildLabeledMonthView(month));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+    await waitForText(`API ${monthFromRequest(fetchMock.mock.calls[0][0])}`);
+
+    await clickButton("첫 목표 종료");
+    await waitFor(() => resolveRefresh !== null);
+
+    await waitForText("first goal ended");
+    await resolvePending(resolveRefresh);
+    await waitForText("month mutation idle");
+  });
+
+  it("keeps a completed goal edit when the server refresh fails", async () => {
+    let goalUpdated = false;
+    const fetchMock = stubFetch((input) => {
+      const path = requestPath(input);
+      if (path === "/api/goals/1") {
+        goalUpdated = true;
+        return okResponse();
+      }
+
+      if (goalUpdated) {
+        return errorResponse(500);
+      }
+
+      return jsonResponse(buildLabeledMonthView(monthFromRequest(input)));
+    });
+
+    renderApp(<MonthControllerHarness />);
+    await waitFor(() => fetchMock.mock.calls.length >= 1);
+    const loadedMonth = monthFromRequest(fetchMock.mock.calls[0][0]);
+    await waitForText(`API ${loadedMonth}`);
+
+    await clickButton("목표 제목 수정 시작");
+    await setInputValue("목표 수정 제목", "Locally updated goal");
+    await clickButton("목표 제목 수정 제출");
+
+    await waitForText("목표를 수정했지만 화면 갱신에 실패했습니다.");
+    expect(document.body.textContent).toContain("Locally updated goal");
+    expect(
+      document.querySelector('input[aria-label="목표 수정 제목"]'),
+    ).toBeNull();
+  });
+
   it("keeps newer month mutation state when stale failures resolve", async () => {
     const createResolves: Array<() => void> = [];
     const fetchMock = stubFetch((input) => {
@@ -535,6 +696,7 @@ function MonthControllerHarness({ mode }: { mode?: MonthControllerMode }) {
       <p>{controller.month}</p>
       <p>{controller.goals[0]?.title ?? "no first goal"}</p>
       <p>{controller.goals.map((goal) => goal.title).join(" | ")}</p>
+      <p>{firstGoal?.endDate ? "first goal ended" : "first goal active"}</p>
       <p>{controller.loadStatus}</p>
       <p>{controller.loadError ?? "no load error"}</p>
       <p>{controller.saveError ?? "no save error"}</p>
