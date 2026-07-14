@@ -346,20 +346,25 @@ type stubGoalRepository struct {
 	updateTitleFunc              func(ctx context.Context, id uint, title string) (*domain.Goal, error)
 	setEndDateFunc               func(ctx context.Context, id uint, endDate *time.Time) (*domain.Goal, error)
 	listOverlappingDateRangeFunc func(ctx context.Context, startDate, endDate time.Time) ([]domain.Goal, error)
+	applyMonthRolloverFunc       func(ctx context.Context, copiedGoals []domain.Goal, previousGoalIDs []uint, previousMonthEnd time.Time) error
 
-	createCalls      int
-	updateTitleCalls int
-	setEndDateCalls  int
-	listCalls        int
+	createCalls             int
+	updateTitleCalls        int
+	setEndDateCalls         int
+	listCalls               int
+	applyMonthRolloverCalls int
 
-	createdGoal          *domain.Goal
-	lastFindGoalID       uint
-	lastUpdatedGoalID    uint
-	lastUpdatedTitle     string
-	lastSetEndDateGoalID uint
-	lastSetEndDate       *time.Time
-	lastListStartDate    time.Time
-	lastListEndDate      time.Time
+	createdGoal              *domain.Goal
+	lastFindGoalID           uint
+	lastUpdatedGoalID        uint
+	lastUpdatedTitle         string
+	lastSetEndDateGoalID     uint
+	lastSetEndDate           *time.Time
+	lastListStartDate        time.Time
+	lastListEndDate          time.Time
+	rolloverCopiedGoals      []domain.Goal
+	rolloverPreviousGoalIDs  []uint
+	rolloverPreviousMonthEnd time.Time
 }
 
 func (s *stubGoalRepository) Create(ctx context.Context, goal *domain.Goal) error {
@@ -411,4 +416,20 @@ func (s *stubGoalRepository) ListOverlappingDateRange(ctx context.Context, start
 		return s.listOverlappingDateRangeFunc(ctx, startDate, endDate)
 	}
 	return nil, nil
+}
+
+func (s *stubGoalRepository) ApplyMonthRollover(
+	ctx context.Context,
+	copiedGoals []domain.Goal,
+	previousGoalIDs []uint,
+	previousMonthEnd time.Time,
+) error {
+	s.applyMonthRolloverCalls++
+	s.rolloverCopiedGoals = append([]domain.Goal(nil), copiedGoals...)
+	s.rolloverPreviousGoalIDs = append([]uint(nil), previousGoalIDs...)
+	s.rolloverPreviousMonthEnd = previousMonthEnd
+	if s.applyMonthRolloverFunc != nil {
+		return s.applyMonthRolloverFunc(ctx, copiedGoals, previousGoalIDs, previousMonthEnd)
+	}
+	return nil
 }

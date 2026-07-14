@@ -111,6 +111,100 @@ func TestGoalRepositoryListOverlappingDateRangeUsesInclusiveOverlapPredicate(t *
 	}
 }
 
+func TestGoalRepositoryApplyMonthRolloverCommitsCopiedGoalsAndPreviousGoalUpdates(t *testing.T) {
+	repo, mock, closeDB := newMockGoalRepository(t)
+	defer closeDB()
+
+	monthStart := date(2099, time.February, 1)
+	previousMonthEnd := date(2099, time.January, 31)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "goals" \("user_id","title","start_date","end_date","created_at","updated_at"\) VALUES \(\$1,\$2,\$3,\$4,\$5,\$6\) RETURNING "id"`).
+		WithArgs(testUserID, "Exercise", monthStart, nil, fixedNow(), fixedNow()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(8))
+	mock.ExpectExec(`UPDATE "goals" SET "end_date"=\$1,"updated_at"=\$2 WHERE user_id = \$3 AND id IN \(\$4\)`).
+		WithArgs(previousMonthEnd, fixedNow(), testUserID, uint(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err := repo.ApplyMonthRollover(
+		scopedUserContext(),
+		[]domain.Goal{{Title: "Exercise", StartDate: monthStart}},
+		[]uint{7},
+		previousMonthEnd,
+	)
+	if err != nil {
+		t.Fatalf("expected month rollover to succeed, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGoalRepositoryApplyMonthRolloverRollsBackCopiedGoalsWhenPreviousGoalUpdateFails(t *testing.T) {
+	repo, mock, closeDB := newMockGoalRepository(t)
+	defer closeDB()
+
+	monthStart := date(2099, time.February, 1)
+	previousMonthEnd := date(2099, time.January, 31)
+	expectedErr := errors.New("update failed")
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "goals" \("user_id","title","start_date","end_date","created_at","updated_at"\) VALUES \(\$1,\$2,\$3,\$4,\$5,\$6\) RETURNING "id"`).
+		WithArgs(testUserID, "Exercise", monthStart, nil, fixedNow(), fixedNow()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(8))
+	mock.ExpectExec(`UPDATE "goals" SET "end_date"=\$1,"updated_at"=\$2 WHERE user_id = \$3 AND id IN \(\$4\)`).
+		WithArgs(previousMonthEnd, fixedNow(), testUserID, uint(7)).
+		WillReturnError(expectedErr)
+	mock.ExpectRollback()
+
+	err := repo.ApplyMonthRollover(
+		scopedUserContext(),
+		[]domain.Goal{{Title: "Exercise", StartDate: monthStart}},
+		[]uint{7},
+		previousMonthEnd,
+	)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected previous goal update error, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGoalRepositoryApplyMonthRolloverRollsBackWhenPreviousGoalIsOutsideUserScope(t *testing.T) {
+	repo, mock, closeDB := newMockGoalRepository(t)
+	defer closeDB()
+
+	monthStart := date(2099, time.February, 1)
+	previousMonthEnd := date(2099, time.January, 31)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO "goals" \("user_id","title","start_date","end_date","created_at","updated_at"\) VALUES \(\$1,\$2,\$3,\$4,\$5,\$6\) RETURNING "id"`).
+		WithArgs(testUserID, "Exercise", monthStart, nil, fixedNow(), fixedNow()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(8))
+	mock.ExpectExec(`UPDATE "goals" SET "end_date"=\$1,"updated_at"=\$2 WHERE user_id = \$3 AND id IN \(\$4\)`).
+		WithArgs(previousMonthEnd, fixedNow(), testUserID, uint(99)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	err := repo.ApplyMonthRollover(
+		scopedUserContext(),
+		[]domain.Goal{{Title: "Exercise", StartDate: monthStart}},
+		[]uint{99},
+		previousMonthEnd,
+	)
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected out-of-scope previous goal to return not found, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func newMockGoalRepository(t *testing.T) (*GoalRepository, sqlmock.Sqlmock, func()) {
 	t.Helper()
 

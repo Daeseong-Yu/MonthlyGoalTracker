@@ -26,6 +26,51 @@ func (r *GoalRepository) Create(ctx context.Context, goal *domain.Goal) error {
 	return r.db.WithContext(ctx).Create(goal).Error
 }
 
+func (r *GoalRepository) ApplyMonthRollover(
+	ctx context.Context,
+	copiedGoals []domain.Goal,
+	previousGoalIDs []uint,
+	previousMonthEnd time.Time,
+) error {
+	userID, err := currentUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if len(copiedGoals) == 0 && len(previousGoalIDs) == 0 {
+		return nil
+	}
+
+	goalsToCreate := append([]domain.Goal(nil), copiedGoals...)
+	for index := range goalsToCreate {
+		goalsToCreate[index].UserID = userID
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(goalsToCreate) > 0 {
+			if err := tx.Create(&goalsToCreate).Error; err != nil {
+				return err
+			}
+		}
+
+		if len(previousGoalIDs) == 0 {
+			return nil
+		}
+
+		result := tx.
+			Model(&domain.Goal{}).
+			Where("user_id = ? AND id IN ?", userID, previousGoalIDs).
+			Update("end_date", previousMonthEnd)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != int64(len(previousGoalIDs)) {
+			return gorm.ErrRecordNotFound
+		}
+
+		return nil
+	})
+}
+
 func (r *GoalRepository) FindByID(ctx context.Context, id uint) (*domain.Goal, error) {
 	scopedDB, _, err := scopedByUser(ctx, r.db)
 	if err != nil {

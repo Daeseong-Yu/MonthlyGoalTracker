@@ -76,7 +76,7 @@ func TestGetMonthViewBuildsDailyStatsAndChart(t *testing.T) {
 	assertDayStats(t, april3, 2, 0, 0)
 }
 
-func TestEnsureMonthCopiesPreviousActiveGoalsAndEndsOriginal(t *testing.T) {
+func TestEnsureMonthAppliesPreviousGoalRolloverAsOneOperation(t *testing.T) {
 	monthStart := date(2026, time.April, 1)
 	previousMonthEnd := date(2026, time.March, 31)
 	previousGoal := domain.Goal{
@@ -111,27 +111,24 @@ func TestEnsureMonthCopiesPreviousActiveGoalsAndEndsOriginal(t *testing.T) {
 		t.Fatal("expected month view")
 	}
 
-	if goalRepo.createCalls != 1 {
-		t.Fatalf("expected one copied goal, got %d", goalRepo.createCalls)
+	if goalRepo.applyMonthRolloverCalls != 1 {
+		t.Fatalf("expected one month rollover operation, got %d", goalRepo.applyMonthRolloverCalls)
 	}
-	if goalRepo.createdGoal == nil {
-		t.Fatal("expected copied goal to be recorded")
+	if len(goalRepo.rolloverCopiedGoals) != 1 {
+		t.Fatalf("expected one copied goal, got %d", len(goalRepo.rolloverCopiedGoals))
 	}
-	if goalRepo.createdGoal.Title != previousGoal.Title {
-		t.Fatalf("expected copied title %q, got %q", previousGoal.Title, goalRepo.createdGoal.Title)
+	if goalRepo.rolloverCopiedGoals[0].Title != previousGoal.Title {
+		t.Fatalf("expected copied title %q, got %q", previousGoal.Title, goalRepo.rolloverCopiedGoals[0].Title)
 	}
-	assertDateEqual(t, goalRepo.createdGoal.StartDate, monthStart)
+	assertDateEqual(t, goalRepo.rolloverCopiedGoals[0].StartDate, monthStart)
 
-	if goalRepo.setEndDateCalls != 1 {
-		t.Fatalf("expected previous goal to be ended once, got %d", goalRepo.setEndDateCalls)
+	if len(goalRepo.rolloverPreviousGoalIDs) != 1 {
+		t.Fatalf("expected one previous goal to be ended, got %d", len(goalRepo.rolloverPreviousGoalIDs))
 	}
-	if goalRepo.lastSetEndDateGoalID != previousGoal.ID {
-		t.Fatalf("expected end date to target goal %d, got %d", previousGoal.ID, goalRepo.lastSetEndDateGoalID)
+	if goalRepo.rolloverPreviousGoalIDs[0] != previousGoal.ID {
+		t.Fatalf("expected end date to target goal %d, got %d", previousGoal.ID, goalRepo.rolloverPreviousGoalIDs[0])
 	}
-	if goalRepo.lastSetEndDate == nil {
-		t.Fatal("expected end date to be set")
-	}
-	assertDateEqual(t, *goalRepo.lastSetEndDate, previousMonthEnd)
+	assertDateEqual(t, goalRepo.rolloverPreviousMonthEnd, previousMonthEnd)
 }
 
 func findDayEntry(t *testing.T, days []DayEntry, date time.Time) DayEntry {
