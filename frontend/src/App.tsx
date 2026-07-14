@@ -28,27 +28,23 @@ import {
 } from "lucide-react";
 
 import {
-  bootstrapSession,
   changePassword,
   checkHealth,
-  clearAuthCSRFToken,
   isAPIError,
   isAuthResponse,
   login as loginSession,
   logoutOtherSessions,
-  logoutSession,
   requestPasswordReset,
   resetPassword,
   signUp as signUpSession,
-  updateUserLocale,
-  verifyEmail,
 } from "./api";
 import { formatMonth, statusLabel } from "./appDisplay";
 import ChartPanel from "./ChartPanel";
 import DailyRecordTable from "./DailyRecordTable";
 import GoalPanel from "./GoalPanel";
-import { messagesForLocale, normalizeLocale, type AppMessages } from "./i18n";
+import { messagesForLocale, type AppMessages } from "./i18n";
 import MetricSummary from "./MetricSummary";
+import { useAccountLifecycle } from "./useAccountLifecycle";
 import { useMonthController } from "./useMonthController";
 import type {
   AppLocale,
@@ -61,22 +57,12 @@ import type {
 type AuthMode = "login" | "signup" | "forgot" | "reset";
 type DashboardSection = "dashboard" | "goals" | "records" | "account";
 type HealthStatus = "checking" | "healthy" | "unhealthy";
-const localeStorageKey = "monthlyGoalTracker.locale";
 const themeStorageKey = "monthlyGoalTracker.theme";
 
 export default function App() {
-  const [locale, setLocale] = useState<AppLocale>(
-    () => readStoredLocale() ?? "ko",
-  );
-  const [user, setUser] = useState<UserSession | null>(null);
-  const [bootstrapped, setBootstrapped] = useState(false);
-  const [bootstrapFailed, setBootstrapFailed] = useState(false);
+  const account = useAccountLifecycle();
+  const { authFlow, bootstrapped, locale, user } = account.state;
   const [healthStatus, setHealthStatus] = useState<HealthStatus>("checking");
-  const [emailVerificationFailed, setEmailVerificationFailed] = useState(false);
-  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(
-    () => readPasswordResetToken(),
-  );
-  const [showAuthScreen, setShowAuthScreen] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(
     () => readStoredThemePreference(),
   );
@@ -124,158 +110,14 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function bootstrap() {
-      try {
-        const response = await bootstrapSession();
-        if (cancelled) {
-          return;
-        }
-
-        const nextUser = response.authenticated ? response.user : null;
-        const nextLocale = normalizeLocale(
-          nextUser?.locale ?? readStoredLocale() ?? response.locale,
-        );
-        setLocale(nextLocale);
-        storeLocale(nextLocale);
-        const verificationToken = nextUser ? null : readEmailVerificationToken();
-        const resetToken = nextUser ? null : readPasswordResetToken();
-
-        if (nextUser && readEmailVerificationToken()) {
-          removeEmailVerificationToken();
-        }
-
-        if (nextUser && readPasswordResetToken()) {
-          removePasswordResetToken();
-        }
-
-        if (verificationToken) {
-          try {
-            const authResponse = await verifyEmail(verificationToken);
-            if (cancelled) {
-              return;
-            }
-
-            removeEmailVerificationToken();
-            removePasswordResetToken();
-            const verifiedLocale = normalizeLocale(
-              authResponse.user.locale ?? authResponse.locale,
-            );
-            setLocale(verifiedLocale);
-            storeLocale(verifiedLocale);
-            setUser(authResponse.user);
-            setPasswordResetToken(null);
-            setEmailVerificationFailed(false);
-            setBootstrapFailed(false);
-            return;
-          } catch {
-            if (cancelled) {
-              return;
-            }
-
-            clearAuthCSRFToken();
-            removeEmailVerificationToken();
-            setUser(null);
-            setPasswordResetToken(resetToken);
-            setEmailVerificationFailed(true);
-            setBootstrapFailed(false);
-            return;
-          }
-        }
-
-        setUser(nextUser);
-        setPasswordResetToken(resetToken);
-        setEmailVerificationFailed(false);
-        setBootstrapFailed(false);
-      } catch {
-        if (cancelled) {
-          return;
-        }
-
-        clearAuthCSRFToken();
-        setUser(null);
-        setPasswordResetToken(readPasswordResetToken());
-        setEmailVerificationFailed(false);
-        setBootstrapFailed(true);
-      } finally {
-        if (!cancelled) {
-          setBootstrapped(true);
-        }
-      }
-    }
-
-    void bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function handleLocaleChange(nextLocale: AppLocale) {
-    if (nextLocale === locale) {
-      return;
-    }
-
-    setLocale(nextLocale);
-    storeLocale(nextLocale);
-    if (!user) {
-      return;
-    }
-
-    setUser({ ...user, locale: nextLocale });
-    try {
-      const updatedUser = await updateUserLocale(nextLocale);
-      setUser(updatedUser);
-    } catch {
-      setUser((currentUser) =>
-        currentUser === null ? currentUser : { ...currentUser, locale: nextLocale },
-      );
-    }
-  }
-
   function handleThemePreferenceChange(nextPreference: ThemePreference) {
     setThemePreference(nextPreference);
     storeThemePreference(nextPreference);
   }
 
-  function handleAuthenticated(response: AuthResponse) {
-    const nextLocale = normalizeLocale(response.user.locale ?? response.locale);
-    setLocale(nextLocale);
-    storeLocale(nextLocale);
-    setUser(response.user);
-    setPasswordResetToken(null);
-    setShowAuthScreen(false);
-    removeEmailVerificationToken();
-    removePasswordResetToken();
-    setEmailVerificationFailed(false);
-    setBootstrapFailed(false);
-  }
-
-  function handleLoggedOut() {
-    clearAuthCSRFToken();
-    setUser(null);
-    setPasswordResetToken(readPasswordResetToken());
-    setShowAuthScreen(false);
-    setEmailVerificationFailed(false);
-  }
-
-  function handleCloseAuthFlow() {
-    setShowAuthScreen(false);
-    setEmailVerificationFailed(false);
-    if (passwordResetToken !== null) {
-      setPasswordResetToken(null);
-      removePasswordResetToken();
-    }
-  }
-
   if (!bootstrapped) {
     return <BootstrapScreen messages={messages} />;
   }
-
-  const authFlowOpen =
-    !user && (showAuthScreen || passwordResetToken !== null || emailVerificationFailed);
 
   return (
     <>
@@ -285,29 +127,30 @@ export default function App() {
         locale={locale}
         messages={messages}
         user={user}
-        onAuthenticated={handleAuthenticated}
-        onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
+        onAuthenticated={account.applyAuthentication}
+        onLocaleChange={(nextLocale) => void account.changeLocale(nextLocale)}
         themePreference={themePreference}
         onThemePreferenceChange={handleThemePreferenceChange}
-        onOpenAuth={() => setShowAuthScreen(true)}
-        onLoggedOut={handleLoggedOut}
+        onOpenAuth={account.openAuthFlow}
+        onLogout={account.logout}
       />
-      {authFlowOpen ? (
+      {authFlow.open ? (
         <AuthScreen
-          bootstrapError={bootstrapFailed ? messages.app.bootstrapError : null}
+          bootstrapError={
+            authFlow.bootstrapFailed ? messages.app.bootstrapError : null
+          }
           verificationError={
-            emailVerificationFailed ? messages.auth.emailVerificationFailed : null
+            authFlow.verificationFailed
+              ? messages.auth.emailVerificationFailed
+              : null
           }
           locale={locale}
           messages={messages}
-          passwordResetToken={passwordResetToken}
-          onAuthenticated={handleAuthenticated}
-          onLocaleChange={(nextLocale) => void handleLocaleChange(nextLocale)}
-          onPasswordResetTokenConsumed={() => {
-            setPasswordResetToken(null);
-            removePasswordResetToken();
-          }}
-          onPreviewRequested={handleCloseAuthFlow}
+          passwordResetToken={authFlow.passwordResetToken}
+          onAuthenticated={account.applyAuthentication}
+          onLocaleChange={(nextLocale) => void account.changeLocale(nextLocale)}
+          onPasswordResetTokenConsumed={account.consumePasswordResetToken}
+          onPreviewRequested={account.closeAuthFlow}
         />
       ) : null}
     </>
@@ -756,7 +599,7 @@ function Dashboard({
   onLocaleChange,
   onThemePreferenceChange,
   onOpenAuth,
-  onLoggedOut,
+  onLogout,
 }: {
   healthStatus: HealthStatus;
   locale: AppLocale;
@@ -767,7 +610,7 @@ function Dashboard({
   onLocaleChange: (locale: AppLocale) => void;
   onThemePreferenceChange: (preference: ThemePreference) => void;
   onOpenAuth: () => void;
-  onLoggedOut: () => void;
+  onLogout: () => Promise<void>;
 }) {
   const previewMode = user === null;
   const [activeSection, setActiveSection] =
@@ -835,11 +678,7 @@ function Dashboard({
       return;
     }
 
-    try {
-      await logoutSession();
-    } finally {
-      onLoggedOut();
-    }
+    await onLogout();
   }
 
   return (
@@ -1502,88 +1341,4 @@ function preferredSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
-}
-
-function readStoredLocale(): AppLocale | null {
-  try {
-    const storedLocale = window.localStorage.getItem(localeStorageKey);
-    return storedLocale === "ko" || storedLocale === "en"
-      ? storedLocale
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeLocale(locale: AppLocale) {
-  try {
-    window.localStorage.setItem(localeStorageKey, locale);
-  } catch {
-    // Local storage is optional; the server session remains authoritative.
-  }
-}
-
-function readEmailVerificationToken() {
-  const params = new URLSearchParams(window.location.search);
-  return (
-    params.get("token")?.trim() ||
-    params.get("verifyToken")?.trim() ||
-    null
-  );
-}
-
-function removeEmailVerificationToken() {
-  removeSearchParams(["token", "verifyToken"]);
-}
-
-function readPasswordResetToken() {
-  const params = hashParams();
-  return (
-    params.get("resetToken")?.trim() ||
-    params.get("passwordResetToken")?.trim() ||
-    null
-  );
-}
-
-function removePasswordResetToken() {
-  removeSearchParams(["resetToken", "passwordResetToken"]);
-  removeHashParams(["resetToken", "passwordResetToken"]);
-}
-
-function hashParams() {
-  return new URLSearchParams(window.location.hash.replace(/^#/, ""));
-}
-
-function removeHashParams(keys: string[]) {
-  const url = new URL(window.location.href);
-  const params = new URLSearchParams(url.hash.replace(/^#/, ""));
-  let changed = false;
-
-  for (const key of keys) {
-    if (params.has(key)) {
-      params.delete(key);
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    url.hash = params.toString();
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-  }
-}
-
-function removeSearchParams(keys: string[]) {
-  const url = new URL(window.location.href);
-  let changed = false;
-
-  for (const key of keys) {
-    if (url.searchParams.has(key)) {
-      url.searchParams.delete(key);
-      changed = true;
-    }
-  }
-
-  if (changed) {
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-  }
 }
