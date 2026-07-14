@@ -1,4 +1,5 @@
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import { useId, useState } from "react";
 
 import {
   memoInputClassName,
@@ -42,6 +43,8 @@ type DailyRecordLabels = {
   dateHeader: string;
   memoHeader: string;
   completedHeader: string;
+  expand: string;
+  collapse: string;
   memoAria: (date: string) => string;
   completeAria: (date: string, title: string) => string;
 };
@@ -51,6 +54,8 @@ const defaultLabels: DailyRecordLabels = {
   dateHeader: "날짜",
   memoHeader: "메모",
   completedHeader: "완료",
+  expand: "전체 보기",
+  collapse: "접기",
   memoAria: (date) => `${date} 메모`,
   completeAria: (date, title) => `${date} ${title} 완료`,
 };
@@ -71,6 +76,8 @@ export default function DailyRecordTable({
   onMemoChange,
   onToggleCheck,
 }: DailyRecordTableProps) {
+  const [expanded, setExpanded] = useState(false);
+  const tableFrameId = useId();
   const visibleGoalSlots = dailyRecordGoalSlots.filter(
     (slotGoals) => slotGoals.length > 0,
   );
@@ -89,7 +96,12 @@ export default function DailyRecordTable({
         <span className="panel-count">{days.length}</span>
       </div>
 
-      <div className="table-frame overflow-x-auto">
+      <div
+        id={tableFrameId}
+        className={`table-frame overflow-x-auto ${
+          expanded ? "table-frame--expanded" : ""
+        }`}
+      >
         <table className={`record-table w-full ${tableWidthClass} table-fixed border-collapse text-left text-sm`}>
           <thead className="text-xs uppercase" style={{ background: "var(--panel-muted)", color: "var(--text-muted)" }}>
             <tr>
@@ -226,15 +238,13 @@ export default function DailyRecordTable({
         <button
           className="record-more-button"
           type="button"
-          onClick={(event) => {
-            event.currentTarget
-              .closest("section")
-              ?.querySelector(".table-frame")
-              ?.scrollBy({ behavior: "smooth", top: 360 });
-          }}
+          aria-controls={tableFrameId}
+          aria-expanded={expanded}
+          aria-label={expanded ? labels.collapse : labels.expand}
+          onClick={() => setExpanded((current) => !current)}
         >
-          {locale === "ko" ? "더 보기" : "Show more"}
-          <ChevronDown size={15} />
+          {expanded ? labels.collapse : labels.expand}
+          {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </button>
       </div>
     </section>

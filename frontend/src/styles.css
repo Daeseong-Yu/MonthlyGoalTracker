@@ -178,6 +178,29 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-sage) 16%, transparent);
   }
 
+  .topbar-status .status-pill--loading::before {
+    background: var(--text-muted);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-muted) 14%, transparent);
+  }
+
+  .topbar-status .status-pill--fallback {
+    color: var(--warning-text);
+  }
+
+  .topbar-status .status-pill--fallback::before {
+    background: var(--warning-text);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-text) 14%, transparent);
+  }
+
+  .topbar-status .status-pill--preview {
+    color: var(--accent-denim-strong);
+  }
+
+  .topbar-status .status-pill--preview::before {
+    background: var(--accent-denim);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-denim) 14%, transparent);
+  }
+
   .sidebar-title {
     color: var(--text-primary);
     font-size: 1.125rem;
@@ -713,6 +736,10 @@
     max-height: 34.5rem;
     padding: 0.875rem;
     overflow-y: auto;
+  }
+
+  .table-frame--expanded {
+    max-height: none;
   }
 
   .table-frame .record-table {

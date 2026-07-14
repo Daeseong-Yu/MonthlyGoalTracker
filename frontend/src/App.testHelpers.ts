@@ -8,6 +8,7 @@ const roots: Root[] = [];
 
 type StubFetchOptions = {
   bootstrap?: BootstrapResponse;
+  healthStatus?: number;
 };
 
 const authenticatedBootstrap: BootstrapResponse = {
@@ -60,6 +61,10 @@ export function stubFetch(
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     if (requestPath(input) === "/api/bootstrap") {
       return jsonResponse(options.bootstrap ?? authenticatedBootstrap);
+    }
+
+    if (requestPath(input) === "/api/health") {
+      return new Response(null, { status: options.healthStatus ?? 200 });
     }
 
     return fetchMock(input, init);
