@@ -1,14 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  createGoal,
-  deactivateGoal,
-  ensureMonth,
-  getMonthView,
-  saveMemo,
-  setGoalCompleted,
-  updateGoalTitle,
-} from "./api";
 import type { LoadStatus } from "./appDisplay";
 import { checkKey, nextDate } from "./goalSlots";
 import {
@@ -16,12 +7,14 @@ import {
   validateNewGoalDraft,
 } from "./goalFormValidation";
 import { messages as localizedMessages, type AppMessages } from "./i18n";
-import { buildEmptyMonthView, buildMockMonthView } from "./mockMonth";
+import {
+  createMonthPersistence,
+  type MonthControllerMode,
+  type MonthMutationResult,
+} from "./monthPersistence";
 import { buildMonthSummary } from "./monthSummary";
 import {
   applyCheckState,
-  applyGoalEndDateState,
-  applyGoalTitleState,
   applyMemoState,
   currentDate,
   currentMonth,
@@ -32,9 +25,9 @@ import {
   monthStartDate,
   offsetMonth,
 } from "./monthLogic";
-import type { Goal, MonthView } from "./types";
+import type { Goal } from "./types";
 
-export type MonthControllerMode = "server" | "preview";
+export type { MonthControllerMode } from "./monthPersistence";
 type SaveFeedbackScope = "global" | "goal";
 
 type UseMonthControllerOptions = {
@@ -44,16 +37,16 @@ type UseMonthControllerOptions = {
 
 export function useMonthController(options: UseMonthControllerOptions = {}) {
   const mode = options.mode ?? "server";
-  const isPreviewMode = mode === "preview";
+  const persistence = useMemo(() => createMonthPersistence(mode), [mode]);
   const localeMessages = options.messages ?? localizedMessages.ko;
   const controllerMessages = localeMessages.controller;
   const summaryMessages = localeMessages.summary;
   const validationMessages = localeMessages.validation;
   const [monthView, setMonthView] = useState(() =>
-    buildMonthViewForMode(currentMonth(), isPreviewMode),
+    persistence.initialState(currentMonth()).view,
   );
   const [loadStatus, setLoadStatus] = useState<LoadStatus>(() =>
-    isPreviewMode ? "local" : "loading",
+    persistence.initialState(currentMonth()).loadStatus,
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -100,7 +93,7 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     [currentDayKey, monthView, summaryMessages],
   );
   const isLoading = loadStatus === "loading";
-  const canSaveChanges = isPreviewMode || loadStatus === "api";
+  const canSaveChanges = loadStatus === "local" || loadStatus === "api";
   const isMutatingMonth =
     savingGoal ||
     savingGoalTitle ||
@@ -117,21 +110,19 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   async function loadMonth(nextMonth: string) {
     const requestID = loadRequestIDRef.current + 1;
     loadRequestIDRef.current = requestID;
-    resetMonthLoadState(nextMonth);
-
-    if (isPreviewMode) {
-      setLoadStatus("local");
+    const initialState = resetMonthLoadState(nextMonth);
+    if (initialState.loadStatus === "local") {
       return;
     }
 
     try {
-      const nextMonthView = await getMonthView(nextMonth);
+      const nextState = await persistence.loadMonth(nextMonth);
       if (loadRequestIDRef.current !== requestID) {
         return;
       }
 
-      setMonthView(nextMonthView);
-      setLoadStatus("api");
+      setMonthView(nextState.view);
+      setLoadStatus(nextState.loadStatus);
     } catch (error) {
       if (loadRequestIDRef.current !== requestID) {
         return;
@@ -148,14 +139,6 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
-    if (isPreviewMode) {
-      clearSaveFeedback();
-      setGoalFormOpen(false);
-      cancelEditingGoal();
-      setSaveSuccess(controllerMessages.previewSaveNotice);
-      return;
-    }
-
     if (preparingMonthRef.current) {
       return;
     }
@@ -169,10 +152,10 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     cancelEditingGoal();
 
     try {
-      const preparedView = await ensureMonth(submittedMonth);
+      const result = await persistence.prepareMonth(submittedMonth);
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
-        setMonthView(preparedView);
-        setSaveSuccess(controllerMessages.prepareSuccess);
+        setMonthView(result.apply);
+        setPersistenceSuccess(result, controllerMessages.prepareSuccess);
       }
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -208,15 +191,6 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       (check) => check.goalId === goalId && check.date === date,
     );
 
-    if (isPreviewMode) {
-      clearSaveFeedback();
-      setMonthView((currentView) =>
-        applyCheckState(currentView, goalId, date, completed),
-      );
-      setSaveSuccess(controllerMessages.previewSaveNotice);
-      return;
-    }
-
     clearSaveFeedback();
     setSavingChecks((currentKeys) => [...currentKeys, key]);
     setMonthView((currentView) =>
@@ -224,7 +198,14 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     );
 
     try {
-      await setGoalCompleted(goalId, date, completed);
+      const result = await persistence.saveCheck(
+        goalId,
+        date,
+        completed,
+      );
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setPersistenceSuccess(result);
+      }
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setMonthView((currentView) =>
@@ -251,12 +232,6 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
-    if (isPreviewMode) {
-      clearSaveFeedback();
-      setSaveSuccess(controllerMessages.previewSaveNotice);
-      return;
-    }
-
     if (savingMemos.includes(date)) {
       return;
     }
@@ -267,7 +242,10 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     setSavingMemos((currentDates) => [...currentDates, date]);
 
     try {
-      await saveMemo(date, memo);
+      const result = await persistence.saveMemo(date, memo);
+      if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
+        setPersistenceSuccess(result);
+      }
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setSaveFailure(controllerMessages.memoFailure);
@@ -301,26 +279,11 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     const submittedMonth = month;
     const submittedLoadRequestID = loadRequestIDRef.current;
     clearSaveFeedback();
-
-    if (isPreviewMode) {
-      setMonthView((currentView) =>
-        appendPreviewGoalState(
-          currentView,
-          validation.trimmedTitle,
-          newGoalStartDate,
-        ),
-      );
-      setNewGoalTitle("");
-      setNewGoalStartDate(monthStartDate(submittedMonth));
-      setGoalFormOpen(false);
-      setSaveSuccess(controllerMessages.previewSaveNotice, "goal");
-      return;
-    }
-
     setSavingGoal(true);
 
+    let result: MonthMutationResult;
     try {
-      await createGoal(
+      result = await persistence.createGoal(
         submittedMonth,
         validation.trimmedTitle,
         newGoalStartDate,
@@ -337,10 +300,13 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
+    setMonthView(result.apply);
     setNewGoalTitle("");
     setNewGoalStartDate(monthStartDate(submittedMonth));
     setGoalFormOpen(false);
-    await refreshMonthView(
+    setPersistenceSuccess(result, undefined, "goal");
+    await refreshMonthMutation(
+      result,
       submittedMonth,
       submittedLoadRequestID,
       controllerMessages.createRefreshFailure,
@@ -388,21 +354,16 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
-    if (isPreviewMode) {
-      clearSaveFeedback();
-      setMonthView((currentView) =>
-        applyGoalTitleState(currentView, goalID, validation.trimmedTitle),
-      );
-      cancelEditingGoal();
-      setSaveSuccess(controllerMessages.previewSaveNotice, "goal");
-      return;
-    }
-
     clearSaveFeedback();
     setSavingGoalTitle(true);
 
+    let result: MonthMutationResult;
     try {
-      await updateGoalTitle(goalID, validation.trimmedTitle);
+      result = await persistence.updateGoalTitle(
+        submittedMonth,
+        goalID,
+        validation.trimmedTitle,
+      );
     } catch {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         setSaveFailure(controllerMessages.editFailure, "goal");
@@ -415,12 +376,11 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
-    setMonthView((currentView) =>
-      applyGoalTitleState(currentView, goalID, validation.trimmedTitle),
-    );
+    setMonthView(result.apply);
     cancelEditingGoal();
-
-    await refreshMonthView(
+    setPersistenceSuccess(result, undefined, "goal");
+    await refreshMonthMutation(
+      result,
       submittedMonth,
       submittedLoadRequestID,
       controllerMessages.editRefreshFailure,
@@ -445,19 +405,6 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
       return;
     }
 
-    if (isPreviewMode) {
-      clearSaveFeedback();
-      setMonthView((currentView) =>
-        applyGoalEndDateState(currentView, goal.id, endDate),
-      );
-      const replacementStartDate = nextDate(endDate);
-      if (replacementStartDate <= monthEndDate(submittedMonth)) {
-        setNewGoalStartDate(replacementStartDate);
-      }
-      setSaveSuccess(controllerMessages.previewSaveNotice, "goal");
-      return;
-    }
-
     if (!markGoalDeactivating(goal.id)) {
       return;
     }
@@ -465,8 +412,13 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     clearSaveFeedback();
 
     try {
+      let result: MonthMutationResult;
       try {
-        await deactivateGoal(goal.id, endDate);
+        result = await persistence.deactivateGoal(
+          submittedMonth,
+          goal.id,
+          endDate,
+        );
       } catch {
         if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
           setSaveFailure(controllerMessages.deactivateFailure, "goal");
@@ -478,14 +430,10 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
         return;
       }
 
-      setMonthView((currentView) =>
-        applyGoalEndDateState(currentView, goal.id, endDate),
-      );
-      const replacementStartDate = nextDate(endDate);
-      if (replacementStartDate <= monthEndDate(submittedMonth)) {
-        setNewGoalStartDate(replacementStartDate);
-      }
-      const refreshed = await refreshMonthView(
+      setMonthView(result.apply);
+      updateReplacementGoalStartDate(endDate, submittedMonth);
+      const refreshed = await refreshMonthMutation(
+        result,
         submittedMonth,
         submittedLoadRequestID,
         controllerMessages.deactivateRefreshFailure,
@@ -495,7 +443,11 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
         refreshed &&
         isCurrentSaveContext(submittedMonth, submittedLoadRequestID)
       ) {
-        setSaveSuccess(controllerMessages.deactivateSuccess, "goal");
+        setPersistenceSuccess(
+          result,
+          controllerMessages.deactivateSuccess,
+          "goal",
+        );
       }
     } finally {
       if (isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
@@ -525,7 +477,8 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
   }
 
   function resetMonthLoadState(nextMonth: string) {
-    setLoadStatus("loading");
+    const initialState = persistence.initialState(nextMonth);
+    setLoadStatus(initialState.loadStatus);
     setLoadError(null);
     clearSaveFeedback();
     setSavingChecks([]);
@@ -540,21 +493,30 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     setPreparingMonth(false);
     deactivatingGoalIDSetRef.current.clear();
     setDeactivatingGoalIDs([]);
-    setMonthView(buildMonthViewForMode(nextMonth, isPreviewMode));
+    setMonthView(initialState.view);
+    return initialState;
   }
 
-  async function refreshMonthView(
+  function updateReplacementGoalStartDate(endDate: string, month: string) {
+    const replacementStartDate = nextDate(endDate);
+    if (replacementStartDate <= monthEndDate(month)) {
+      setNewGoalStartDate(replacementStartDate);
+    }
+  }
+
+  async function refreshMonthMutation(
+    result: MonthMutationResult,
     submittedMonth: string,
     submittedLoadRequestID: number,
     failureMessage: string,
     failureScope: SaveFeedbackScope = "global",
   ) {
-    if (isPreviewMode) {
+    if (result.refresh === undefined) {
       return true;
     }
 
     try {
-      const refreshedView = await getMonthView(submittedMonth);
+      const refreshedView = await result.refresh();
       if (!isCurrentSaveContext(submittedMonth, submittedLoadRequestID)) {
         return false;
       }
@@ -595,6 +557,21 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     setSaveError(null);
     setSaveMessage(message);
     setSaveFeedbackScope(scope);
+  }
+
+  function setPersistenceSuccess(
+    result: MonthMutationResult,
+    serverMessage?: string,
+    scope: SaveFeedbackScope = "global",
+  ) {
+    if (result.storage === "local") {
+      setSaveSuccess(controllerMessages.previewSaveNotice, scope);
+      return;
+    }
+
+    if (serverMessage !== undefined) {
+      setSaveSuccess(serverMessage, scope);
+    }
   }
 
   return {
@@ -645,30 +622,4 @@ export function useMonthController(options: UseMonthControllerOptions = {}) {
     deactivateGoalFromMonth,
     cancelEditingGoal,
   };
-}
-
-function buildMonthViewForMode(month: string, isPreviewMode: boolean) {
-  return isPreviewMode ? buildEmptyMonthView(month) : buildMockMonthView(month);
-}
-
-function appendPreviewGoalState(
-  view: MonthView,
-  title: string,
-  startDate: string,
-): MonthView {
-  const goal: Goal = {
-    id: nextPreviewGoalID(view.goals),
-    title,
-    startDate,
-    endDate: null,
-  };
-
-  return {
-    ...view,
-    goals: [...view.goals, goal],
-  };
-}
-
-function nextPreviewGoalID(goals: Goal[]) {
-  return goals.reduce((maxID, goal) => Math.max(maxID, goal.id), 0) + 1;
 }
